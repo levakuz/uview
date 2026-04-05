@@ -1,0 +1,11 @@
+/target
+CLAUDE.md
+
+# Python
+.python-version
+*.py
+pyproject.toml
+uv.lock
+
+# MacOS
+.DS_Store
