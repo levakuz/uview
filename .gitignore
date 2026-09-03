@@ -1,11 +1,12 @@
 /target
-CLAUDE.md
 
-# Python
-.python-version
-*.py
-pyproject.toml
-uv.lock
+# The repository root doubles as a Python project used for manual testing.
+# These patterns are anchored to the root on purpose, so that test fixtures
+# under tests/fixtures/ stay committable.
+/.python-version
+/main.py
+/pyproject.toml
+/uv.lock
 
 # MacOS
 .DS_Store

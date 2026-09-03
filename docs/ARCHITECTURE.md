@@ -153,8 +153,9 @@ src/
 ```
 
 **Planned, not yet written.** `controllers/project.rs`, `controllers/python.rs`,
-`ui/pages/home.rs`, `ui/pages/python.rs`. `CLAUDE.md` lists these as if they exist; they
-do not.
+`ui/pages/home.rs`, `ui/pages/python.rs`. An earlier revision of the agent instructions
+listed these as if they existed; they do not. This document is now the single description
+of the module tree, and `AGENTS.md` points here rather than repeating it.
 
 ## 6. UI component taxonomy
 
@@ -165,8 +166,8 @@ Four kinds of UI code, in descending order of generality:
   `Component`, because it is the only one `App` holds.
 - **`components/widgets/`** — a composite that assembles several components into a
   working feature area and holds the state coordinating them (which tab is active, which
-  popup is open). This directory is not mentioned in `CLAUDE.md` but holds the largest
-  component in the project.
+  popup is open). It holds the largest component in the project and was missing from the
+  earlier agent instructions entirely.
 - **`components/features/`** — concrete, domain-aware pieces. They know about
   `PyprojectDependency`, about pinning versions, about package groups.
 - **`components/shared/`** — generic and reusable. `SharedTable<T>` handles rendering,
@@ -277,7 +278,7 @@ Current coverage is one test, for `parse_dep_string`. Issue #25 covers expanding
 
 | # | Item | Tracked |
 |---|---|---|
-| 1 | `CLAUDE.md` lists modules that do not exist and omits `components/widgets/` | #40 |
+| 1 | ~~Agent instructions describe a module tree that does not exist~~ Resolved: `AGENTS.md` points here instead of restating | #40 |
 | 2 | `Component` is implemented by pages only; three components have incompatible signatures | §13.2, during #26 |
 | 3 | Controllers `panic!` instead of returning errors | #1 |
 | 4 | `Action::Error` is printed with `eprintln!` over the live TUI | #2 |
