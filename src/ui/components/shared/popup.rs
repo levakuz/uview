@@ -34,10 +34,10 @@ impl Popup {
         let popup_area = centered_rect(self.size.width, self.size.height, area);
 
         frame.render_widget(Clear, popup_area);
-        return popup_area;
+        popup_area
     }
 
     pub fn handle_event(&mut self, _action: &Action) -> Option<Action> {
-        return None;
+        None
     }
 }

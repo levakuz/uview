@@ -179,26 +179,22 @@ impl DependenciesTablesTabs {
                     if let Some(dep) = self.pyproject_table.selected().cloned() {
                         let name = dep.name.clone();
                         let groups = dep.groups.clone();
-                        let handle = tokio::runtime::Handle::current();
-                        let _ = handle.spawn(async move {
+                        tokio::spawn(async move {
                             if let Err(e) = remove_dep_from_pyproject(&name, groups).await {
                                 let _ = tx.send(Action::Error(e.to_string()));
                             }
                         });
                     }
-                } else {
-                    if let Some(dep) = self.env_table.selected().cloned() {
-                        let name = dep.name.clone();
-                        let handle = tokio::runtime::Handle::current();
-                        let _ = handle.spawn(async move {
-                            // TODO
-                            if let Err(e) =
-                                remove_dep_from_pyproject(&name, vec!["main".to_string()]).await
-                            {
-                                let _ = tx.send(Action::Error(e.to_string()));
-                            }
-                        });
-                    }
+                } else if let Some(dep) = self.env_table.selected().cloned() {
+                    let name = dep.name.clone();
+                    tokio::spawn(async move {
+                        // TODO
+                        if let Err(e) =
+                            remove_dep_from_pyproject(&name, vec!["main".to_string()]).await
+                        {
+                            let _ = tx.send(Action::Error(e.to_string()));
+                        }
+                    });
                 }
                 self.show_package_control_popup = false;
                 return None;

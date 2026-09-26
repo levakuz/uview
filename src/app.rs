@@ -68,9 +68,7 @@ impl App {
             if event::poll(Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        let action = match key.code {
-                            _ => Some(Action::ButtonPressed(key)),
-                        };
+                        let action = Some(Action::ButtonPressed(key));
                         if let Some(action) = action {
                             self.dispatch(action);
                         }

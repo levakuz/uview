@@ -18,3 +18,5 @@ tui-input = "*"
 panic = "deny"
 unwrap_used = "deny"
 expect_used = "deny"
+# UI components are always built through `new()`, never generically via `Default`.
+new_without_default = "allow"

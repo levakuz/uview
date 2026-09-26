@@ -111,6 +111,8 @@ Before a PR is merged:
 
 - Every acceptance criterion in the issue is met, or the PR says which is not and why.
 - `cargo test`, `cargo clippy -- -D warnings` and `cargo fmt --check` all pass.
+  `.claude/hooks/quality-gate.sh` runs exactly these as a Claude Code Stop hook, so an
+  agent cannot finish a turn with Rust changes that fail them.
 - A change that alters the layering, the action flow or the module tree updates
   `docs/ARCHITECTURE.md` in the same PR.
 - A change that moves *away* from the target state in Part II is allowed, but the PR
