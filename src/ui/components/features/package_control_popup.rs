@@ -72,7 +72,7 @@ impl<'a> PackageControlPopup<'a> {
             }
             Action::MoveDown => {
                 if let Some(selected) = self.list_state.selected() {
-                    self.list_state.select(Some(selected + 1));
+                    self.list_state.select(Some((selected + 1).min(3)));
                 }
             }
             Action::SelectItem => match self.list_state.selected() {

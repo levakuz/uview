@@ -38,7 +38,7 @@ impl fmt::Display for UvError {
 impl std::error::Error for UvError {}
 
 /// Runs `uv` with `args` and returns its stdout. Every `uv` call goes through here.
-async fn run_uv(args: &[&str]) -> Result<String, UvError> {
+pub async fn run_uv(args: &[&str]) -> Result<String, UvError> {
     let output = tokio::process::Command::new("uv")
         .args(args)
         .output()
@@ -102,7 +102,8 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
         }
     }
 
-    // [project.optional-dependencies.*] → group = key
+    // [project.optional-dependencies.*] → group = "extra:<key>"
+    // ponytail: the kind is tagged by an `extra:` prefix; a typed group enum if a third kind appears.
     if let Some(opt_deps) = value
         .get("project")
         .and_then(|p| p.get("optional-dependencies"))
@@ -113,7 +114,7 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
                 for dep in arr {
                     if let Some(s) = dep.as_str() {
                         let (name, constraint) = parse_dep_string(s);
-                        add(name, group_name.clone(), constraint);
+                        add(name, format!("extra:{group_name}"), constraint);
                     }
                 }
             }
@@ -124,10 +125,14 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
 }
 
 async fn remove_dep_from_group(name: &str, group: &str) -> Result<(), UvError> {
-    if group == "main" {
-        return Ok(());
-    }
-    run_uv(&["remove", name, "--group", group]).await?;
+    let args = if group == "main" {
+        vec!["remove", name]
+    } else if let Some(extra) = group.strip_prefix("extra:") {
+        vec!["remove", name, "--optional", extra]
+    } else {
+        vec!["remove", name, "--group", group]
+    };
+    run_uv(&args).await?;
     Ok(())
 }
 
@@ -135,48 +140,49 @@ pub async fn remove_dep_from_pyproject(name: &str, groups: Vec<String>) -> Resul
     for group in groups {
         remove_dep_from_group(name, &group).await?;
     }
-    run_uv(&["remove", name]).await?;
     Ok(())
 }
 
-pub async fn sync_env() -> Result<(), UvError> {
-    run_uv(&["sync"]).await?;
-    Ok(())
+/// The installed entry for `name`, or `None` if it is not in the environment.
+pub async fn get_env_package_info(name: &str) -> Result<Option<EnvDependency>, UvError> {
+    let wanted = normalize(name);
+    Ok(load_env_deps()
+        .await?
+        .into_iter()
+        .find(|d| normalize(&d.name) == wanted))
 }
 
-pub async fn get_env_package_info(name: &str) -> Result<EnvDependency, UvError> {
-    let stdout = run_uv(&["pip", "show", name]).await?;
-    let field = |key: &str| {
-        stdout
-            .lines()
-            .find_map(|l| l.strip_prefix(key))
-            .map(str::to_string)
-            .ok_or_else(|| UvError::Parse(format!("no {key:?} line for {name}")))
-    };
-    Ok(EnvDependency {
-        name: field("Name: ")?,
-        version: field("Version: ")?,
-    })
+/// PEP 503 name normalization, so `Flask_SQLAlchemy` matches `flask-sqlalchemy`.
+fn normalize(name: &str) -> String {
+    name.split(['-', '_', '.'])
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase()
 }
 
 pub async fn upgrade_env_dep(name: &str) -> Result<(), UvError> {
-    run_uv(&["lock", "--upgrade-package", name]).await?;
-    sync_env().await
+    // `--inexact`: a plain sync uninstalls everything that is not in the lockfile.
+    run_uv(&["sync", "--inexact", "--upgrade-package", name]).await?;
+    Ok(())
 }
 
-/// Pins a dependency to a version constraint, e.g. "==1.2.3", ">=2.0", "<3.0".
-/// A bare version number (no operator) is treated as an exact pin, and an
+/// The requirement that pins `name` to a version constraint, e.g. "==1.2.3", ">=2.0",
+/// "<3.0". A bare version number (no operator) is treated as an exact pin, and an
 /// empty constraint falls back to the latest resolvable version.
-pub async fn pin_dep_version(name: &str, constraint: &str) -> Result<(), UvError> {
+pub fn pin_requirement(name: &str, constraint: &str) -> String {
     let constraint = constraint.trim();
-    let requirement = if constraint.is_empty() {
+    if constraint.is_empty() {
         name.to_string()
     } else if constraint.starts_with(['=', '>', '<', '!', '~']) {
         format!("{name}{constraint}")
     } else {
         format!("{name}=={constraint}")
-    };
-    run_uv(&["add", requirement.as_str()]).await?;
+    }
+}
+
+pub async fn pin_dep_version(name: &str, constraint: &str) -> Result<(), UvError> {
+    run_uv(&["add", pin_requirement(name, constraint).as_str()]).await?;
     Ok(())
 }
 

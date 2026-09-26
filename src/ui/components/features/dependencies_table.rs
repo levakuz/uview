@@ -26,7 +26,7 @@ fn format_groups(groups: &[String]) -> String {
         };
         if candidate.len() > MAX_LEN {
             return if result.is_empty() {
-                format!("{}...", &g[..g.len().min(MAX_LEN - 3)])
+                format!("{}...", g.chars().take(MAX_LEN - 3).collect::<String>())
             } else {
                 format!("{}, ...", result)
             };

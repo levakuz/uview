@@ -29,24 +29,19 @@ impl<T: TableRow> SharedTable<T> {
         self.items.get(self.state.selected()?)
     }
 
+    /// Replaces the rows, keeping the selected index where it still exists.
     pub fn set_items(&mut self, items: Vec<T>) {
         self.items = items;
-        if !self.items.is_empty() {
-            self.state.select(Some(0));
-        } else {
-            self.state.select(None);
-        }
+        let selected = match self.items.len() {
+            0 => None,
+            len => Some(self.state.selected().unwrap_or(0).min(len - 1)),
+        };
+        self.state.select(selected);
     }
 
     pub fn update_item_where<F: Fn(&T) -> bool>(&mut self, pred: F, item: T) {
         if let Some(i) = self.items.iter().position(|x| pred(x)) {
             self.items[i] = item;
-        }
-    }
-
-    pub fn update_where<F: Fn(&T) -> bool, U: FnOnce(&mut T)>(&mut self, pred: F, update: U) {
-        if let Some(item) = self.items.iter_mut().find(|x| pred(x)) {
-            update(item);
         }
     }
 

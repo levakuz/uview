@@ -1,6 +1,7 @@
 use crate::{
     controllers::dependencies::{
-        get_env_package_info, pin_dep_version, remove_dep_from_pyproject, upgrade_env_dep,
+        get_env_package_info, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
+        upgrade_env_dep,
     },
     events::{Action, EnvDependency, PyprojectDependency},
     ui::components::{
@@ -191,7 +192,9 @@ impl DependenciesTablesTabs {
                         let handle = tokio::runtime::Handle::current();
                         let _ = handle.spawn(async move {
                             // TODO
-                            if let Err(e) = remove_dep_from_pyproject(&name, vec![]).await {
+                            if let Err(e) =
+                                remove_dep_from_pyproject(&name, vec!["main".to_string()]).await
+                            {
                                 let _ = tx.send(Action::Error(e.to_string()));
                             }
                         });
@@ -210,15 +213,12 @@ impl DependenciesTablesTabs {
                 if let Some(name) = name {
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
-                        let result = async {
-                            upgrade_env_dep(&name).await?;
-                            get_env_package_info(&name).await
+                        match upgrade_env_dep(&name).await {
+                            Ok(()) => send_env_refresh(&tx, &name).await,
+                            Err(e) => {
+                                let _ = tx.send(Action::Error(e.to_string()));
+                            }
                         }
-                        .await;
-                        let _ = tx.send(match result {
-                            Ok(env_dep) => Action::UpdatedEnvDep(env_dep),
-                            Err(e) => Action::Error(e.to_string()),
-                        });
                     });
                 }
                 self.show_package_control_popup = false;
@@ -233,21 +233,18 @@ impl DependenciesTablesTabs {
                 };
                 if let Some(name) = name {
                     let constraint = constraint.clone();
-                    self.pyproject_table.update_where(
-                        |d| d.name == name,
-                        |d| d.version_constraint = constraint.clone(),
-                    );
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
-                        let result = async {
-                            pin_dep_version(&name, &constraint).await?;
-                            get_env_package_info(&name).await
+                        if let Err(e) = pin_dep_version(&name, &constraint).await {
+                            let _ = tx.send(Action::Error(e.to_string()));
+                            return;
                         }
-                        .await;
-                        let _ = tx.send(match result {
-                            Ok(env_dep) => Action::UpdatedEnvDep(env_dep),
-                            Err(e) => Action::Error(e.to_string()),
+                        // Reload rather than patch the row, so the table shows what uv wrote.
+                        let _ = tx.send(match load_pyproject_deps().await {
+                            Ok(deps) => Action::LoadedPyprojectDeps(deps),
+                            Err(e) => Action::Error(format!("pyproject.toml: {e}")),
                         });
+                        send_env_refresh(&tx, &name).await;
                     });
                 }
                 self.pin_version_popup.handle_event(&Action::StopEditing);
@@ -278,5 +275,19 @@ impl DependenciesTablesTabs {
             }
         }
         None
+    }
+}
+
+/// Sends the refreshed environment entry for `name`. Silent when the package is not
+/// installed — e.g. an extra that a plain sync leaves out — since the mutation itself succeeded.
+async fn send_env_refresh(tx: &mpsc::UnboundedSender<Action>, name: &str) {
+    match get_env_package_info(name).await {
+        Ok(Some(dep)) => {
+            let _ = tx.send(Action::UpdatedEnvDep(dep));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            let _ = tx.send(Action::Error(e.to_string()));
+        }
     }
 }
