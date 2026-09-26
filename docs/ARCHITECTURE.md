@@ -12,6 +12,10 @@ Read Part I to understand the code you are about to change. Read Part II before 
 *how* to change it: a pull request that moves away from the target state is allowed, but
 it has to say so and say why.
 
+This document says what the architecture is. Why each major choice was made — the
+context, the alternatives and the cost — lives in the decision records in
+[`docs/adr/`](adr/).
+
 If you change the layering, the action flow or the module tree, update this file in the
 same pull request.
 
@@ -413,6 +417,8 @@ Input ─▶ keymap ─▶ Action ─▶ page.update() ─▶ Vec<Command> ─�
 The runtime owns the `UvClient`, the job queue and the cancellation tokens. It is the
 only module that spawns tasks. Everything above it is synchronous and testable.
 
+> Decision record for §13.1–13.3: [ADR-0001](adr/0001-components-return-commands.md).
+
 ### 13.4 `UvClient`: one seam to the outside
 
 ```rust
@@ -445,6 +451,8 @@ Prefer `uv`'s machine-readable output wherever it exists (`--format json`,
 liability against future `uv` releases and should be isolated behind this trait so a
 single module absorbs the breakage.
 
+> Decision record: [ADR-0002](adr/0002-uvclient-is-the-only-seam-to-uv.md).
+
 ### 13.5 Job runner: a queue of one for mutations
 
 Direct consequence of **F3**:
@@ -461,6 +469,8 @@ to put retries if they are ever wanted.
 
 A mutating job completing emits an invalidation event, which is how **F6** is answered:
 views do not each remember to refresh, they react to `Event::ProjectMutated` and reload.
+
+> Decision record: [ADR-0003](adr/0003-serialize-mutating-uv-operations.md).
 
 ### 13.6 Stream output, do not buffer it
 
@@ -519,10 +529,8 @@ business logic. Guard the god-object failure mode with per-domain sub-structs th
 their own behaviour, and by never letting a component reach across domains — a dependency
 widget touches `state.deps`, not `state.python`.
 
-**Why this lands in Sprint 1 rather than Sprint 4.** The benefit — coherence across pages
-— does not materialize until routing exists (#26, Sprint 4). The *cost* of the extraction,
-however, scales with the number of widgets that own data, and that number only grows. Two
-tables and three popups is the cheapest this refactor will ever be.
+> Decision record, including why this lands in Sprint 1 rather than Sprint 4:
+> [ADR-0004](adr/0004-introduce-appstate-ahead-of-need.md).
 
 ### 13.8 Navigation as a stack
 

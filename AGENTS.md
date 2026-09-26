@@ -11,8 +11,9 @@ Claude Code reads this through the `@AGENTS.md` import in `CLAUDE.md`.
 manager, written in Rust (edition 2024) on ratatui. It owns no packaging logic of its
 own — every operation is delegated to the `uv` binary as a subprocess.
 
-Requirements live in the project documentation in Notion. Sprint goals, decisions and
-retrospectives live in the Notion Sprint Tracker. Tasks and their status live in
+Requirements live in the project documentation in Notion. Sprint goals, process
+decisions and retrospectives live in the Notion Sprint Tracker. Architecture decisions
+live in `docs/adr/`. Tasks and their status live in
 [GitHub issues](https://github.com/levakuz/uview/issues).
 
 ## Commands
@@ -43,6 +44,18 @@ The short version:
 - **UI is layered** `pages/` › `components/widgets/` › `components/features/` ›
   `components/shared/`. Parameterised over a trait and portable to another TUI → `shared`.
   Names a domain type or a `uv` concept → `features`.
+
+## Architecture decisions
+
+A decision that is hard to reverse, changes the structure, or will make someone ask
+"why is it like this?" in six months gets an ADR in `docs/adr/`. Most PRs do not need one.
+
+- Copy `docs/adr/template.md` to the next free number: `docs/adr/NNNN-kebab-title.md`.
+- Put it in the same PR as the code that implements it, when there is one. Merged means
+  accepted; the PR is the proposal.
+- Never edit an accepted ADR except its Status line. To reverse a decision, write a new
+  ADR and mark the old one `Superseded by ADR-NNNN`.
+- `ARCHITECTURE.md` describes what the system is; an ADR records why. Link, don't restate.
 
 ## Code conventions
 
