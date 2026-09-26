@@ -2,18 +2,20 @@ use std::time::Duration;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEventKind};
+use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
 use crate::controllers::dependencies;
 use crate::events::Action;
 use crate::ui::Component;
+use crate::ui::components::shared::status_bar::StatusMessage;
 use crate::ui::pages::dependencies::DependenciesPage;
 
 pub struct App {
     page: DependenciesPage,
     should_quit: bool,
-    /// Printed after the terminal is restored; on screen once #2 lands.
-    errors: Vec<String>,
+    /// The latest error or notice; Esc dismisses it.
+    status: Option<StatusMessage>,
     tx: mpsc::UnboundedSender<Action>,
     rx: mpsc::UnboundedReceiver<Action>,
 }
@@ -24,7 +26,7 @@ impl App {
         Self {
             page: DependenciesPage::new(tx.clone()),
             should_quit: false,
-            errors: Vec::new(),
+            status: None,
             tx,
             rx,
         }
@@ -61,7 +63,12 @@ impl App {
 
         loop {
             terminal.draw(|frame| {
-                self.page.render(frame, frame.area());
+                let [main, status] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
+                    .areas(frame.area());
+                self.page.render(frame, main);
+                if let Some(message) = &self.status {
+                    message.render(frame, status);
+                }
             })?;
 
             // Poll crossterm events
@@ -87,17 +94,19 @@ impl App {
         }
 
         ratatui::restore();
-        for msg in &self.errors {
-            eprintln!("Error: {msg}");
-        }
         Ok(())
     }
 
     fn dispatch(&mut self, action: Action) {
         match &action {
             Action::Quit => self.should_quit = true,
-            Action::Error(msg) => self.errors.push(msg.clone()),
+            Action::Error(msg) => self.status = Some(StatusMessage::Error(msg.clone())),
+            Action::Notice(msg) => self.status = Some(StatusMessage::Info(msg.clone())),
             _ => {
+                // Esc arrives as StopEditing: it closes any popup and dismisses the message.
+                if matches!(action, Action::StopEditing) {
+                    self.status = None;
+                }
                 if let Some(next) = self.page.handle_event(&action) {
                     self.dispatch(next);
                 }

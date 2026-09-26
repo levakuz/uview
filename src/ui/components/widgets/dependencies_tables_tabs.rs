@@ -1,7 +1,7 @@
 use crate::{
     controllers::dependencies::{
-        get_env_package_info, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
-        upgrade_env_dep,
+        get_env_package_info, load_pyproject_deps, pin_dep_version, pin_requirement,
+        remove_dep_from_pyproject, upgrade_env_dep,
     },
     events::{Action, EnvDependency, PyprojectDependency},
     ui::components::{
@@ -180,20 +180,21 @@ impl DependenciesTablesTabs {
                         let name = dep.name.clone();
                         let groups = dep.groups.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = remove_dep_from_pyproject(&name, groups).await {
-                                let _ = tx.send(Action::Error(e.to_string()));
-                            }
+                            let _ = tx.send(match remove_dep_from_pyproject(&name, groups).await {
+                                Ok(()) => Action::Notice(format!("Removed {name}")),
+                                Err(e) => Action::Error(e.to_string()),
+                            });
                         });
                     }
                 } else if let Some(dep) = self.env_table.selected().cloned() {
                     let name = dep.name.clone();
                     tokio::spawn(async move {
                         // TODO
-                        if let Err(e) =
-                            remove_dep_from_pyproject(&name, vec!["main".to_string()]).await
-                        {
-                            let _ = tx.send(Action::Error(e.to_string()));
-                        }
+                        let groups = vec!["main".to_string()];
+                        let _ = tx.send(match remove_dep_from_pyproject(&name, groups).await {
+                            Ok(()) => Action::Notice(format!("Removed {name}")),
+                            Err(e) => Action::Error(e.to_string()),
+                        });
                     });
                 }
                 self.show_package_control_popup = false;
@@ -210,7 +211,10 @@ impl DependenciesTablesTabs {
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
                         match upgrade_env_dep(&name).await {
-                            Ok(()) => send_env_refresh(&tx, &name).await,
+                            Ok(()) => {
+                                let _ = tx.send(Action::Notice(format!("Updated {name}")));
+                                send_env_refresh(&tx, &name).await;
+                            }
                             Err(e) => {
                                 let _ = tx.send(Action::Error(e.to_string()));
                             }
@@ -235,6 +239,9 @@ impl DependenciesTablesTabs {
                             let _ = tx.send(Action::Error(e.to_string()));
                             return;
                         }
+                        // Sent first, so an error from the reload below replaces it.
+                        let pinned = pin_requirement(&name, &constraint);
+                        let _ = tx.send(Action::Notice(format!("Pinned {pinned}")));
                         // Reload rather than patch the row, so the table shows what uv wrote.
                         let _ = tx.send(match load_pyproject_deps().await {
                             Ok(deps) => Action::LoadedPyprojectDeps(deps),

@@ -113,7 +113,7 @@ The concrete path for a key press, using "pin a version" as the example:
 
 - **Raw input** — `ButtonPressed(KeyEvent)`
 - **Semantic intent** — `MoveUp`, `SwitchTable`, `OpenPopup`, `RemovePackage`, `PinVersion(String)`
-- **Results from controllers** — `LoadedPyprojectDeps(..)`, `LoadedEnvDeps(..)`, `UpdatedEnvDep(..)`, `Error(String)`
+- **Results from controllers** — `LoadedPyprojectDeps(..)`, `LoadedEnvDeps(..)`, `UpdatedEnvDep(..)`, `Error(String)`, `Notice(String)`
 
 Actions enter the system through two doors, and both converge on `App::dispatch`:
 
@@ -121,8 +121,9 @@ Actions enter the system through two doors, and both converge on `App::dispatch`
 - **Asynchronously**, through an `mpsc::UnboundedSender<Action>` cloned into components
   that need to report results.
 
-`App::dispatch` handles `Quit` and `Error` itself and passes everything else to the
-active page. If `handle_event` returns `Some(next)`, dispatch **calls itself** with that
+`App::dispatch` handles `Quit`, `Error` and `Notice` itself and passes everything else to
+the active page. `Error` and `Notice` set the one-line status message that `App` renders
+below the page; `StopEditing`, which Esc produces, clears it before reaching the page. If `handle_event` returns `Some(next)`, dispatch **calls itself** with that
 action. This is how a component escalates: `PinVersionPopup` returns `Action::PinVersion`
 and the widget above it receives it on the next pass.
 
@@ -149,7 +150,8 @@ src/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>
         │   ├── input.rs    #   UviewInput (wraps tui-input)
-        │   └── popup.rs    #   Popup — centering and Clear only
+        │   ├── popup.rs    #   Popup — centering and Clear only
+        │   └── status_bar.rs # StatusMessage — the error/notice line owned by App
         ├── features/       # concrete, tied to this domain
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── add_packaage_popup.rs      # [sic] misspelled filename
@@ -306,7 +308,7 @@ in both directions. Issue #25 covers expanding it.
 | 1 | ~~Agent instructions describe a module tree that does not exist~~ Resolved: `AGENTS.md` points here instead of restating | #40 |
 | 2 | `Component` is implemented by pages only; three components have incompatible signatures | §13.2, during #26 |
 | 3 | ~~Controllers `panic!` instead of returning errors~~ Resolved: `UvError` + clippy lints | #1 |
-| 4 | `Action::Error` is not shown while the app runs — it is collected and printed after the terminal is restored | #2 |
+| 4 | ~~`Action::Error` is not shown while the app runs~~ Resolved: a status line at the bottom, dismissed with Esc | #2 |
 | 5 | A widget owns controller orchestration and the channel sender — allowlisted in `tests/architecture.rs` | #42 |
 | 6 | Unconditional redraw; input processed one frame behind the draw | #32 |
 | 7 | Spawned task handles are dropped, so failures vanish | #6 |
