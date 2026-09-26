@@ -22,6 +22,7 @@ pub enum Action {
     StopEditing,
     ButtonPressed(KeyEvent),
     Error(String),
+    Notice(String),
 }
 
 #[derive(Clone, Debug)]
