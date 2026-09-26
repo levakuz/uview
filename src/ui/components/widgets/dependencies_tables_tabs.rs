@@ -1,7 +1,7 @@
 use crate::{
     controllers::dependencies::{
-        get_env_package_info, load_pyproject_deps, pin_dep_version, pin_requirement,
-        remove_dep_from_pyproject, upgrade_env_dep,
+        get_env_package_info, load_env_deps, load_pyproject_deps, pin_dep_version,
+        remove_dep_from_pyproject, uninstall_from_env, upgrade_env_dep,
     },
     events::{Action, EnvDependency, PyprojectDependency},
     ui::components::{
@@ -99,6 +99,13 @@ impl DependenciesTablesTabs {
         }
     }
 
+    fn selected_name(&self) -> Option<String> {
+        match self.active_table {
+            ActiveTable::Pyproject => self.pyproject_table.selected().map(|d| d.name.clone()),
+            ActiveTable::Environment => self.env_table.selected().map(|d| d.name.clone()),
+        }
+    }
+
     fn switch_table(&mut self) {
         self.active_table = match self.active_table {
             ActiveTable::Pyproject => ActiveTable::Environment,
@@ -147,7 +154,10 @@ impl DependenciesTablesTabs {
                 }
             }
             Action::SwitchTable => {
-                self.switch_table();
+                // The control popup acts on the row it was opened for.
+                if !self.show_package_control_popup {
+                    self.switch_table();
+                }
             }
             Action::LoadedPyprojectDeps(deps) => {
                 self.pyproject_table.set_items(deps.clone());
@@ -171,43 +181,48 @@ impl DependenciesTablesTabs {
                 if self.show_add_package_popup {
                     return self.package_add_popup.handle_event(action);
                 }
+                // A fresh popup, so it never opens with Remove still selected.
+                self.package_control_popup = PackageControlPopup::new();
                 self.show_package_control_popup = true;
             }
             Action::RemovePackage => {
                 let tx = self.tx.clone();
                 if self.active_table == ActiveTable::Pyproject {
-                    if let Some(dep) = self.pyproject_table.selected().cloned() {
-                        let name = dep.name.clone();
-                        let groups = dep.groups.clone();
+                    if let Some(PyprojectDependency { name, groups, .. }) =
+                        self.pyproject_table.selected().cloned()
+                    {
                         tokio::spawn(async move {
                             let _ = tx.send(match remove_dep_from_pyproject(&name, groups).await {
-                                Ok(()) => Action::Notice(format!("Removed {name}")),
+                                Ok(()) => {
+                                    Action::Notice(format!("Removed {name} from pyproject.toml"))
+                                }
                                 Err(e) => Action::Error(e.to_string()),
                             });
+                            // Also after a failure: `uv remove` may already have edited
+                            // pyproject.toml, and a stale row would replay that membership.
+                            reload_tables(&tx).await;
                         });
                     }
                 } else if let Some(dep) = self.env_table.selected().cloned() {
-                    let name = dep.name.clone();
+                    // Environment only: pyproject.toml is left alone. Confirmation and its
+                    // warnings come with #12.
+                    let name = dep.name;
                     tokio::spawn(async move {
-                        // TODO
-                        let groups = vec!["main".to_string()];
-                        let _ = tx.send(match remove_dep_from_pyproject(&name, groups).await {
-                            Ok(()) => Action::Notice(format!("Removed {name}")),
+                        let _ = tx.send(match uninstall_from_env(&name).await {
+                            Ok(()) => {
+                                Action::Notice(format!("Uninstalled {name} from the environment"))
+                            }
                             Err(e) => Action::Error(e.to_string()),
                         });
+                        // Drop the row, so it cannot be "uninstalled" again as a no-op.
+                        reload_tables(&tx).await;
                     });
                 }
                 self.show_package_control_popup = false;
                 return None;
             }
             Action::UpgradeEnvDep => {
-                let name = match self.active_table {
-                    ActiveTable::Pyproject => {
-                        self.pyproject_table.selected().map(|d| d.name.clone())
-                    }
-                    ActiveTable::Environment => self.env_table.selected().map(|d| d.name.clone()),
-                };
-                if let Some(name) = name {
+                if let Some(name) = self.selected_name() {
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
                         match upgrade_env_dep(&name).await {
@@ -225,29 +240,18 @@ impl DependenciesTablesTabs {
                 return None;
             }
             Action::PinVersion(constraint) => {
-                let name = match self.active_table {
-                    ActiveTable::Pyproject => {
-                        self.pyproject_table.selected().map(|d| d.name.clone())
-                    }
-                    ActiveTable::Environment => self.env_table.selected().map(|d| d.name.clone()),
-                };
-                if let Some(name) = name {
+                if let Some(name) = self.selected_name() {
                     let constraint = constraint.clone();
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = pin_dep_version(&name, &constraint).await {
-                            let _ = tx.send(Action::Error(e.to_string()));
-                            return;
-                        }
                         // Sent first, so an error from the reload below replaces it.
-                        let pinned = pin_requirement(&name, &constraint);
-                        let _ = tx.send(Action::Notice(format!("Pinned {pinned}")));
-                        // Reload rather than patch the row, so the table shows what uv wrote.
-                        let _ = tx.send(match load_pyproject_deps().await {
-                            Ok(deps) => Action::LoadedPyprojectDeps(deps),
-                            Err(e) => Action::Error(format!("pyproject.toml: {e}")),
+                        let _ = tx.send(match pin_dep_version(&name, &constraint).await {
+                            Ok(pinned) => Action::Notice(format!("Pinned {pinned}")),
+                            Err(e) => Action::Error(e.to_string()),
                         });
-                        send_env_refresh(&tx, &name).await;
+                        // Reload rather than patch rows, so the tables show what uv wrote,
+                        // including after a failure part-way through the memberships.
+                        reload_tables(&tx).await;
                     });
                 }
                 self.pin_version_popup.handle_event(&Action::StopEditing);
@@ -259,7 +263,7 @@ impl DependenciesTablesTabs {
                 self.env_table
                     .update_item_where(|d| d.name == name, dep.clone());
             }
-            Action::ClosePopup => {
+            Action::ClosePopup | Action::StopEditing => {
                 self.show_package_control_popup = false;
                 self.show_add_package_popup = false;
                 self.show_pin_version_popup = false;
@@ -293,4 +297,16 @@ async fn send_env_refresh(tx: &mpsc::UnboundedSender<Action>, name: &str) {
             let _ = tx.send(Action::Error(e.to_string()));
         }
     }
+}
+
+/// Re-reads both tables from disk after a mutation. Uses the same loaders as startup.
+async fn reload_tables(tx: &mpsc::UnboundedSender<Action>) {
+    let _ = tx.send(match load_pyproject_deps().await {
+        Ok(deps) => Action::LoadedPyprojectDeps(deps),
+        Err(e) => Action::Error(format!("pyproject.toml: {e}")),
+    });
+    let _ = tx.send(match load_env_deps().await {
+        Ok(deps) => Action::LoadedEnvDeps(deps),
+        Err(e) => Action::Error(e.to_string()),
+    });
 }
