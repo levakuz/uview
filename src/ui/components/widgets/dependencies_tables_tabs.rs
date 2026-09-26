@@ -1,7 +1,7 @@
 use crate::{
     controllers::dependencies::{
         get_env_package_info, load_pyproject_deps, pin_dep_version, pin_requirement,
-        remove_dep_from_pyproject, same_package, upgrade_env_dep,
+        remove_dep_from_pyproject, uninstall_from_env, upgrade_env_dep,
     },
     events::{Action, EnvDependency, PyprojectDependency},
     ui::components::{
@@ -187,33 +187,17 @@ impl DependenciesTablesTabs {
                         });
                     }
                 } else if let Some(dep) = self.env_table.selected().cloned() {
-                    // Only a direct dependency can be removed: anything else is not in
-                    // pyproject.toml, and the next sync would install it again.
-                    let direct = self
-                        .pyproject_table
-                        .items()
-                        .iter()
-                        .find(|d| same_package(&d.name, &dep.name))
-                        .cloned();
-                    match direct {
-                        Some(direct) => {
-                            tokio::spawn(async move {
-                                let name = direct.name;
-                                let result = remove_dep_from_pyproject(&name, direct.groups).await;
-                                let _ = tx.send(match result {
-                                    Ok(()) => Action::Notice(format!("Removed {name}")),
-                                    Err(e) => Action::Error(e.to_string()),
-                                });
-                            });
-                        }
-                        None => {
-                            let _ = tx.send(Action::Error(format!(
-                                "{} is not in pyproject.toml, so there is nothing to remove. \
-                                 If another package requires it, remove that one instead.",
-                                dep.name
-                            )));
-                        }
-                    }
+                    // Environment only: pyproject.toml is left alone. Confirmation, and the
+                    // warning that the two now disagree, comes with #12.
+                    let name = dep.name;
+                    tokio::spawn(async move {
+                        let _ = tx.send(match uninstall_from_env(&name).await {
+                            Ok(()) => {
+                                Action::Notice(format!("Uninstalled {name} from the environment"))
+                            }
+                            Err(e) => Action::Error(e.to_string()),
+                        });
+                    });
                 }
                 self.show_package_control_popup = false;
                 return None;

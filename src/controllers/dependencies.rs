@@ -143,6 +143,14 @@ pub async fn remove_dep_from_pyproject(name: &str, groups: Vec<String>) -> Resul
     Ok(())
 }
 
+/// Uninstalls `name` from the environment only; pyproject.toml and uv.lock are untouched.
+/// `uv pip` rather than `uv run pip`: uv creates environments without pip, and `uv run`
+/// would sync the environment first.
+pub async fn uninstall_from_env(name: &str) -> Result<(), UvError> {
+    run_uv(&["pip", "uninstall", name]).await?;
+    Ok(())
+}
+
 /// The installed entry for `name`, or `None` if it is not in the environment.
 pub async fn get_env_package_info(name: &str) -> Result<Option<EnvDependency>, UvError> {
     Ok(load_env_deps()
