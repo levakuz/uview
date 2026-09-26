@@ -1,7 +1,58 @@
-use std::{fmt, panic};
+use std::fmt;
 
 use crate::events::{EnvDependency, PyprojectDependency};
 use color_eyre::Result;
+
+/// Why a `uv` invocation failed.
+#[derive(Debug)]
+pub enum UvError {
+    /// `uv` could not be started at all.
+    Spawn(std::io::Error),
+    /// `uv` ran and exited unsuccessfully.
+    Failed {
+        command: String,
+        status: std::process::ExitStatus,
+        stderr: String,
+    },
+    /// `uv` succeeded but its output could not be read.
+    Parse(String),
+}
+
+impl fmt::Display for UvError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UvError::Spawn(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                write!(f, "`uv` was not found — is it installed and on PATH?")
+            }
+            UvError::Spawn(e) => write!(f, "could not run `uv`: {e}"),
+            UvError::Failed {
+                command,
+                status,
+                stderr,
+            } => write!(f, "`uv {command}` failed ({status}): {stderr}"),
+            UvError::Parse(msg) => write!(f, "could not read `uv` output: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for UvError {}
+
+/// Runs `uv` with `args` and returns its stdout. Every `uv` call goes through here.
+async fn run_uv(args: &[&str]) -> Result<String, UvError> {
+    let output = tokio::process::Command::new("uv")
+        .args(args)
+        .output()
+        .await
+        .map_err(UvError::Spawn)?;
+    if !output.status.success() {
+        return Err(UvError::Failed {
+            command: args.join(" "),
+            status: output.status,
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
 
 pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     let content = tokio::fs::read_to_string("./pyproject.toml").await?;
@@ -72,146 +123,51 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     Ok(deps)
 }
 
-async fn remove_dep_from_group(name: &str, group: &str) -> Result<(), String> {
+async fn remove_dep_from_group(name: &str, group: &str) -> Result<(), UvError> {
     if group == "main" {
         return Ok(());
     }
-    let output = tokio::process::Command::new("uv")
-        .args(["remove", name, "--group", group])
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!("uv remove failed: {}", stderr);
-            }
-            Ok(())
-        }
-        Err(e) => panic!("uv remove failed: {}", e),
-    }
+    run_uv(&["remove", name, "--group", group]).await?;
+    Ok(())
 }
 
-pub async fn remove_dep_from_pyproject(name: &str, groups: Vec<String>) -> Result<(), String> {
+pub async fn remove_dep_from_pyproject(name: &str, groups: Vec<String>) -> Result<(), UvError> {
     for group in groups {
         remove_dep_from_group(name, &group).await?;
     }
-    let output = tokio::process::Command::new("uv")
-        .args(["remove", name])
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!("uv remove failed: {}", stderr);
-            }
-            Ok(())
-        }
-        Err(e) => panic!("uv remove failed: {}", e),
-    }
+    run_uv(&["remove", name]).await?;
+    Ok(())
 }
 
-pub async fn sync_env() -> Result<(), String> {
-    let output = tokio::process::Command::new("uv")
-        .args(["sync"])
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!("uv sync failed: {}", stderr);
-            }
-            Ok(())
-        }
-        Err(e) => panic!("uv sync failed: {}", e),
-    }
+pub async fn sync_env() -> Result<(), UvError> {
+    run_uv(&["sync"]).await?;
+    Ok(())
 }
 
-#[derive(Debug)]
-pub enum DependencyError {
-    NotFound(String),
+pub async fn get_env_package_info(name: &str) -> Result<EnvDependency, UvError> {
+    let stdout = run_uv(&["pip", "show", name]).await?;
+    let field = |key: &str| {
+        stdout
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .map(str::to_string)
+            .ok_or_else(|| UvError::Parse(format!("no {key:?} line for {name}")))
+    };
+    Ok(EnvDependency {
+        name: field("Name: ")?,
+        version: field("Version: ")?,
+    })
 }
 
-impl fmt::Display for DependencyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DependencyError::NotFound(msg) => write!(f, "Not found: {}", msg),
-        }
-    }
-}
-impl std::error::Error for DependencyError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            _ => None,
-        }
-    }
-}
-
-pub async fn get_env_package_info(name: &str) -> Result<EnvDependency, DependencyError> {
-    let output = tokio::process::Command::new("uv")
-        .args(["pip", "show", name])
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!("uv pip show failed: {}", stderr);
-            }
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let lines: Vec<&str> = stdout.lines().collect();
-            let ok = lines
-                .iter()
-                .find(|l| l.starts_with("Name: "))
-                .and_then(|l| l.strip_prefix("Name: "));
-            let name = match ok {
-                Some(name) => name.to_string(),
-                None => return Err(DependencyError::NotFound("Name not found".to_string())),
-            };
-            let ok = lines
-                .iter()
-                .find(|l| l.starts_with("Version: "))
-                .and_then(|l| l.strip_prefix("Version: "));
-
-            let version = match ok {
-                Some(version) => version.to_string(),
-                None => return Err(DependencyError::NotFound("Version not found".to_string())),
-            };
-
-            Ok(EnvDependency { name, version })
-        }
-        Err(e) => panic!("uv pip show failed: {}", e),
-    }
-}
-
-pub async fn upgrade_env_dep(name: &str) -> Result<(), String> {
-    let output = tokio::process::Command::new("uv")
-        .args(["lock", "--upgrade-package", name])
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!("uv upgrade failed: {}", stderr);
-            }
-        }
-        Err(e) => panic!("uv upgrade failed: {}", e),
-    }
+pub async fn upgrade_env_dep(name: &str) -> Result<(), UvError> {
+    run_uv(&["lock", "--upgrade-package", name]).await?;
     sync_env().await
 }
 
 /// Pins a dependency to a version constraint, e.g. "==1.2.3", ">=2.0", "<3.0".
 /// A bare version number (no operator) is treated as an exact pin, and an
 /// empty constraint falls back to the latest resolvable version.
-pub async fn pin_dep_version(name: &str, constraint: &str) -> Result<(), String> {
+pub async fn pin_dep_version(name: &str, constraint: &str) -> Result<(), UvError> {
     let constraint = constraint.trim();
     let requirement = if constraint.is_empty() {
         name.to_string()
@@ -220,37 +176,13 @@ pub async fn pin_dep_version(name: &str, constraint: &str) -> Result<(), String>
     } else {
         format!("{name}=={constraint}")
     };
-
-    let output = tokio::process::Command::new("uv")
-        .args(["add", &requirement])
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!("uv add failed: {}", stderr);
-            }
-            Ok(())
-        }
-        Err(e) => panic!("uv add failed: {}", e),
-    }
+    run_uv(&["add", requirement.as_str()]).await?;
+    Ok(())
 }
 
-pub async fn load_env_deps() -> Result<Vec<EnvDependency>> {
-    let output = tokio::process::Command::new("uv")
-        .args(["pip", "list", "--format", "json"])
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(color_eyre::eyre::eyre!("uv pip list failed: {}", stderr));
-    }
-
-    let deps: Vec<EnvDependency> = serde_json::from_slice(&output.stdout)?;
-    Ok(deps)
+pub async fn load_env_deps() -> Result<Vec<EnvDependency>, UvError> {
+    let stdout = run_uv(&["pip", "list", "--format", "json"]).await?;
+    serde_json::from_str(&stdout).map_err(|e| UvError::Parse(e.to_string()))
 }
 
 /// Splits a PEP 508 dependency string into (name, version_constraint).
