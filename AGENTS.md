@@ -46,9 +46,11 @@ The short version:
 
 ## Code conventions
 
-- **No `panic!`, `unwrap` or `expect` on any path reachable from a user action.** The app
-  owns a raw-mode terminal; a panic kills the process and leaves the user's shell broken.
-  Return a typed error and report it through the action channel.
+- **No `panic!`, `unwrap` or `expect` anywhere in the crate** — enforced by
+  `[lints.clippy]` in `Cargo.toml`. The app owns a raw-mode terminal: a panic inside a
+  spawned task fires ratatui's panic hook, which tears the terminal down while the app
+  keeps drawing on top of it. Return a typed error and report it through the action
+  channel.
 - Prefer `uv`'s machine-readable output (`--format json`, `--output-format json`) over
   parsing human-readable lines. Where line parsing is unavoidable, isolate it so one
   module absorbs the breakage when `uv` changes.
@@ -89,8 +91,9 @@ fix: return typed errors from uv controllers
 
 Closes #1.
 
-Every uv invocation panicked on failure, killing the process while the
-terminal was in raw mode and leaving the user's shell unusable.
+Every uv invocation panicked on failure. Inside a spawned task that fired
+ratatui's panic hook, which tore the terminal down while the app kept
+drawing on top of it.
 ```
 
 **Update a branch by rebasing**, not by merging `main` into it:

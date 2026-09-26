@@ -219,13 +219,10 @@ A controller function:
 - parses output into the types in `events.rs`;
 - **never** renders, holds UI state, or imports ratatui.
 
-Two ways of talking to `uv` are in use, and the distinction is deliberate:
-
-- **Structured output where `uv` offers it** — `uv pip list --format json` is
-  deserialized with serde into `Vec<EnvDependency>`. Prefer this.
-- **Line parsing where it does not** — `uv pip show` output is scanned for `Name: ` and
-  `Version: ` prefixes. This is brittle against `uv` releases and should be replaced
-  whenever a JSON form becomes available.
+Output is read in machine-readable form: `uv pip list --format json` is deserialized
+with serde into `Vec<EnvDependency>`, and a single package's installed version is found
+by filtering that list with PEP 503 name normalization rather than by scraping
+`uv pip show`.
 
 `pyproject.toml` is read and parsed directly with the `toml` crate rather than through
 `uv`, because the three dependency locations — `[project.dependencies]`,
@@ -233,9 +230,10 @@ Two ways of talking to `uv` are in use, and the distinction is deliberate:
 distinguished, and a single package may appear in several of them. `load_pyproject_deps`
 therefore deduplicates by name and accumulates the groups.
 
-> **Current deviation.** Controllers signal failure with `panic!`, which kills the
-> process while the terminal is in raw mode and leaves the user's shell broken. The
-> contract above is what controllers *should* do; see issue #1.
+Every `uv` invocation goes through a single `run_uv`, which returns stdout or a
+`UvError` — `Spawn` (could not start `uv`), `Failed` (non-zero exit, with the command and
+stderr) or `Parse` (output unreadable). Callers format the error into `Action::Error`.
+`panic!`, `unwrap` and `expect` are denied crate-wide by `[lints.clippy]` in `Cargo.toml`.
 
 ## 9. Concurrency
 
@@ -280,12 +278,12 @@ Current coverage is one test, for `parse_dep_string`. Issue #25 covers expanding
 |---|---|---|
 | 1 | ~~Agent instructions describe a module tree that does not exist~~ Resolved: `AGENTS.md` points here instead of restating | #40 |
 | 2 | `Component` is implemented by pages only; three components have incompatible signatures | §13.2, during #26 |
-| 3 | Controllers `panic!` instead of returning errors | #1 |
-| 4 | `Action::Error` is printed with `eprintln!` over the live TUI | #2 |
+| 3 | ~~Controllers `panic!` instead of returning errors~~ Resolved: `UvError` + clippy lints | #1 |
+| 4 | `Action::Error` is not shown while the app runs — it is collected and printed after the terminal is restored | #2 |
 | 5 | A widget owns controller orchestration and the channel sender | §13.3, during #8 / #26 |
 | 6 | Unconditional redraw; input processed one frame behind the draw | #32 |
 | 7 | Spawned task handles are dropped, so failures vanish | #6 |
-| 8 | `uv pip show` output is parsed by line prefix | §8 |
+| 8 | ~~`uv pip show` output is parsed by line prefix~~ Resolved: filtered from `uv pip list --format json` | #1 |
 | 9 | `App` holds a concrete page type, so routing is impossible without a refactor | #26 |
 | 10 | Filename `add_packaage_popup.rs` is misspelled | #8 |
 
@@ -345,8 +343,10 @@ pyproject view and the environment view are stale, and a dependency tree on anot
 is stale too.
 
 **F7 — The terminal is a shared and hostile resource.** Raw mode and the alternate screen
-are global process state. A panic, or a child process that writes to the inherited
-stdout, corrupts the user's shell after `uview` exits.
+are global process state. A panic inside a spawned task fires ratatui's panic hook,
+which restores the terminal — and then the app keeps running and drawing into a terminal
+that is no longer in raw mode. A child process that writes to the inherited stdout
+corrupts the frame the same way.
 
 **What the forces imply.** F1 and F4 mean side effects cannot be executed where they are
 decided. F3 means there must be a component that owns scheduling. F2 means there should
@@ -441,7 +441,7 @@ what the repository's testing convention (integration tests in `tests/`, public 
 `src/lib.rs`) requires.
 
 Prefer `uv`'s machine-readable output wherever it exists (`--format json`,
-`--output-format json`). Line-prefix scraping, as `uv pip show` needs today, is a
+`--output-format json`). Where line-prefix scraping is ever unavoidable, it is a
 liability against future `uv` releases and should be isolated behind this trait so a
 single module absorbs the breakage.
 
@@ -538,18 +538,18 @@ so every page inherits them without repeating the match.
 
 ```rust
 pub enum UvError {
-    Spawn(std::io::Error),                       // uv not installed, not executable
-    Failed { code: Option<i32>, stderr: String },// uv ran and refused
-    Parse(String),                               // output we could not read
-    Cancelled,                                   // the user abandoned it
-    NotFound(String),
+    Spawn(std::io::Error),                                   // uv not installed, not executable
+    Failed { command: String, status: ExitStatus, stderr: String }, // uv ran and refused
+    Parse(String),                                           // output we could not read
+    Cancelled,                                               // the user abandoned it — arrives with #13
 }
 ```
 
 Rules, in force everywhere: **no `panic!`, `unwrap` or `expect` on any path reachable
 from a user action.** Failures become `Event::JobFailed` and are shown in the message
 area. As defence in depth against **F7**, a panic hook restores the terminal before
-unwinding, so even a genuine bug leaves a usable shell.
+unwinding. `ratatui::init()` installs it, so it must be called after
+`color_eyre::install()` or the eyre hook replaces it.
 
 ### 13.10 Render only when something changed
 

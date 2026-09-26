@@ -12,6 +12,8 @@ use crate::ui::pages::dependencies::DependenciesPage;
 pub struct App {
     page: DependenciesPage,
     should_quit: bool,
+    /// Printed after the terminal is restored; on screen once #2 lands.
+    errors: Vec<String>,
     tx: mpsc::UnboundedSender<Action>,
     rx: mpsc::UnboundedReceiver<Action>,
 }
@@ -22,12 +24,14 @@ impl App {
         Self {
             page: DependenciesPage::new(tx.clone()),
             should_quit: false,
+            errors: Vec::new(),
             tx,
             rx,
         }
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        // Also installs a panic hook that restores the terminal; must stay after color_eyre::install.
         let mut terminal = ratatui::init();
 
         // Spawn controller tasks
@@ -50,7 +54,7 @@ impl App {
                     let _ = tx_env.send(Action::LoadedEnvDeps(deps));
                 }
                 Err(e) => {
-                    let _ = tx_env.send(Action::Error(format!("uv pip list: {e}")));
+                    let _ = tx_env.send(Action::Error(e.to_string()));
                 }
             }
         });
@@ -85,15 +89,16 @@ impl App {
         }
 
         ratatui::restore();
+        for msg in &self.errors {
+            eprintln!("Error: {msg}");
+        }
         Ok(())
     }
 
     fn dispatch(&mut self, action: Action) {
         match &action {
             Action::Quit => self.should_quit = true,
-            Action::Error(msg) => {
-                eprintln!("Error: {msg}");
-            }
+            Action::Error(msg) => self.errors.push(msg.clone()),
             _ => {
                 if let Some(next) = self.page.handle_event(&action) {
                     self.dispatch(next);

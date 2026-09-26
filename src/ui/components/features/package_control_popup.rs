@@ -72,28 +72,16 @@ impl<'a> PackageControlPopup<'a> {
             }
             Action::MoveDown => {
                 if let Some(selected) = self.list_state.selected() {
-                    self.list_state.select(Some(selected + 1));
+                    self.list_state.select(Some((selected + 1).min(3)));
                 }
             }
-            Action::SelectItem => {
-                if self.list_state.selected().is_some() {
-                    match self.list_state.selected().unwrap() {
-                        0 => {
-                            return Some(Action::OpenPinPopup);
-                        }
-                        1 => {
-                            return Some(Action::UpgradeEnvDep);
-                        }
-                        2 => {
-                            return Some(Action::RemovePackage);
-                        }
-                        3 => {
-                            return Some(Action::ClosePopup);
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            Action::SelectItem => match self.list_state.selected() {
+                Some(0) => return Some(Action::OpenPinPopup),
+                Some(1) => return Some(Action::UpgradeEnvDep),
+                Some(2) => return Some(Action::RemovePackage),
+                Some(3) => return Some(Action::ClosePopup),
+                _ => {}
+            },
             _ => {
                 return self.popup.handle_event(action);
             }
