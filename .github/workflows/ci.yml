@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain comes from rust-toolchain.toml via the runner's preinstalled rustup.
+      - uses: Swatinem/rust-cache@v2
+      # The tests call `uv`; without it the success-path test passes vacuously.
+      - uses: astral-sh/setup-uv@v6
+      - name: cargo fmt --check
+        if: runner.os == 'Linux' # formatting is platform-independent
+        run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      # `cargo test` builds every target, so it is also the build check.
+      - run: cargo test
