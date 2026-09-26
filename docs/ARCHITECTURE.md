@@ -136,12 +136,13 @@ and the widget above it receives it on the next pass.
 
 ```
 src/
-├── main.rs                 # tokio entry point, color_eyre install
+├── main.rs                 # tokio entry point; finds the project root and makes it the cwd
 ├── lib.rs                  # public surface, so tests/ can reach controllers and ui
 ├── app.rs                  # App: event loop, channel, dispatch, active page
 ├── events.rs               # Action enum + PyprojectDependency / EnvDependency
 ├── controllers/
-│   └── dependencies.rs     # uv add/remove/lock/sync/pip, pyproject.toml parsing
+│   ├── dependencies.rs     # uv add/remove/lock/sync/pip, pyproject.toml parsing
+│   └── project.rs          # find_project_root: nearest pyproject.toml upwards
 └── ui/
     ├── mod.rs              # Component trait
     ├── pages/
@@ -161,7 +162,7 @@ src/
             └── dependencies_tables_tabs.rs # composes tables + popups, owns the tx
 ```
 
-**Planned, not yet written.** `controllers/project.rs`, `controllers/python.rs`,
+**Planned, not yet written.** `controllers/python.rs`,
 `ui/pages/home.rs`, `ui/pages/python.rs`. An earlier revision of the agent instructions
 listed these as if they existed; they do not. This document is now the single description
 of the module tree, and `AGENTS.md` points here rather than repeating it.

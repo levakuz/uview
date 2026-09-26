@@ -3,6 +3,8 @@ use std::time::Duration;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::style::Style;
+use ratatui::widgets::Paragraph;
 use tokio::sync::mpsc;
 
 use crate::controllers::dependencies;
@@ -16,17 +18,20 @@ pub struct App {
     should_quit: bool,
     /// The latest error or notice; Esc dismisses it.
     status: Option<StatusMessage>,
+    /// Shown in the status line whenever no message is.
+    project: String,
     tx: mpsc::UnboundedSender<Action>,
     rx: mpsc::UnboundedReceiver<Action>,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(project: String) -> Self {
         let (tx, rx) = mpsc::unbounded_channel::<Action>();
         Self {
             page: DependenciesPage::new(tx.clone()),
             should_quit: false,
             status: None,
+            project,
             tx,
             rx,
         }
@@ -66,8 +71,12 @@ impl App {
                 let [main, status] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
                     .areas(frame.area());
                 self.page.render(frame, main);
-                if let Some(message) = &self.status {
-                    message.render(frame, status);
+                match &self.status {
+                    Some(message) => message.render(frame, status),
+                    None => frame.render_widget(
+                        Paragraph::new(self.project.as_str()).style(Style::new().dark_gray()),
+                        status,
+                    ),
                 }
             })?;
 
