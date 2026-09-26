@@ -124,32 +124,38 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     Ok(deps)
 }
 
-async fn remove_dep_from_group(name: &str, group: &str) -> Result<(), UvError> {
-    let args = if group == "main" {
+/// The `uv remove` arguments that take `name` out of one membership: `main` is
+/// `[project.dependencies]`, `extra:<name>` an optional extra, anything else a group.
+pub fn remove_args<'a>(name: &'a str, group: &'a str) -> Vec<&'a str> {
+    if group == "main" {
         vec!["remove", name]
     } else if let Some(extra) = group.strip_prefix("extra:") {
         vec!["remove", name, "--optional", extra]
     } else {
         vec!["remove", name, "--group", group]
-    };
-    run_uv(&args).await?;
-    Ok(())
+    }
 }
 
 pub async fn remove_dep_from_pyproject(name: &str, groups: Vec<String>) -> Result<(), UvError> {
     for group in groups {
-        remove_dep_from_group(name, &group).await?;
+        run_uv(&remove_args(name, &group)).await?;
     }
     Ok(())
 }
 
 /// The installed entry for `name`, or `None` if it is not in the environment.
 pub async fn get_env_package_info(name: &str) -> Result<Option<EnvDependency>, UvError> {
-    let wanted = normalize(name);
     Ok(load_env_deps()
         .await?
         .into_iter()
-        .find(|d| normalize(&d.name) == wanted))
+        .find(|d| same_package(name, &d.name)))
+}
+
+/// Whether a requirement name from pyproject.toml, which may carry extras such as
+/// `flask[dotenv]`, names the same package as an installed one.
+pub fn same_package(requirement: &str, installed: &str) -> bool {
+    let name = requirement.split('[').next().unwrap_or(requirement).trim();
+    normalize(name) == normalize(installed)
 }
 
 /// PEP 503 name normalization, so `Flask_SQLAlchemy` matches `flask-sqlalchemy`.

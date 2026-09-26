@@ -30,6 +30,10 @@ impl<T: TableRow> SharedTable<T> {
     }
 
     /// Replaces the rows, keeping the selected index where it still exists.
+    pub fn items(&self) -> &[T] {
+        &self.items
+    }
+
     pub fn set_items(&mut self, items: Vec<T>) {
         self.items = items;
         let selected = match self.items.len() {

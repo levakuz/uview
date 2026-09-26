@@ -1,4 +1,6 @@
-use uview::controllers::dependencies::{UvError, parse_dep_string, pin_requirement, run_uv};
+use uview::controllers::dependencies::{
+    UvError, parse_dep_string, pin_requirement, remove_args, run_uv, same_package,
+};
 
 #[test]
 fn test_parse_dep_string() {
@@ -41,4 +43,25 @@ async fn successful_uv_call_returns_stdout() {
         Err(UvError::Spawn(_)) => {} // `uv` is not installed here; nothing to check.
         other => assert!(other.is_ok_and(|out| out.starts_with("uv "))),
     }
+}
+
+#[test]
+fn remove_args_pick_the_flag_for_each_membership() {
+    assert_eq!(remove_args("httpx", "main"), ["remove", "httpx"]);
+    assert_eq!(
+        remove_args("pytest", "dev"),
+        ["remove", "pytest", "--group", "dev"]
+    );
+    assert_eq!(
+        remove_args("flask", "extra:web"),
+        ["remove", "flask", "--optional", "web"]
+    );
+}
+
+#[test]
+fn same_package_ignores_case_separators_and_extras() {
+    assert!(same_package("Flask_SQLAlchemy", "flask-sqlalchemy"));
+    assert!(same_package("zope.interface", "zope-interface"));
+    assert!(same_package("flask[dotenv]", "Flask"));
+    assert!(!same_package("flask", "flask-cors"));
 }
