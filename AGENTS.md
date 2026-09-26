@@ -66,8 +66,7 @@ The short version:
 
 ## Git workflow
 
-Trunk-based. `main` is the only long-lived branch. No `develop`, no release branches — a
-two-person pre-1.0 project does not need them, and they cost more than they return.
+Trunk-based. `main` is the only long-lived branch. No `develop`, no release branches — pre-1.0 project does not need them, and they cost more than they return.
 
 **Never commit to `main` directly.**
 
