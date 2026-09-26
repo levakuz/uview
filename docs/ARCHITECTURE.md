@@ -55,6 +55,9 @@ tokio and forwarding the result over the action channel.
 > and owns the sender. That keeps `uv` invocation out of the render path but pushes
 > orchestration down into a widget. See §9.
 
+Both halves of the rule are enforced by `tests/architecture.rs` (`controllers-no-ratatui`,
+`ui-no-spawn`). The deviation above is its only allowlisted exception, owned by #42.
+
 ## 3. Data flow
 
 ```
@@ -181,7 +184,9 @@ Four kinds of UI code, in descending order of generality:
 
 **Deciding between `shared` and `features`:** if the type mentions a domain type, a `uv`
 concept or a specific screen, it belongs in `features`. If it is parameterised over a
-trait and would work unchanged in a different TUI, it belongs in `shared`.
+trait and would work unchanged in a different TUI, it belongs in `shared`. The reverse
+direction is enforced by `tests/architecture.rs` (`shared-no-domain`): nothing in `shared/`
+may name a domain type or a controller.
 
 ## 7. The `Component` trait
 
@@ -274,7 +279,25 @@ execution.** Pure functions — `parse_dep_string` today, argument construction 
 parsing in future — are testable directly. Functions that spawn `uv` are not, so keep
 the pure part extracted rather than embedding string building inside the spawn.
 
-Current coverage is one test, for `parse_dep_string`. Issue #25 covers expanding it.
+**Architecture fitness tests.** `tests/architecture.rs` turns the structural rules of
+this document into a failing test, using only the standard library:
+
+| Rule | Checks |
+|---|---|
+| `controllers-no-ratatui` | nothing under `src/controllers/` references ratatui (§2) |
+| `shared-no-domain` | nothing under `src/ui/components/shared/` names a domain type or a controller (§6) |
+| `ui-no-spawn` | nothing under `src/ui/` spawns a task or calls a controller (§2, ADR-0001) |
+| `no-tests-in-src` | no `#[test]` or `#[cfg(test)]` under `src/` (this section) |
+
+Known violations sit in an allowlist, each with the issue that removes it. The list is a
+ratchet: the test fails on any new violation, and also when an allowlisted file stops
+violating, so the entry must be deleted. Each rule's directory must exist, so moving a
+module — `controllers/` becoming `uv/` and `runtime/` in the migration path — fails the
+test until its rules are updated in the same PR. The matching is textual, and its limits
+are noted in the file.
+
+Unit coverage beyond that is still thin: parsing, requirement construction, and `run_uv`
+in both directions. Issue #25 covers expanding it.
 
 ## 11. Known deviations and open questions
 
@@ -284,7 +307,7 @@ Current coverage is one test, for `parse_dep_string`. Issue #25 covers expanding
 | 2 | `Component` is implemented by pages only; three components have incompatible signatures | §13.2, during #26 |
 | 3 | ~~Controllers `panic!` instead of returning errors~~ Resolved: `UvError` + clippy lints | #1 |
 | 4 | `Action::Error` is not shown while the app runs — it is collected and printed after the terminal is restored | #2 |
-| 5 | A widget owns controller orchestration and the channel sender | §13.3, during #8 / #26 |
+| 5 | A widget owns controller orchestration and the channel sender — allowlisted in `tests/architecture.rs` | #42 |
 | 6 | Unconditional redraw; input processed one frame behind the draw | #32 |
 | 7 | Spawned task handles are dropped, so failures vanish | #6 |
 | 8 | ~~`uv pip show` output is parsed by line prefix~~ Resolved: filtered from `uv pip list --format json` | #1 |

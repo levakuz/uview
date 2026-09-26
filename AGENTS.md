@@ -75,6 +75,8 @@ A decision that is hard to reverse, changes the structure, or will make someone 
 - Tests live in `tests/` as integration tests, not inline in `src/`.
 - `src/lib.rs` exposes the crate, so tests reach items as `uview::...`. Anything to be
   tested must be `pub`.
+- `tests/architecture.rs` enforces the layering rules of `docs/ARCHITECTURE.md`. A known
+  violation goes on its allowlist only with the issue that removes it.
 - Fixtures go in `tests/fixtures/`. That directory is deliberately exempt from the
   root-level Python ignores in `.gitignore` — a fixture `pyproject.toml` must be
   committable.
@@ -129,6 +131,6 @@ Before a PR is merged:
   Linux, macOS and Windows (`.github/workflows/ci.yml`), with the toolchain pinned in
   `rust-toolchain.toml`.
 - A change that alters the layering, the action flow or the module tree updates
-  `docs/ARCHITECTURE.md` in the same PR.
+  `docs/ARCHITECTURE.md` and the rules in `tests/architecture.rs` in the same PR.
 - A change that moves *away* from the target state in Part II is allowed, but the PR
   says so and says why.
