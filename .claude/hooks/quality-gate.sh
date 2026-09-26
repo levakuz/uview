@@ -7,8 +7,8 @@ input=$(cat)
 cd "$CLAUDE_PROJECT_DIR" || exit 0
 
 # Gate only when Rust sources or manifests differ from main, committed or not.
-git status --porcelain -- '*.rs' Cargo.toml Cargo.lock | grep -q . ||
-  ! git diff --quiet main...HEAD -- '*.rs' Cargo.toml Cargo.lock 2>/dev/null ||
+git status --porcelain -- '*.rs' Cargo.toml Cargo.lock rust-toolchain.toml | grep -q . ||
+  ! git diff --quiet main...HEAD -- '*.rs' Cargo.toml Cargo.lock rust-toolchain.toml 2>/dev/null ||
   exit 0
 
 # Run all three even after a failure: the agent gets one retry, so it must see everything.
