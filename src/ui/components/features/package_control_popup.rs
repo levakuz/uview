@@ -33,7 +33,7 @@ pub struct PackageControlPopup<'a> {
     list_state: ListState,
 }
 
-impl<'a> PackageControlPopup<'a> {
+impl PackageControlPopup<'_> {
     pub fn new() -> Self {
         let block = Block::bordered().title("Package Control");
         let list_state = ListState::default().with_selected(Some(0));
@@ -86,6 +86,6 @@ impl<'a> PackageControlPopup<'a> {
                 return self.popup.handle_event(action);
             }
         }
-        return self.popup.handle_event(action);
+        self.popup.handle_event(action)
     }
 }

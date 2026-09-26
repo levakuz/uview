@@ -40,7 +40,7 @@ impl<T: TableRow> SharedTable<T> {
     }
 
     pub fn update_item_where<F: Fn(&T) -> bool>(&mut self, pred: F, item: T) {
-        if let Some(i) = self.items.iter().position(|x| pred(x)) {
+        if let Some(i) = self.items.iter().position(pred) {
             self.items[i] = item;
         }
     }

@@ -13,7 +13,7 @@ pub struct AddPackagePopup {
     input: UviewInput,
 }
 
-impl<'a> AddPackagePopup {
+impl AddPackagePopup {
     pub fn new() -> Self {
         let input = UviewInput::default();
 
@@ -37,6 +37,6 @@ impl<'a> AddPackagePopup {
 
     pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
         self.input.handle_event(action);
-        return self.popup.handle_event(action);
+        self.popup.handle_event(action)
     }
 }
