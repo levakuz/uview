@@ -9,7 +9,13 @@ impl TableRow for PyprojectDependency {
     fn cells(&self) -> Vec<String> {
         vec![
             self.name.clone(),
-            format_groups(&self.groups),
+            format_groups(
+                &self
+                    .groups
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            ),
             self.version_constraint.clone(),
         ]
     }
