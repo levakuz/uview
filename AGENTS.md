@@ -127,9 +127,10 @@ Before a PR is merged:
 - Every acceptance criterion in the issue is met, or the PR says which is not and why.
 - `cargo test`, `cargo clippy -- -D warnings` and `cargo fmt --check` all pass.
   `.claude/hooks/quality-gate.sh` runs exactly these as a Claude Code Stop hook, so an
-  agent cannot finish a turn with Rust changes that fail them. CI runs them again on
-  Linux, macOS and Windows (`.github/workflows/ci.yml`), with the toolchain pinned in
-  `rust-toolchain.toml`.
+  agent cannot finish a turn with Rust changes that fail them. CI
+  (`.github/workflows/ci.yml`) is disabled for now and runs on Linux, macOS and Windows
+  only when started by hand, so the hook and a local run are the gate. The toolchain is
+  pinned in `rust-toolchain.toml`.
 - A change that alters the layering, the action flow or the module tree updates
   `docs/ARCHITECTURE.md` and the rules in `tests/architecture.rs` in the same PR.
 - A change that moves *away* from the target state in Part II is allowed, but the PR
