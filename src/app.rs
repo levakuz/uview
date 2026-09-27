@@ -82,14 +82,13 @@ impl App {
             })?;
 
             // Poll crossterm events
-            if event::poll(Duration::from_millis(50))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        let action = Some(Action::ButtonPressed(key));
-                        if let Some(action) = action {
-                            self.dispatch(action);
-                        }
-                    }
+            if event::poll(Duration::from_millis(50))?
+                && let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
+            {
+                let action = Some(Action::ButtonPressed(key));
+                if let Some(action) = action {
+                    self.dispatch(action);
                 }
             }
 

@@ -2,6 +2,6 @@
 # lints, and with `-D warnings` a floating `stable` would break CI on unchanged code.
 # Upgrading is a deliberate PR that fixes whatever new lints appear.
 [toolchain]
-channel = "1.86.0"
+channel = "1.98.1"
 profile = "minimal"
 components = ["clippy", "rustfmt"]
