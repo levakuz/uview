@@ -39,24 +39,26 @@ perform side effects and report back as further actions.
 
 ## 2. Layers
 
-There are two layers, plus a thin application shell.
+There are three layers, plus a thin application shell.
 
 | Layer | Location | Responsibility | Must not |
 |---|---|---|---|
 | **App shell** | `src/app.rs` | Owns the terminal, the event loop, the action channel and the active page | Contain feature logic |
 | **UI** | `src/ui/` | Render frames, translate input into actions, hold view state | Spawn `uv`, read the filesystem |
-| **Controllers** | `src/controllers/` | Invoke `uv`, parse its output, read `pyproject.toml` | Render, hold UI state, know about ratatui |
+| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml` | Render, hold UI state, know about ratatui, start a process |
+| **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about controllers, the UI or ratatui |
 
-The rule that matters: **controllers never import ratatui, and UI code never invokes
-`uv` directly.** The one place these meet is a component spawning a controller call onto
-tokio and forwarding the result over the action channel.
+The rule that matters: **controllers never import ratatui, UI code never invokes `uv`
+directly, and only `src/uv/` starts a process.** The one place the UI and the controllers
+meet is a component spawning a controller call onto tokio and forwarding the result over
+the action channel.
 
-> **Current deviation.** `DependenciesTablesTabs` (a widget) both spawns controller calls
-> and owns the sender. That keeps `uv` invocation out of the render path but pushes
+> **Current deviation.** `DependenciesTablesTabs` (a widget) spawns controller calls, owns
+> the sender and hands each call a `RealUvClient` of its own. That keeps `uv` invocation out of the render path but pushes
 > orchestration down into a widget. See §9.
 
-Both halves of the rule are enforced by `tests/architecture.rs` (`controllers-no-ratatui`,
-`ui-no-spawn`). The deviation above is its only allowlisted exception, owned by #42.
+`tests/architecture.rs` enforces every part of the rule (§10). The deviation above is its
+only allowlisted exception, owned by #42.
 
 ## 3. Data flow
 
@@ -137,12 +139,16 @@ and the widget above it receives it on the next pass.
 ```
 src/
 ├── main.rs                 # tokio entry point; finds the project root and makes it the cwd
-├── lib.rs                  # public surface, so tests/ can reach controllers and ui
+├── lib.rs                  # public surface, so tests/ can reach controllers, ui and uv
 ├── app.rs                  # App: event loop, channel, dispatch, active page
 ├── events.rs               # Action enum + PyprojectDependency / EnvDependency
 ├── controllers/
-│   ├── dependencies.rs     # uv add/remove/lock/sync/pip, pyproject.toml parsing
+│   ├── dependencies.rs     # operations: list, pin, update, remove, uninstall; reads pyproject.toml
 │   └── project.rs          # startup: the project root, or why uv would refuse it
+├── uv/
+│   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
+│   ├── args.rs             # the argv of each operation, pure
+│   └── parse.rs            # uv output into domain types, pure
 └── ui/
     ├── mod.rs              # Component trait
     ├── pages/
@@ -226,9 +232,11 @@ helper, not a component, and forcing it to fit would be the wrong repair.
 
 A controller function:
 
-- takes plain data (`&str`, `Vec<String>`) and returns `Result<T, E>`;
-- invokes `uv` through `tokio::process::Command`, or reads `pyproject.toml` directly;
-- parses output into the types in `events.rs`;
+- takes plain data (`&str`, `Vec<String>`), plus a `&impl UvClient` if it runs `uv`, and
+  returns `Result<T, E>`;
+- runs `uv` only through that client, with argv from `uv::args` and output read by
+  `uv::parse`, or reads `pyproject.toml` directly;
+- returns the types in `events.rs`;
 - **never** renders, holds UI state, or imports ratatui.
 
 `project.rs` is the exception. `main.rs` calls it once, synchronously, before the terminal
@@ -250,10 +258,11 @@ by filtering that list with PEP 503 name normalization rather than by scraping
 distinguished, and a single package may appear in several of them. `load_pyproject_deps`
 therefore deduplicates by name and accumulates the groups.
 
-Every `uv` invocation goes through a single `run_uv`, which returns stdout or a
+Every `uv` invocation goes through `UvClient::run`, which returns stdout or a
 `UvError` — `Spawn` (could not start `uv`), `Failed` (non-zero exit, with the command and
 stderr) or `Parse` (output unreadable). Callers format the error into `Action::Error`.
-`uv` runs in the working directory, which `main.rs` has made the project root, without
+`RealUvClient` is the only implementation in `src/` and the only code that starts a
+process (ADR-0002). `uv` runs in the working directory, which `main.rs` has made the project root, without
 `UV_PROJECT`, which that root already accounts for.
 `panic!`, `unwrap` and `expect` are denied crate-wide by `[lints.clippy]` in `Cargo.toml`.
 
@@ -288,9 +297,13 @@ Per repository convention:
 - Anything to be tested must therefore be `pub`.
 
 The consequence for design: **logic worth testing must be separable from process
-execution.** Pure functions — `parse_dep_string` today, argument construction and output
-parsing in future — are testable directly. Functions that spawn `uv` are not, so keep
-the pure part extracted rather than embedding string building inside the spawn.
+execution.** Argument construction (`uv::args`) and output parsing (`uv::parse`,
+`parse_dep_string`) are pure and tested directly. Operations take a `&impl UvClient`, so
+`tests/dependencies.rs` runs them against `FakeUvClient`. The fake returns canned stdout
+and records the argv it receives, and a test asserts on exactly what would have run. It
+lives in `tests/` rather than `src/` because tests are integration tests. Two tests still
+run the real `uv` through `RealUvClient`, as ADR-0002 asks, because a fake can drift from
+real behaviour.
 
 **Architecture fitness tests.** `tests/architecture.rs` turns the structural rules of
 this document into a failing test, using only the standard library:
@@ -298,19 +311,22 @@ this document into a failing test, using only the standard library:
 | Rule | Checks |
 |---|---|
 | `controllers-no-ratatui` | nothing under `src/controllers/` references ratatui (§2) |
+| `controllers-no-process` | nothing under `src/controllers/` starts a process (ADR-0002) |
+| `uv-bottom-layer` | nothing under `src/uv/` references ratatui, a controller or the UI (§2, ADR-0002) |
 | `shared-no-domain` | nothing under `src/ui/components/shared/` names a domain type or a controller (§6) |
-| `ui-no-spawn` | nothing under `src/ui/` spawns a task or calls a controller (§2, ADR-0001) |
+| `ui-no-spawn` | nothing under `src/ui/` spawns a task or a process, calls a controller or names the uv layer (§2, ADR-0001, ADR-0002) |
 | `no-tests-in-src` | no `#[test]` or `#[cfg(test)]` under `src/` (this section) |
 
 Known violations sit in an allowlist, each with the issue that removes it. The list is a
 ratchet: the test fails on any new violation, and also when an allowlisted file stops
 violating, so the entry must be deleted. Each rule's directory must exist, so moving a
-module — `controllers/` becoming `uv/` and `runtime/` in the migration path — fails the
+module — `controllers/` becoming `runtime/` in the migration path — fails the
 test until its rules are updated in the same PR. The matching is textual, and its limits
 are noted in the file.
 
-Unit coverage beyond that is still thin: parsing, requirement construction, and `run_uv`
-in both directions. Issue #25 covers expanding it.
+Unit coverage beyond that is still thin: parsing, argument and requirement construction,
+`RealUvClient` in both directions, and two operations against the fake. Issue #25 covers
+expanding it.
 
 ## 11. Known deviations and open questions
 
@@ -458,24 +474,20 @@ only module that spawns tasks. Everything above it is synchronous and testable.
 ### 13.4 `UvClient`: one seam to the outside
 
 ```rust
-#[async_trait]
 pub trait UvClient: Send + Sync {
-    async fn pip_list(&self) -> Result<Vec<EnvDependency>, UvError>;
-    async fn add(&self, req: &Requirement, group: Option<&str>) -> Result<(), UvError>;
-    async fn remove(&self, name: &str, group: Option<&str>) -> Result<(), UvError>;
-    async fn sync(&self) -> Result<(), UvError>;
-    // …
+    fn run(&self, args: &[&str]) -> impl Future<Output = Result<String, UvError>> + Send;
 }
 ```
 
-`RealUvClient` spawns the binary. `FakeUvClient` returns canned results and records the
-calls it received. This is the change that makes the codebase testable at all: today
-every function that touches `uv` is untestable because the subprocess call is inline.
+The seam sits at the narrowest point there is: argv in, stdout or a `UvError` out.
+`RealUvClient` spawns the binary. `FakeUvClient` returns canned stdout and records the argv
+it received, so a test asserts on exactly what would have run. Operations take the client
+as `&impl UvClient`: static dispatch, with no `async_trait`.
 
 Argument construction must be **pure and separate** from execution:
 
 ```rust
-pub fn add_args(req: &Requirement, group: Option<&str>) -> Vec<String>;
+pub fn membership_args<'a>(verb: &'a str, target: &'a str, membership: &'a Membership) -> Vec<&'a str>;
 ```
 
 so the interesting logic can be asserted without spawning anything — which is exactly
@@ -484,10 +496,11 @@ what the repository's testing convention (integration tests in `tests/`, public 
 
 Prefer `uv`'s machine-readable output wherever it exists (`--format json`,
 `--output-format json`). Where line-prefix scraping is ever unavoidable, it is a
-liability against future `uv` releases and should be isolated behind this trait so a
+liability against future `uv` releases and should be isolated in `uv/parse.rs` so a
 single module absorbs the breakage.
 
-> Decision record: [ADR-0002](adr/0002-uvclient-is-the-only-seam-to-uv.md).
+> Decision records: [ADR-0002](adr/0002-uvclient-is-the-only-seam-to-uv.md) for the seam,
+> [ADR-0005](adr/0005-uvclient-takes-argv.md) for its shape.
 
 ### 13.5 Job runner: a queue of one for mutations
 
@@ -630,9 +643,7 @@ src/
 │   ├── jobs.rs          # job queue, ids, cancellation, serialization of mutations
 │   └── stream.rs        # line-wise child output
 ├── uv/
-│   ├── client.rs        # UvClient trait
-│   ├── real.rs          # subprocess implementation
-│   ├── fake.rs          # #[cfg(test)] implementation
+│   ├── mod.rs           # UvClient trait; RealUvClient, the only process spawn
 │   ├── args.rs          # pure argument construction
 │   └── parse.rs         # pure output parsing
 ├── domain/
@@ -652,6 +663,9 @@ And `domain/` appears because `Requirement` — name, extras, constraint, source
 type that `events.rs` currently flattens into two `String`s, which is why extras (#18)
 cannot be represented today.
 
+The fake `UvClient` is missing from the tree on purpose. Tests are integration tests, so
+it lives in `tests/`.
+
 ## 15. Migration path
 
 Nothing here requires a rewrite. Each step is a normal pull request, and each is already
@@ -661,7 +675,7 @@ an issue.
 |---|---|---|---|
 | 1 | `UvError`, no panics, panic hook | Everything below is safe to build on | #1 |
 | 2 | Message area; errors become visible | Honest failure reporting | #2 |
-| 3 | Extract `uv/args.rs` + `uv/parse.rs` as pure functions | Tests without subprocesses | #25 |
+| 3 | Extract `uv/args.rs` + `uv/parse.rs` as pure functions | Tests without subprocesses | #41, #25 |
 | 4 | Introduce `UvClient` + `FakeUvClient` | The whole uv layer becomes testable | **#41** |
 | 5 | `Command`/`Event` split; components stop spawning | Removes the widget-owns-the-sender deviation | **#42** |
 | 6 | `runtime/` + job queue + cancellation | Progress, interruption, safe mutation | #13, #10 |
@@ -691,8 +705,8 @@ operations can be in flight, which the sprint plan reaches in Sprint 1.
 
 **Where it can go wrong.** `AppState` is a god object waiting to happen; the mitigation is
 per-domain sub-structs and a rule that components stay in their own. A trait for
-`UvClient` costs dynamic dispatch and a second implementation to keep honest — negligible
-against being able to test at all. Serializing mutations gives up parallelism we never
+`UvClient` costs a generic parameter on every operation and a second implementation to
+keep honest — negligible against being able to test at all. Serializing mutations gives up parallelism we never
 had, since `uv`'s project lock forbids it anyway.
 
 **What we are deliberately not doing.** No plugin system, no configuration language, no
@@ -701,7 +715,7 @@ project on disk is the source of truth and `uv` is the only writer. Keeping it t
 is what makes the design small.
 
 **What to revisit.** If `uv` ever ships a stable machine-readable interface or a library,
-`uv/real.rs` should collapse onto it and `parse.rs` should mostly disappear. If pages grow
+`RealUvClient` should collapse onto it and `parse.rs` should mostly disappear. If pages grow
 past roughly a dozen, the single `AppState` should be split per page with explicit
 sharing. And if `Action` passes about fifty variants even when nested, that is the signal
 to give each page its own message type with a translation at the boundary, rather than

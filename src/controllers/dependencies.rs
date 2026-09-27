@@ -1,61 +1,6 @@
-use std::fmt;
-
 use crate::events::{EnvDependency, Membership, PyprojectDependency};
+use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
-
-/// Why a `uv` invocation failed.
-#[derive(Debug)]
-pub enum UvError {
-    /// `uv` could not be started at all.
-    Spawn(std::io::Error),
-    /// `uv` ran and exited unsuccessfully.
-    Failed {
-        command: String,
-        status: std::process::ExitStatus,
-        stderr: String,
-    },
-    /// `uv` succeeded but its output could not be read.
-    Parse(String),
-}
-
-impl fmt::Display for UvError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            UvError::Spawn(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                write!(f, "`uv` was not found — is it installed and on PATH?")
-            }
-            UvError::Spawn(e) => write!(f, "could not run `uv`: {e}"),
-            UvError::Failed {
-                command,
-                status,
-                stderr,
-            } => write!(f, "`uv {command}` failed ({status}): {stderr}"),
-            UvError::Parse(msg) => write!(f, "could not read `uv` output: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for UvError {}
-
-/// Runs `uv` with `args` and returns its stdout. Every `uv` call goes through here.
-pub async fn run_uv(args: &[&str]) -> Result<String, UvError> {
-    let output = tokio::process::Command::new("uv")
-        .args(args)
-        // main.rs already turned UV_PROJECT into the working directory; left set, uv would
-        // resolve a relative value a second time, from there.
-        .env_remove("UV_PROJECT")
-        .output()
-        .await
-        .map_err(UvError::Spawn)?;
-    if !output.status.success() {
-        return Err(UvError::Failed {
-            command: args.join(" "),
-            status: output.status,
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        });
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
 
 pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     let content = tokio::fs::read_to_string("./pyproject.toml").await?;
@@ -130,39 +75,21 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     Ok(deps)
 }
 
-/// `uv remove` / `uv add` arguments acting on one membership. `--no-sync`: the caller
-/// syncs once, inexactly, afterwards; each implicit sync would be exact and uninstall
-/// whatever the lockfile does not list, such as `uv pip install`ed tools.
-pub fn membership_args<'a>(
-    verb: &'a str,
-    target: &'a str,
-    membership: &'a Membership,
-) -> Vec<&'a str> {
-    let mut args = vec![verb, "--no-sync", target];
-    match membership {
-        Membership::Project => {}
-        Membership::Group(name) => args.extend(["--group", name.as_str()]),
-        Membership::Extra(name) => args.extend(["--optional", name.as_str()]),
-    }
-    args
-}
-
-/// Brings the environment up to date without uninstalling packages the lockfile does not
-/// list. A package just removed from pyproject.toml therefore stays installed; the
-/// Environment table can uninstall it.
-async fn sync_inexact() -> Result<(), UvError> {
-    run_uv(&["sync", "--inexact"]).await?;
+async fn sync_inexact(uv: &impl UvClient) -> Result<(), UvError> {
+    uv.run(&args::SYNC_INEXACT).await?;
     Ok(())
 }
 
 pub async fn remove_dep_from_pyproject(
+    uv: &impl UvClient,
     name: &str,
     memberships: Vec<Membership>,
 ) -> Result<(), UvError> {
     for membership in &memberships {
-        run_uv(&membership_args("remove", name, membership)).await?;
+        uv.run(&args::membership_args("remove", name, membership))
+            .await?;
     }
-    sync_inexact().await
+    sync_inexact(uv).await
 }
 
 /// The environment `uv pip` must act on: the project's, as `uv sync` resolves it. Left
@@ -175,23 +102,21 @@ fn project_env() -> String {
         .unwrap_or_else(|| ".venv".to_string())
 }
 
-/// `uv pip uninstall` arguments that remove `name` from `env` only.
-pub fn uninstall_args<'a>(name: &'a str, env: &'a str) -> [&'a str; 5] {
-    ["pip", "uninstall", "--python", env, name]
-}
-
 /// Uninstalls `name` from the project environment only; pyproject.toml and uv.lock are
 /// untouched. `uv pip` rather than `uv run pip`: a uv environment has no pip of its own,
 /// so `uv run pip` would run whichever pip is first on PATH.
-pub async fn uninstall_from_env(name: &str) -> Result<(), UvError> {
-    run_uv(&uninstall_args(name, &project_env())).await?;
+pub async fn uninstall_from_env(uv: &impl UvClient, name: &str) -> Result<(), UvError> {
+    uv.run(&args::uninstall_args(name, &project_env())).await?;
     Ok(())
 }
 
 /// The installed entry for `name`, or `None` if it is not in the environment.
-pub async fn get_env_package_info(name: &str) -> Result<Option<EnvDependency>, UvError> {
+pub async fn get_env_package_info(
+    uv: &impl UvClient,
+    name: &str,
+) -> Result<Option<EnvDependency>, UvError> {
     let wanted = normalize(name);
-    Ok(load_env_deps()
+    Ok(load_env_deps(uv)
         .await?
         .into_iter()
         .find(|d| normalize(&d.name) == wanted))
@@ -208,30 +133,9 @@ pub fn normalize(name: &str) -> String {
         .to_lowercase()
 }
 
-pub async fn upgrade_env_dep(name: &str) -> Result<(), UvError> {
-    // `--inexact`: a plain sync uninstalls everything that is not in the lockfile.
-    run_uv(&["sync", "--inexact", "--upgrade-package", name]).await?;
+pub async fn upgrade_env_dep(uv: &impl UvClient, name: &str) -> Result<(), UvError> {
+    uv.run(&args::upgrade_args(name)).await?;
     Ok(())
-}
-
-/// The requirement that pins `name` to a version constraint, e.g. "==1.2.3", ">=2.0",
-/// "<3.0". A bare version number (no operator) is treated as an exact pin, and an
-/// empty constraint falls back to the latest resolvable version. The declared entry's
-/// marker is kept: uv rewrites an entry in place only when the marker matches, and
-/// otherwise adds a second, unconditional one.
-pub fn pin_requirement(name: &str, constraint: &str, marker: Option<&str>) -> String {
-    let constraint = constraint.trim();
-    let requirement = if constraint.is_empty() {
-        name.to_string()
-    } else if constraint.starts_with(['=', '>', '<', '!', '~']) {
-        format!("{name}{constraint}")
-    } else {
-        format!("{name}=={constraint}")
-    };
-    match marker {
-        Some(marker) => format!("{requirement}; {marker}"),
-        None => requirement,
-    }
 }
 
 /// The entry declaring `name` in pyproject.toml, if there is one.
@@ -247,25 +151,28 @@ async fn declaration(name: &str) -> Option<PyprojectDependency> {
 /// Pins `name` in every membership it is declared in and returns the requirement written.
 /// An undeclared package is added to `[project.dependencies]`; if pyproject.toml cannot be
 /// read, uv reports why.
-pub async fn pin_dep_version(name: &str, constraint: &str) -> Result<String, UvError> {
+pub async fn pin_dep_version(
+    uv: &impl UvClient,
+    name: &str,
+    constraint: &str,
+) -> Result<String, UvError> {
     let declared = declaration(name).await;
     let marker = declared
         .as_ref()
         .and_then(|d| d.version_constraint.split_once(';'))
         .map(|(_, marker)| marker.trim());
-    let requirement = pin_requirement(name, constraint, marker);
+    let requirement = args::pin_requirement(name, constraint, marker);
     let memberships = declared.map_or_else(|| vec![Membership::Project], |d| d.groups);
     for membership in &memberships {
-        run_uv(&membership_args("add", &requirement, membership)).await?;
+        uv.run(&args::membership_args("add", &requirement, membership))
+            .await?;
     }
-    sync_inexact().await?;
+    sync_inexact(uv).await?;
     Ok(requirement)
 }
 
-pub async fn load_env_deps() -> Result<Vec<EnvDependency>, UvError> {
-    let env = project_env();
-    let stdout = run_uv(&["pip", "list", "--format", "json", "--python", env.as_str()]).await?;
-    serde_json::from_str(&stdout).map_err(|e| UvError::Parse(e.to_string()))
+pub async fn load_env_deps(uv: &impl UvClient) -> Result<Vec<EnvDependency>, UvError> {
+    parse::pip_list(&uv.run(&args::pip_list_args(&project_env())).await?)
 }
 
 /// Splits a PEP 508 dependency string into (name, version_constraint).
