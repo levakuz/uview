@@ -101,11 +101,3 @@ uview is pre-release. Everything described above works. Notable gaps:
 
 The roadmap lives in the [milestones](https://github.com/levakuz/uview/milestones), one per
 sprint. The work items are the [issues](https://github.com/levakuz/uview/issues).
-
-## Development
-
-- [AGENTS.md](AGENTS.md) is the working agreement: commands, code conventions, testing
-  and the git workflow.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes how the code is built today and
-  the design we are working toward. Read it before changing anything structural.
-- [docs/adr/](docs/adr/) records the architecture decisions.
