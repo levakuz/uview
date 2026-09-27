@@ -484,10 +484,6 @@ The seam sits at the narrowest point there is: argv in, stdout or a `UvError` ou
 it received, so a test asserts on exactly what would have run. Operations take the client
 as `&impl UvClient`: static dispatch, with no `async_trait`.
 
-There is one method rather than one per operation. Otherwise every operation would be
-written twice, once to run and once to fake, and the fake would record what it was
-*asked* rather than what would *run*.
-
 Argument construction must be **pure and separate** from execution:
 
 ```rust
@@ -503,7 +499,8 @@ Prefer `uv`'s machine-readable output wherever it exists (`--format json`,
 liability against future `uv` releases and should be isolated in `uv/parse.rs` so a
 single module absorbs the breakage.
 
-> Decision record: [ADR-0002](adr/0002-uvclient-is-the-only-seam-to-uv.md).
+> Decision records: [ADR-0002](adr/0002-uvclient-is-the-only-seam-to-uv.md) for the seam,
+> [ADR-0005](adr/0005-uvclient-takes-argv.md) for its shape.
 
 ### 13.5 Job runner: a queue of one for mutations
 
