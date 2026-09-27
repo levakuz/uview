@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="872" height="248" viewBox="0 0 872 248" role="img" aria-labelledby="t">
+<title id="t">uview: the pyproject.toml table of a project, just after pinning httpx to 0.28.1</title>
+<rect width="872" height="248" rx="8" fill="#1e2127"/>
+<g transform="translate(16 16)" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14">
+<text x="8.4" y="13" fill="#98c379" font-weight="700" textLength="117.6" lengthAdjust="spacingAndGlyphs">pyproject.toml</text>
+<text x="134.4" y="13" fill="#e6e6e6" textLength="8.4" lengthAdjust="spacingAndGlyphs">•</text>
+<text x="151.2" y="13" fill="#e6e6e6" textLength="92.4" lengthAdjust="spacingAndGlyphs">Environment</text>
+<text x="8.4" y="31" fill="#e6e6e6" font-weight="700" textLength="33.6" lengthAdjust="spacingAndGlyphs">Name</text>
+<text x="142.8" y="31" fill="#e6e6e6" font-weight="700" textLength="42" lengthAdjust="spacingAndGlyphs">Group</text>
+<text x="285.6" y="31" fill="#e6e6e6" font-weight="700" textLength="58.8" lengthAdjust="spacingAndGlyphs">Version</text>
+<text x="352.8" y="31" fill="#e6e6e6" font-weight="700" textLength="58.8" lengthAdjust="spacingAndGlyphs">Constra</text>
+<rect x="8.4" y="36" width="403.2" height="18" fill="#e6e6e6"/>
+<text x="8.4" y="49" fill="#1e2127" textLength="42" lengthAdjust="spacingAndGlyphs">httpx</text>
+<text x="142.8" y="49" fill="#1e2127" textLength="33.6" lengthAdjust="spacingAndGlyphs">main</text>
+<text x="285.6" y="49" fill="#1e2127" textLength="67.2" lengthAdjust="spacingAndGlyphs">==0.28.1</text>
+<text x="8.4" y="67" fill="#e6e6e6" textLength="67.2" lengthAdjust="spacingAndGlyphs">pydantic</text>
+<text x="142.8" y="67" fill="#e6e6e6" textLength="33.6" lengthAdjust="spacingAndGlyphs">main</text>
+<text x="285.6" y="67" fill="#e6e6e6" textLength="42" lengthAdjust="spacingAndGlyphs">&gt;=2.5</text>
+<text x="8.4" y="85" fill="#e6e6e6" textLength="84" lengthAdjust="spacingAndGlyphs">sqlalchemy</text>
+<text x="142.8" y="85" fill="#e6e6e6" textLength="33.6" lengthAdjust="spacingAndGlyphs">main</text>
+<text x="285.6" y="85" fill="#e6e6e6" textLength="42" lengthAdjust="spacingAndGlyphs">&gt;=2.0</text>
+<text x="8.4" y="103" fill="#e6e6e6" textLength="50.4" lengthAdjust="spacingAndGlyphs">pytest</text>
+<text x="142.8" y="103" fill="#e6e6e6" textLength="25.2" lengthAdjust="spacingAndGlyphs">dev</text>
+<text x="285.6" y="103" fill="#e6e6e6" textLength="42" lengthAdjust="spacingAndGlyphs">&gt;=8.0</text>
+<text x="8.4" y="121" fill="#e6e6e6" textLength="33.6" lengthAdjust="spacingAndGlyphs">ruff</text>
+<text x="142.8" y="121" fill="#e6e6e6" textLength="25.2" lengthAdjust="spacingAndGlyphs">dev</text>
+<text x="285.6" y="121" fill="#e6e6e6" textLength="42" lengthAdjust="spacingAndGlyphs">&gt;=0.4</text>
+<text x="8.4" y="139" fill="#e6e6e6" textLength="126" lengthAdjust="spacingAndGlyphs">psycopg[binary]</text>
+<text x="142.8" y="139" fill="#e6e6e6" textLength="117.6" lengthAdjust="spacingAndGlyphs">extra:postgres</text>
+<text x="285.6" y="139" fill="#e6e6e6" textLength="42" lengthAdjust="spacingAndGlyphs">&gt;=3.1</text>
+<text x="0" y="211" fill="#98c379" textLength="50.4" lengthAdjust="spacingAndGlyphs">Pinned</text>
+<text x="58.8" y="211" fill="#98c379" textLength="109.2" lengthAdjust="spacingAndGlyphs">httpx==0.28.1</text>
+<text x="420" y="211" fill="#abb2bf" textLength="420" lengthAdjust="spacingAndGlyphs">/home/user/projects/acme/backend/services/acme-api</text>
+<path d="M256.2 9L252 9M256.2 9L260.4 9M264.6 9L260.4 9M264.6 9L268.8 9M273 9L268.8 9M273 9L277.2 9M281.4 9L277.2 9M281.4 9L285.6 9M289.8 9L285.6 9M289.8 9L294 9M298.2 9L294 9M298.2 9L302.4 9M306.6 9L302.4 9M306.6 9L310.8 9M315 9L310.8 9M315 9L319.2 9M323.4 9L319.2 9M323.4 9L327.6 9M331.8 9L327.6 9M331.8 9L336 9M340.2 9L336 9M340.2 9L344.4 9M348.6 9L344.4 9M348.6 9L352.8 9M357 9L352.8 9M357 9L361.2 9M365.4 9L361.2 9M365.4 9L369.6 9M373.8 9L369.6 9M373.8 9L378 9M382.2 9L378 9M382.2 9L386.4 9M390.6 9L386.4 9M390.6 9L394.8 9M399 9L394.8 9M399 9L403.2 9M407.4 9L403.2 9M407.4 9L411.6 9M415.8 9L411.6 9M415.8 9L415.8 18M4.2 27L4.2 18M4.2 27L4.2 36M415.8 27L415.8 18M415.8 27L415.8 36M4.2 45L4.2 36M4.2 45L4.2 54M415.8 45L415.8 36M415.8 45L415.8 54M4.2 63L4.2 54M4.2 63L4.2 72M415.8 63L415.8 54M415.8 63L415.8 72M4.2 81L4.2 72M4.2 81L4.2 90M415.8 81L415.8 72M415.8 81L415.8 90M4.2 99L4.2 90M4.2 99L4.2 108M415.8 99L415.8 90M415.8 99L415.8 108M4.2 117L4.2 108M4.2 117L4.2 126M415.8 117L415.8 108M415.8 117L415.8 126M4.2 135L4.2 126M4.2 135L4.2 144M415.8 135L415.8 126M415.8 135L415.8 144M4.2 153L4.2 144M4.2 153L4.2 162M415.8 153L415.8 144M415.8 153L415.8 162M4.2 171L4.2 162M4.2 171L4.2 180M415.8 171L415.8 162M415.8 171L415.8 180M4.2 189L8.4 189M4.2 189L4.2 180M12.6 189L8.4 189M12.6 189L16.8 189M21 189L16.8 189M21 189L25.2 189M29.4 189L25.2 189M29.4 189L33.6 189M37.8 189L33.6 189M37.8 189L42 189M46.2 189L42 189M46.2 189L50.4 189M54.6 189L50.4 189M54.6 189L58.8 189M63 189L58.8 189M63 189L67.2 189M71.4 189L67.2 189M71.4 189L75.6 189M79.8 189L75.6 189M79.8 189L84 189M88.2 189L84 189M88.2 189L92.4 189M96.6 189L92.4 189M96.6 189L100.8 189M105 189L100.8 189M105 189L109.2 189M113.4 189L109.2 189M113.4 189L117.6 189M121.8 189L117.6 189M121.8 189L126 189M130.2 189L126 189M130.2 189L134.4 189M138.6 189L134.4 189M138.6 189L142.8 189M147 189L142.8 189M147 189L151.2 189M155.4 189L151.2 189M155.4 189L159.6 189M163.8 189L159.6 189M163.8 189L168 189M172.2 189L168 189M172.2 189L176.4 189M180.6 189L176.4 189M180.6 189L184.8 189M189 189L184.8 189M189 189L193.2 189M197.4 189L193.2 189M197.4 189L201.6 189M205.8 189L201.6 189M205.8 189L210 189M214.2 189L210 189M214.2 189L218.4 189M222.6 189L218.4 189M222.6 189L226.8 189M231 189L226.8 189M231 189L235.2 189M239.4 189L235.2 189M239.4 189L243.6 189M247.8 189L243.6 189M247.8 189L252 189M256.2 189L252 189M256.2 189L260.4 189M264.6 189L260.4 189M264.6 189L268.8 189M273 189L268.8 189M273 189L277.2 189M281.4 189L277.2 189M281.4 189L285.6 189M289.8 189L285.6 189M289.8 189L294 189M298.2 189L294 189M298.2 189L302.4 189M306.6 189L302.4 189M306.6 189L310.8 189M315 189L310.8 189M315 189L319.2 189M323.4 189L319.2 189M323.4 189L327.6 189M331.8 189L327.6 189M331.8 189L336 189M340.2 189L336 189M340.2 189L344.4 189M348.6 189L344.4 189M348.6 189L352.8 189M357 189L352.8 189M357 189L361.2 189M365.4 189L361.2 189M365.4 189L369.6 189M373.8 189L369.6 189M373.8 189L378 189M382.2 189L378 189M382.2 189L386.4 189M390.6 189L386.4 189M390.6 189L394.8 189M399 189L394.8 189M399 189L403.2 189M407.4 189L403.2 189M407.4 189L411.6 189M415.8 189L411.6 189M415.8 189L415.8 180" stroke="#e6e6e6" stroke-width="1.2" fill="none"/>
+</g></svg>
