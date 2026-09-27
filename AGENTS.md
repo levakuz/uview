@@ -38,9 +38,9 @@ already; one owner per fact.
 
 The short version:
 
-- **Two layers.** `src/ui/` renders and turns input into actions; `src/controllers/`
-  invokes `uv` and parses its output. Controllers never import ratatui; UI code never
-  spawns `uv` directly.
+- **Three layers.** `src/ui/` renders and turns input into actions; `src/controllers/`
+  runs `uv` operations through the `UvClient` in `src/uv/`, which alone starts the `uv`
+  process. Controllers never import ratatui; UI code never invokes `uv` directly.
 - **UI is layered** `pages/` › `components/widgets/` › `components/features/` ›
   `components/shared/`. Parameterised over a trait and portable to another TUI → `shared`.
   Names a domain type or a `uv` concept → `features`.

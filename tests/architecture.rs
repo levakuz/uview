@@ -24,6 +24,18 @@ const RULES: &[Rule] = &[
         source: "ARCHITECTURE.md §2",
     },
     Rule {
+        name: "controllers-no-process",
+        scope: "src/controllers",
+        forbidden: &["process::Command"],
+        source: "ADR-0002",
+    },
+    Rule {
+        name: "uv-bottom-layer",
+        scope: "src/uv",
+        forbidden: &["ratatui", "controllers", "crate::ui"],
+        source: "ARCHITECTURE.md §2, ADR-0002",
+    },
+    Rule {
         name: "shared-no-domain",
         scope: "src/ui/components/shared",
         forbidden: &["PyprojectDependency", "EnvDependency", "controllers"],
@@ -32,8 +44,14 @@ const RULES: &[Rule] = &[
     Rule {
         name: "ui-no-spawn",
         scope: "src/ui",
-        forbidden: &["tokio::spawn", ".spawn(", "controllers::"],
-        source: "ARCHITECTURE.md §2, ADR-0001",
+        forbidden: &[
+            "tokio::spawn",
+            ".spawn(",
+            "controllers::",
+            "uv::",
+            "process::Command",
+        ],
+        source: "ARCHITECTURE.md §2, ADR-0001, ADR-0002",
     },
     Rule {
         name: "no-tests-in-src",

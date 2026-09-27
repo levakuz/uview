@@ -2,6 +2,7 @@ mod app;
 mod controllers;
 mod events;
 mod ui;
+mod uv;
 
 use std::path::PathBuf;
 
@@ -30,7 +31,7 @@ async fn main() -> Result<()> {
 fn project_root() -> Result<PathBuf, String> {
     let cwd =
         std::env::current_dir().map_err(|e| format!("cannot read the current directory: {e}"))?;
-    // uv starts from UV_PROJECT when it is set, and so does uview; run_uv then drops it.
+    // uv starts from UV_PROJECT when it is set, and so does uview; RealUvClient then drops it.
     let start = match std::env::var_os("UV_PROJECT") {
         Some(project) if !project.is_empty() => cwd.join(project),
         _ => cwd,

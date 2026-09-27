@@ -1,7 +1,50 @@
+use std::collections::VecDeque;
+use std::sync::{Mutex, PoisonError};
+
 use uview::controllers::dependencies::{
-    UvError, membership_args, normalize, parse_dep_string, pin_requirement, run_uv, uninstall_args,
+    get_env_package_info, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
 use uview::events::Membership;
+use uview::uv::args::{membership_args, pin_requirement, uninstall_args};
+use uview::uv::{RealUvClient, UvClient, UvError};
+
+/// Stands in for `uv`: answers each call with the next canned result, or empty stdout once
+/// they run out, and records the argv it received.
+#[derive(Default)]
+struct FakeUvClient {
+    results: Mutex<VecDeque<Result<String, UvError>>>,
+    calls: Mutex<Vec<Vec<String>>>,
+}
+
+impl FakeUvClient {
+    fn returning(results: impl IntoIterator<Item = Result<String, UvError>>) -> Self {
+        Self {
+            results: Mutex::new(results.into_iter().collect()),
+            ..Self::default()
+        }
+    }
+
+    fn calls(&self) -> Vec<Vec<String>> {
+        self.calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl UvClient for FakeUvClient {
+    async fn run(&self, args: &[&str]) -> Result<String, UvError> {
+        self.calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(args.iter().map(ToString::to_string).collect());
+        self.results
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop_front()
+            .unwrap_or_else(|| Ok(String::new()))
+    }
+}
 
 #[test]
 fn test_parse_dep_string() {
@@ -45,7 +88,8 @@ fn pin_requirement_normalizes_constraints() {
 async fn failed_uv_call_returns_error_instead_of_panicking() {
     // `uv` exits 1 for an unknown package; without `uv` on PATH this is a spawn error.
     assert!(
-        run_uv(&["pip", "show", "uview-no-such-package"])
+        RealUvClient
+            .run(&["pip", "show", "uview-no-such-package"])
             .await
             .is_err()
     );
@@ -53,7 +97,7 @@ async fn failed_uv_call_returns_error_instead_of_panicking() {
 
 #[tokio::test]
 async fn successful_uv_call_returns_stdout() {
-    match run_uv(&["--version"]).await {
+    match RealUvClient.run(&["--version"]).await {
         Err(UvError::Spawn(_)) => {} // `uv` is not installed here; nothing to check.
         other => assert!(other.is_ok_and(|out| out.starts_with("uv "))),
     }
@@ -91,4 +135,30 @@ fn normalize_ignores_case_separators_and_extras() {
     assert_eq!(normalize("zope.interface"), normalize("zope-interface"));
     assert_eq!(normalize("flask[dotenv]"), normalize("Flask"));
     assert_ne!(normalize("flask"), normalize("flask-cors"));
+}
+
+#[tokio::test]
+async fn remove_runs_uv_remove_per_membership_then_one_inexact_sync() -> Result<(), UvError> {
+    let uv = FakeUvClient::default();
+    let memberships = vec![Membership::Project, Membership::Group("dev".into())];
+    remove_dep_from_pyproject(&uv, "httpx", memberships).await?;
+    assert_eq!(
+        uv.calls(),
+        [
+            vec!["remove", "--no-sync", "httpx"],
+            vec!["remove", "--no-sync", "httpx", "--group", "dev"],
+            vec!["sync", "--inexact"],
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn env_lookup_reads_pip_list_json_by_normalized_name() -> Result<(), UvError> {
+    let pip_list = r#"[{"name": "Flask-SQLAlchemy", "version": "3.1.1"}]"#;
+    let uv = FakeUvClient::returning([Ok(pip_list.to_string())]);
+    let found = get_env_package_info(&uv, "flask_sqlalchemy").await?;
+    assert_eq!(found.map(|dep| dep.version), Some("3.1.1".to_string()));
+    assert_eq!(uv.calls()[0][..4], ["pip", "list", "--format", "json"]);
+    Ok(())
 }

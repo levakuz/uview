@@ -11,6 +11,7 @@ use crate::events::Action;
 use crate::ui::Component;
 use crate::ui::components::shared::status_bar::{StatusMessage, render_status_line};
 use crate::ui::pages::dependencies::DependenciesPage;
+use crate::uv::RealUvClient;
 
 pub struct App {
     page: DependenciesPage,
@@ -55,7 +56,7 @@ impl App {
 
         let tx_env = self.tx.clone();
         tokio::spawn(async move {
-            match dependencies::load_env_deps().await {
+            match dependencies::load_env_deps(&RealUvClient).await {
                 Ok(deps) => {
                     let _ = tx_env.send(Action::LoadedEnvDeps(deps));
                 }

@@ -11,6 +11,7 @@ use crate::{
         },
         shared::table::SharedTable,
     },
+    uv::RealUvClient,
 };
 use ratatui::{Frame, symbols, widgets::Tabs};
 use ratatui::{
@@ -192,12 +193,15 @@ impl DependenciesTablesTabs {
                         self.pyproject_table.selected().cloned()
                     {
                         tokio::spawn(async move {
-                            let _ = tx.send(match remove_dep_from_pyproject(&name, groups).await {
-                                Ok(()) => {
-                                    Action::Notice(format!("Removed {name} from pyproject.toml"))
-                                }
-                                Err(e) => Action::Error(e.to_string()),
-                            });
+                            let _ = tx.send(
+                                match remove_dep_from_pyproject(&RealUvClient, &name, groups).await
+                                {
+                                    Ok(()) => Action::Notice(format!(
+                                        "Removed {name} from pyproject.toml"
+                                    )),
+                                    Err(e) => Action::Error(e.to_string()),
+                                },
+                            );
                             // Also after a failure: `uv remove` may already have edited
                             // pyproject.toml, and a stale row would replay that membership.
                             reload_tables(&tx).await;
@@ -208,7 +212,7 @@ impl DependenciesTablesTabs {
                     // warnings come with #12.
                     let name = dep.name;
                     tokio::spawn(async move {
-                        let _ = tx.send(match uninstall_from_env(&name).await {
+                        let _ = tx.send(match uninstall_from_env(&RealUvClient, &name).await {
                             Ok(()) => {
                                 Action::Notice(format!("Uninstalled {name} from the environment"))
                             }
@@ -225,7 +229,7 @@ impl DependenciesTablesTabs {
                 if let Some(name) = self.selected_name() {
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
-                        match upgrade_env_dep(&name).await {
+                        match upgrade_env_dep(&RealUvClient, &name).await {
                             Ok(()) => {
                                 let _ = tx.send(Action::Notice(format!("Updated {name}")));
                                 send_env_refresh(&tx, &name).await;
@@ -245,10 +249,12 @@ impl DependenciesTablesTabs {
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
                         // Sent first, so an error from the reload below replaces it.
-                        let _ = tx.send(match pin_dep_version(&name, &constraint).await {
-                            Ok(pinned) => Action::Notice(format!("Pinned {pinned}")),
-                            Err(e) => Action::Error(e.to_string()),
-                        });
+                        let _ = tx.send(
+                            match pin_dep_version(&RealUvClient, &name, &constraint).await {
+                                Ok(pinned) => Action::Notice(format!("Pinned {pinned}")),
+                                Err(e) => Action::Error(e.to_string()),
+                            },
+                        );
                         // Reload rather than patch rows, so the tables show what uv wrote,
                         // including after a failure part-way through the memberships.
                         reload_tables(&tx).await;
@@ -288,7 +294,7 @@ impl DependenciesTablesTabs {
 /// Sends the refreshed environment entry for `name`. Silent when the package is not
 /// installed — e.g. an extra that a plain sync leaves out — since the mutation itself succeeded.
 async fn send_env_refresh(tx: &mpsc::UnboundedSender<Action>, name: &str) {
-    match get_env_package_info(name).await {
+    match get_env_package_info(&RealUvClient, name).await {
         Ok(Some(dep)) => {
             let _ = tx.send(Action::UpdatedEnvDep(dep));
         }
@@ -305,7 +311,7 @@ async fn reload_tables(tx: &mpsc::UnboundedSender<Action>) {
         Ok(deps) => Action::LoadedPyprojectDeps(deps),
         Err(e) => Action::Error(format!("pyproject.toml: {e}")),
     });
-    let _ = tx.send(match load_env_deps().await {
+    let _ = tx.send(match load_env_deps(&RealUvClient).await {
         Ok(deps) => Action::LoadedEnvDeps(deps),
         Err(e) => Action::Error(e.to_string()),
     });
