@@ -13,7 +13,7 @@ binary.
 
 ![uview showing a project's pyproject.toml dependencies, just after pinning httpx](docs/screenshot.svg)
 
-**Status: early development**, not yet a daily driver. See [Status](#status).
+**Status: early development**, not yet a daily driver.
 
 ## Requirements
 
@@ -88,16 +88,3 @@ Syncs run `uv sync --inexact`, which keeps installed packages that are not in th
 | `q` | Quit. |
 
 While you type a version, every key except `Enter` and `Esc` goes into the field.
-
-## Status
-
-uview is pre-release. Everything described above works. Notable gaps:
-
-- Adding packages ([#8](https://github.com/levakuz/uview/issues/8)).
-- Running `uv sync` as an action ([#10](https://github.com/levakuz/uview/issues/10)).
-- In a member of a uv workspace, the Environment table and **Remove** act on the member's
-  `.venv`. The workspace's own environment is not used
-  ([#58](https://github.com/levakuz/uview/issues/58)).
-
-The roadmap lives in the [milestones](https://github.com/levakuz/uview/milestones), one per
-sprint. The work items are the [issues](https://github.com/levakuz/uview/issues).
