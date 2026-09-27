@@ -64,10 +64,10 @@ impl PackageControlPopup<'_> {
     pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
         match action {
             Action::MoveUp => {
-                if let Some(selected) = self.list_state.selected() {
-                    if selected > 0 {
-                        self.list_state.select(Some(selected - 1));
-                    }
+                if let Some(selected) = self.list_state.selected()
+                    && selected > 0
+                {
+                    self.list_state.select(Some(selected - 1));
                 }
             }
             Action::MoveDown => {
