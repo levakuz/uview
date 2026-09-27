@@ -123,7 +123,7 @@ Actions enter the system through two doors, and both converge on `App::dispatch`
 
 `App::dispatch` handles `Quit`, `Error` and `Notice` itself and passes everything else to
 the active page. `Error` and `Notice` set the one-line status message that `App` renders
-below the page; `StopEditing`, which Esc produces, clears it before reaching the page. If `handle_event` returns `Some(next)`, dispatch **calls itself** with that
+below the page, beside the project root; `StopEditing`, which Esc produces, clears it before reaching the page. If `handle_event` returns `Some(next)`, dispatch **calls itself** with that
 action. This is how a component escalates: `PinVersionPopup` returns `Action::PinVersion`
 and the widget above it receives it on the next pass.
 
@@ -136,12 +136,13 @@ and the widget above it receives it on the next pass.
 
 ```
 src/
-├── main.rs                 # tokio entry point, color_eyre install
+├── main.rs                 # tokio entry point; finds the project root and makes it the cwd
 ├── lib.rs                  # public surface, so tests/ can reach controllers and ui
 ├── app.rs                  # App: event loop, channel, dispatch, active page
 ├── events.rs               # Action enum + PyprojectDependency / EnvDependency
 ├── controllers/
-│   └── dependencies.rs     # uv add/remove/lock/sync/pip, pyproject.toml parsing
+│   ├── dependencies.rs     # uv add/remove/lock/sync/pip, pyproject.toml parsing
+│   └── project.rs          # startup: the project root, or why uv would refuse it
 └── ui/
     ├── mod.rs              # Component trait
     ├── pages/
@@ -151,7 +152,7 @@ src/
         │   ├── table.rs    #   SharedTable<T: TableRow>
         │   ├── input.rs    #   UviewInput (wraps tui-input)
         │   ├── popup.rs    #   Popup — centering and Clear only
-        │   └── status_bar.rs # StatusMessage — the error/notice line owned by App
+        │   └── status_bar.rs # the bottom line owned by App: error/notice + project root
         ├── features/       # concrete, tied to this domain
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── add_packaage_popup.rs      # [sic] misspelled filename
@@ -161,7 +162,7 @@ src/
             └── dependencies_tables_tabs.rs # composes tables + popups, owns the tx
 ```
 
-**Planned, not yet written.** `controllers/project.rs`, `controllers/python.rs`,
+**Planned, not yet written.** `controllers/python.rs`,
 `ui/pages/home.rs`, `ui/pages/python.rs`. An earlier revision of the agent instructions
 listed these as if they existed; they do not. This document is now the single description
 of the module tree, and `AGENTS.md` points here rather than repeating it.
@@ -230,6 +231,14 @@ A controller function:
 - parses output into the types in `events.rs`;
 - **never** renders, holds UI state, or imports ratatui.
 
+`project.rs` is the exception. `main.rs` calls it once, synchronously, before the terminal
+is taken over, and it returns plain values rather than a `Result`; `main.rs` prints a
+failure to stderr and exits. `main.rs` starts from `UV_PROJECT` when set, else the working
+directory. From there `find_project_root` walks up to the nearest `pyproject.toml`, as
+`uv` does; an I/O error while looking counts as "no file", as it does for `uv`. `refusal`
+then rejects a project `uv` would refuse: no `[project]` table and no workspace, or
+`managed = false`.
+
 Output is read in machine-readable form: `uv pip list --format json` is deserialized
 with serde into `Vec<EnvDependency>`, and a single package's installed version is found
 by filtering that list with PEP 503 name normalization rather than by scraping
@@ -244,6 +253,8 @@ therefore deduplicates by name and accumulates the groups.
 Every `uv` invocation goes through a single `run_uv`, which returns stdout or a
 `UvError` — `Spawn` (could not start `uv`), `Failed` (non-zero exit, with the command and
 stderr) or `Parse` (output unreadable). Callers format the error into `Action::Error`.
+`uv` runs in the working directory, which `main.rs` has made the project root, without
+`UV_PROJECT`, which that root already accounts for.
 `panic!`, `unwrap` and `expect` are denied crate-wide by `[lints.clippy]` in `Cargo.toml`.
 
 ## 9. Concurrency

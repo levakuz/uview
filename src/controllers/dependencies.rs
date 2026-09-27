@@ -41,6 +41,9 @@ impl std::error::Error for UvError {}
 pub async fn run_uv(args: &[&str]) -> Result<String, UvError> {
     let output = tokio::process::Command::new("uv")
         .args(args)
+        // main.rs already turned UV_PROJECT into the working directory; left set, uv would
+        // resolve a relative value a second time, from there.
+        .env_remove("UV_PROJECT")
         .output()
         .await
         .map_err(UvError::Spawn)?;
@@ -165,7 +168,11 @@ pub async fn remove_dep_from_pyproject(
 /// The environment `uv pip` must act on: the project's, as `uv sync` resolves it. Left
 /// implicit, `uv pip` follows an activated virtualenv or conda env instead.
 fn project_env() -> String {
-    std::env::var("UV_PROJECT_ENVIRONMENT").unwrap_or_else(|_| ".venv".to_string())
+    std::env::var("UV_PROJECT_ENVIRONMENT")
+        .ok()
+        // Empty means unset to `uv sync`, but `--python ""` would mean no `--python` at all.
+        .filter(|env| !env.is_empty())
+        .unwrap_or_else(|| ".venv".to_string())
 }
 
 /// `uv pip uninstall` arguments that remove `name` from `env` only.

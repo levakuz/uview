@@ -2,13 +2,14 @@ use std::time::Duration;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEventKind};
+use ratatui::DefaultTerminal;
 use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
 use crate::controllers::dependencies;
 use crate::events::Action;
 use crate::ui::Component;
-use crate::ui::components::shared::status_bar::StatusMessage;
+use crate::ui::components::shared::status_bar::{StatusMessage, render_status_line};
 use crate::ui::pages::dependencies::DependenciesPage;
 
 pub struct App {
@@ -16,17 +17,20 @@ pub struct App {
     should_quit: bool,
     /// The latest error or notice; Esc dismisses it.
     status: Option<StatusMessage>,
+    /// The project root, shown at the right of the status line.
+    project: String,
     tx: mpsc::UnboundedSender<Action>,
     rx: mpsc::UnboundedReceiver<Action>,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(project: String) -> Self {
         let (tx, rx) = mpsc::unbounded_channel::<Action>();
         Self {
             page: DependenciesPage::new(tx.clone()),
             should_quit: false,
             status: None,
+            project,
             tx,
             rx,
         }
@@ -61,14 +65,19 @@ impl App {
             }
         });
 
+        // Restore whatever the loop returns: an I/O error must not leave the terminal raw.
+        let result = self.event_loop(&mut terminal);
+        ratatui::restore();
+        result
+    }
+
+    fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         loop {
             terminal.draw(|frame| {
                 let [main, status] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
                     .areas(frame.area());
                 self.page.render(frame, main);
-                if let Some(message) = &self.status {
-                    message.render(frame, status);
-                }
+                render_status_line(frame, status, self.status.as_ref(), &self.project);
             })?;
 
             // Poll crossterm events
@@ -92,8 +101,6 @@ impl App {
                 break;
             }
         }
-
-        ratatui::restore();
         Ok(())
     }
 
