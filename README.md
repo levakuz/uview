@@ -11,7 +11,7 @@ From either view you can pin, update or remove a package without remembering uv'
 command-line syntax. uview has no packaging logic of its own: every action runs the `uv`
 binary.
 
-![uview showing a project's pyproject.toml dependencies, just after pinning httpx](docs/screenshot.svg)
+![uview showing a project's pyproject.toml dependencies beside the uv log, just after pinning httpx](docs/screenshot.svg)
 
 **Status: early development**, not yet a daily driver.
 

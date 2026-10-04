@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
-use ratatui::text::Text;
+use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, TableState, Wrap};
 
 pub trait TableRow {
@@ -19,17 +19,17 @@ pub struct SharedTable<T: TableRow> {
     state: TableState,
     /// The key of the selected row, which the selection follows when the rows change.
     selected_key: Option<String>,
-    title: String,
+    title: Line<'static>,
     focused: bool,
     rows: PhantomData<fn(&T)>,
 }
 
 impl<T: TableRow> SharedTable<T> {
-    pub fn new(title: &str) -> Self {
+    pub fn new() -> Self {
         Self {
             state: TableState::default(),
             selected_key: None,
-            title: title.to_string(),
+            title: Line::default(),
             focused: false,
             rows: PhantomData,
         }
@@ -53,6 +53,11 @@ impl<T: TableRow> SharedTable<T> {
     fn select(&mut self, rows: &[T], index: usize) {
         self.state.select(Some(index));
         self.selected_key = rows.get(index).map(|row| row.key().to_string());
+    }
+
+    /// What the top border says, styled as it pleases.
+    pub fn set_title(&mut self, title: Line<'static>) {
+        self.title = title;
     }
 
     pub fn set_focused(&mut self, focused: bool) {
@@ -82,14 +87,10 @@ impl<T: TableRow> SharedTable<T> {
             None => self.state.select(None),
         }
         let header_cells = T::columns();
-        let num_cols = header_cells.len() as u16;
+        let cells: Vec<Vec<String>> = rows.iter().map(TableRow::cells).collect();
+        let widths = column_widths(&header_cells, &cells, area.width);
         let header = Row::new(header_cells).style(Style::new().bold());
-
-        let table_rows: Vec<Row> = rows.iter().map(|row| Row::new(row.cells())).collect();
-
-        let widths: Vec<Constraint> = (0..num_cols)
-            .map(|_| Constraint::Percentage(100 / num_cols))
-            .collect();
+        let table_rows: Vec<Row> = cells.into_iter().map(Row::new).collect();
 
         let border_style = if self.focused {
             Style::new().cyan()
@@ -105,7 +106,7 @@ impl<T: TableRow> SharedTable<T> {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(self.title.as_str())
+            .title(self.title.clone())
             .border_style(border_style);
         let [_, below_header] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(block.inner(area));
@@ -120,4 +121,25 @@ impl<T: TableRow> SharedTable<T> {
             frame.render_widget(placeholder, below_header);
         }
     }
+}
+
+/// The first column, the name, takes whatever the others leave. The others are as wide as their
+/// widest cell, header included, and no wider than a third of the table each.
+fn column_widths(header: &[&str], cells: &[Vec<String>], table_width: u16) -> Vec<Constraint> {
+    let most = table_width / 3;
+    (0..header.len())
+        .map(|column| {
+            if column == 0 {
+                return Constraint::Fill(1);
+            }
+            let widest = cells
+                .iter()
+                .filter_map(|row| row.get(column))
+                .map(|cell| Line::raw(cell.as_str()).width())
+                .chain([header[column].len()])
+                .max()
+                .unwrap_or(0);
+            Constraint::Length(u16::try_from(widest).unwrap_or(u16::MAX).min(most))
+        })
+        .collect()
 }

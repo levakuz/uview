@@ -49,9 +49,10 @@ impl PackageControlPopup<'_> {
             .highlight_style(ratatui::style::Style::default().reversed());
 
         Self {
+            // The four options inside a border.
             popup: Popup::new(PopupSize {
-                width: 40,
-                height: 10,
+                width: 30,
+                height: OPTIONS.len() as u16 + 2,
             }),
             list,
             list_state,

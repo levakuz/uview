@@ -63,8 +63,9 @@ impl App {
             terminal.draw(|frame| {
                 let [main, status] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
                     .areas(frame.area());
+                // The tables get the larger share: their names should not be cut.
                 let [left, right] =
-                    Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
                         .areas(main);
                 self.page.render(frame, left, &self.state);
                 let log = render_project_tile(frame, right, &self.state.project.root);

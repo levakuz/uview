@@ -181,7 +181,7 @@ src/
 └── ui/
     ├── mod.rs              # Component trait
     ├── pages/
-    │   └── dependencies.rs # DependenciesPage — keymap; drawn in the left half
+    │   └── dependencies.rs # DependenciesPage — keymap; drawn in the left 60%
     └── components/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>, over rows it is handed
@@ -195,7 +195,7 @@ src/
         │   ├── project_tile.rs            # top right: the project root
         │   └── uv_log.rs                  # bottom right: what uv wrote, job by job
         └── widgets/
-            └── dependencies_tables_tabs.rs # composes tables + popups, turns their results into commands
+            └── dependencies_tables_tabs.rs # tables behind tabs in their border, popups; turns their results into commands
 ```
 
 **Planned, not yet written.** `controllers/python.rs`,
@@ -220,7 +220,9 @@ Four kinds of UI code, in descending order of generality:
 - **`components/shared/`** — generic and reusable. `SharedTable<T>` renders the rows it is
   handed, of any `T: TableRow`, or the placeholder it is handed when there are none, and keeps
   only the selection, with wrap-around. The selection follows its row's `key`, the package
-  name, when the rows change. The feature layer supplies the `TableRow` impl that
+  name, when the rows change. Its first column takes the width the others leave, and the others
+  are as wide as their widest cell, up to a third of the table each. Its border's title is any
+  styled `Line`: the tables widget puts its tabs there. The feature layer supplies the `TableRow` impl that
   formats the domain type. `Popup` and `UviewInput` are
   similarly domain-free.
 
