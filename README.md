@@ -61,7 +61,9 @@ It prints why and exits instead of starting when:
 
 Until a table has loaded, it says so, and if it cannot load, it says why.
 
-**The right column** shows the project root at the top and, below it, the uv log: each
+**The right column** shows the project at the top: its name and version, as `uv version`
+reports them, in the tile's border, and its root. If uv cannot read the version, a dynamic
+one for instance, the tile shows what uv said instead. Below it is the uv log: each
 operation's name, then the lines uv printed while it ran.
 
 **The bottom line** shows what is running and the latest error or notice.

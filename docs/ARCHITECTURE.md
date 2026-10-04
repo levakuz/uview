@@ -108,7 +108,8 @@ The concrete path for a key press, using "pin a version" as the example:
 8. Each loop iteration drains the channel, and `App::receive` puts each event into the
    `AppState`: the job events into `state.jobs`, the notice into `state.message`. It answers
    `ProjectMutated` with `Command::Reload`, a read job, whose `PyprojectLoaded` and
-   `EnvLoaded` put the new rows into `state.deps`.
+   `EnvLoaded` put the new rows into `state.deps`, and `ProjectLoaded` the project's name
+   and version into `state.project`.
 9. The following `terminal.draw` renders the new state.
 
 ## 4. Messages and dispatch
@@ -120,9 +121,9 @@ Messages are split by direction of travel (`src/message.rs`, ADR-0001):
   for moving, choosing and typing, and `Deps(DepsAction)` for the dependencies page.
 - **`Command`** — an effect a component asks for: `Reload`, `Sync`, `Add`,
   `RemoveFromProject`, `Uninstall`, `Upgrade`, `Pin`.
-- **`Event`** — what a command produced: the loaded rows, `Notice(String)` and
-  `Error(String)`, and the course of its job: `JobQueued`, `JobStarted`, `JobOutput` for each
-  line its `uv` writes, and `JobFinished`.
+- **`Event`** — what a command produced: the loaded rows and the project's name and
+  version, `Notice(String)` and `Error(String)`, and the course of its job: `JobQueued`,
+  `JobStarted`, `JobOutput` for each line its `uv` writes, and `JobFinished`.
 
 The page's keymap, `DependenciesPage::action_for`, turns an `Input` into an `Action`. Ctrl+C
 becomes `Action::Cancel` wherever the focus is. While an input is open, every other key but
@@ -149,6 +150,9 @@ receiver once per loop iteration, and `App::receive` puts each event into the `A
   has focus, as a `Loadable`: `Loaded` or `Failed`. It discards a load older than the one
   shown (§9). A table with no rows shows in their place how its load is going, that it loaded
   nothing, or why it failed.
+- `ProjectLoaded` carries the project's name and version, or what uv said when it could not
+  read them, into `state.project.info`. It has no generation: nothing uview runs changes the
+  version until #24.
 - `ProjectMutated` says a mutation has ended, so what the tables show may be stale: `App`
   starts a `Command::Reload`, unless it is quitting.
 - `Notice` and `Error` set `state.message`, the one-line message below the page.
@@ -156,7 +160,10 @@ receiver once per loop iteration, and `App::receive` puts each event into the `A
   wait behind it, is drawn after a spinner at the left of the status line, and its log, each
   job's label and then what its `uv` wrote, fills the uv tile at the bottom right.
 
-Above the uv tile, the project tile shows `state.project.root`.
+Above the uv tile, the project tile shows `state.project`: the name and version as its
+title, `Project` until they load, and the root. When uv cannot read them, as for a dynamic
+version, the first line of what it said is dimmed above the root. The status line says
+nothing of it: the failure would recur on every reload, and is no mistake of the user's.
 
 ## 5. Module map
 
@@ -167,13 +174,13 @@ src/
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, status line
 ├── message.rs              # Input / Action / Command / Event
 ├── state.rs                # AppState: project, deps, jobs, message; written by App, read by views
-├── domain.rs               # PyprojectDependency, EnvDependency, Membership
+├── domain.rs               # PyprojectDependency, EnvDependency, Membership, ProjectInfo
 ├── runtime/
 │   ├── mod.rs              # what each command does, and the reload
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
-│   └── project.rs          # startup: the project root, or why uv would refuse it
+│   └── project.rs          # the project root, or why uv would refuse it; its name and version
 ├── uv/
 │   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
 │   ├── args.rs             # the argv of each operation, pure
@@ -192,7 +199,7 @@ src/
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
         │   ├── package_control_popup.rs   # the actions list
-        │   ├── project_tile.rs            # top right: the project root
+        │   ├── project_tile.rs            # top right: name and version, and the project root
         │   └── uv_log.rs                  # bottom right: what uv wrote, job by job
         └── widgets/
             └── dependencies_tables_tabs.rs # tables behind tabs in their border, popups; turns their results into commands
@@ -275,16 +282,17 @@ A controller function:
 - returns the types in `domain.rs`;
 - **never** renders, holds UI state, or imports ratatui.
 
-`project.rs` is the exception. `main.rs` calls it once, synchronously, before the terminal
-is taken over, and it returns plain values rather than a `Result`; `main.rs` prints a
-failure to stderr and exits. `main.rs` starts from `UV_PROJECT` when set, else the working
-directory. From there `find_project_root` walks up to the nearest `pyproject.toml`, as
-`uv` does; an I/O error while looking counts as "no file", as it does for `uv`. `refusal`
-then rejects a project `uv` would refuse: no `[project]` table and no workspace, or
-`managed = false`.
+`find_project_root` and `refusal`, in `project.rs`, are the exception. `main.rs` calls them
+once, synchronously, before the terminal is taken over, and they return plain values rather
+than a `Result`; `main.rs` prints a failure to stderr and exits. `main.rs` starts from
+`UV_PROJECT` when set, else the working directory. From there `find_project_root` walks up
+to the nearest `pyproject.toml`, as `uv` does; an I/O error while looking counts as "no
+file", as it does for `uv`. `refusal` then rejects a project `uv` would refuse: no
+`[project]` table and no workspace, or `managed = false`.
 
 Output is read in machine-readable form: `uv pip list --format json` is deserialized
-with serde into `Vec<EnvDependency>`.
+with serde into `Vec<EnvDependency>`, and `uv version --output-format json` into
+`ProjectInfo`.
 
 `pyproject.toml` is read and parsed directly with the `toml` crate rather than through
 `uv`, because the three dependency locations — `[project.dependencies]`,
@@ -316,10 +324,12 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   runs mutations one at a time, in the order accepted: `uv` locks the project, so of two at
   once one would fail (ADR-0003). Nothing is awaited in the loop, so a slow `uv` invocation
   cannot freeze rendering.
-- At startup, before the loop begins, `App` marks both tables `Loading` and hands the runner
-  `Command::Reload`, which reads `pyproject.toml` and then lists the environment. It sends
-  each table's rows, or why they failed, which also goes to the status line as an
-  `Event::Error`. A reload after a mutation leaves the rows in view until the new ones land.
+- At startup, before the loop begins, `App` marks both tables and the project's name and
+  version `Loading`, and hands the runner `Command::Reload`. It reads `pyproject.toml`, lists
+  the environment, then reads the name and version with `uv version`, which neither locks
+  nor syncs. It sends each table's rows, or why they failed, which also goes to the status
+  line as an `Event::Error`, and then the name and version, or what uv said. A reload after a
+  mutation leaves the rows in view until the new ones land.
 - After every mutation, done, failed or cancelled, the runner counts it in its generation
   and reports `Event::ProjectMutated`: a sequence that stopped part-way may already have
   changed `pyproject.toml`. `App` answers with `Command::Reload`, a read like any other
@@ -392,8 +402,8 @@ are noted in the file.
 Unit coverage beyond that is still thin: parsing, argument and requirement construction,
 `RealUvClient` in both directions, two operations against the fake, the job runner against
 the fake (mutations in turn, reads beside them, cancellation, `ProjectMutated` after every
-mutation, generations), the discarding of a stale reload, and the dependencies page driven
-key by key. Those tests build the `AppState` the
+mutation, generations, the project's name and version), the discarding of a stale reload,
+and the dependencies page driven key by key. Those tests build the `AppState` the
 page reads, and its `update` returns commands, so they run no runtime and no subprocess.
 Issue #25 covers expanding it.
 

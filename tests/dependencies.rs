@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::error::Error;
+use std::process::ExitStatus;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -393,6 +394,54 @@ async fn a_failed_load_reaches_its_table_and_the_status_line() -> Result<(), Box
         events
             .iter()
             .any(|e| matches!(e, Event::Error(r) if r == reason))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_reload_reads_the_projects_name_and_version() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::returning([
+        Ok("[]".into()),
+        Ok(r#"{"package_name": "acme-api", "version": "0.4.2", "commit_info": null}"#.into()),
+    ]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Reload);
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::ProjectLoaded(Ok(info)) if info.name == "acme-api" && info.version == "0.4.2"
+    )));
+    assert_eq!(uv.calls()[1], ["version", "--output-format", "json"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_version_uv_cannot_read_is_told_to_the_project_tile_alone() -> Result<(), Box<dyn Error>>
+{
+    let said = "error: We cannot get or set dynamic project versions in: pyproject.toml";
+    let uv = Arc::new(FakeUvClient::returning([
+        Ok("[]".into()),
+        Err(UvError::Failed {
+            command: "version --output-format json".into(),
+            status: ExitStatus::default(),
+            stderr: said.into(),
+        }),
+    ]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Reload);
+    let events = events_until(&mut received, finished(1)).await?;
+    // What uv said, without the command around it, and not on the status line.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ProjectLoaded(Err(r)) if r == said))
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::Error(r) if r.contains("dynamic")))
     );
     Ok(())
 }

@@ -35,3 +35,12 @@ pub struct EnvDependency {
     pub name: String,
     pub version: String,
 }
+
+/// The project's name and version, as `uv version` reports them.
+#[derive(Debug, Deserialize)]
+pub struct ProjectInfo {
+    /// Normalized: `My_Project` is `my-project`.
+    #[serde(rename = "package_name")]
+    pub name: String,
+    pub version: String,
+}

@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyEvent;
 
-use crate::domain::{EnvDependency, Membership, PyprojectDependency};
+use crate::domain::{EnvDependency, Membership, ProjectInfo, PyprojectDependency};
 
 /// What the terminal sends.
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub enum DepsAction {
 /// runtime does.
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    /// Read both tables again.
+    /// Read both tables, and the project's name and version, again.
     Reload,
     /// Bring the environment exactly in line with the lockfile: plain `uv sync`.
     Sync,
@@ -94,6 +94,10 @@ pub enum Event {
         generation: u64,
         loaded: Result<Vec<EnvDependency>, String>,
     },
+    /// The project's name and version, or what uv said when it could not read them.
+    /// ponytail: no generation, unlike the tables: nothing uview runs changes the version yet.
+    /// #24, which bumps it, adds one.
+    ProjectLoaded(Result<ProjectInfo, String>),
     /// A mutation has ended, however it did: what the views show of the project may be stale.
     ProjectMutated,
     Notice(String),
