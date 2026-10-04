@@ -75,12 +75,13 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     Ok(deps)
 }
 
-async fn sync_inexact(uv: &impl UvClient) -> Result<(), UvError> {
-    uv.run(&args::SYNC_INEXACT).await?;
+/// Syncs the environment, uninstalling what the lockfile does not list.
+pub async fn sync_exact(uv: &impl UvClient) -> Result<(), UvError> {
+    uv.run(&args::SYNC).await?;
     Ok(())
 }
 
-/// Adds `requirement` to `[project.dependencies]`, then syncs once, inexactly.
+/// Adds `requirement` to `[project.dependencies]` with `uv add`, which also installs it.
 pub async fn add_dep(uv: &impl UvClient, requirement: &str) -> Result<(), UvError> {
     uv.run(&args::membership_args(
         "add",
@@ -88,9 +89,12 @@ pub async fn add_dep(uv: &impl UvClient, requirement: &str) -> Result<(), UvErro
         &Membership::Project,
     ))
     .await?;
-    sync_inexact(uv).await
+    Ok(())
 }
 
+/// Removes `name` from every membership in pyproject.toml with `uv remove`, which also syncs
+/// exactly: the package leaves the environment too, with whatever else the lockfile no longer
+/// lists.
 pub async fn remove_dep_from_pyproject(
     uv: &impl UvClient,
     name: &str,
@@ -100,7 +104,7 @@ pub async fn remove_dep_from_pyproject(
         uv.run(&args::membership_args("remove", name, membership))
             .await?;
     }
-    sync_inexact(uv).await
+    Ok(())
 }
 
 /// The environment `uv pip` must act on: the project's, as `uv sync` resolves it. Left
@@ -166,7 +170,6 @@ pub async fn pin_dep_version(
         uv.run(&args::membership_args("add", &requirement, membership))
             .await?;
     }
-    sync_inexact(uv).await?;
     Ok(requirement)
 }
 

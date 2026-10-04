@@ -100,8 +100,8 @@ The concrete path for a key press, using "pin a version" as the example:
 6. `App::dispatch` hands the command to `JobRunner::execute`, which reports it as
    `Event::JobQueued` and queues it behind any mutation still running. When its turn comes,
    the job reports `Event::JobStarted` and runs `controllers::dependencies::pin_dep_version`.
-   Each line `uv add` and `uv sync` write to stderr comes through as `Event::JobOutput` while
-   they run.
+   Each line `uv add` writes to stderr, its sync's included, comes through as
+   `Event::JobOutput` while it runs.
 7. The job sends `Event::Notice`. The runner then reloads both tables, sending
    `Event::PyprojectLoaded` and `Event::EnvLoaded`, and reports `Event::JobFinished`.
 8. Each loop iteration drains the channel: `App` keeps the job events in `JobsState`, which
@@ -116,8 +116,8 @@ Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 - **`Input`** — what the terminal sends: `Key(KeyEvent)`.
 - **`Action`** — what the user means, nested per domain: `Quit`, `Cancel`, `Nav(NavAction)`
   for moving, choosing and typing, and `Deps(DepsAction)` for the dependencies page.
-- **`Command`** — an effect a component asks for: `Reload`, `Add`, `RemoveFromProject`,
-  `Uninstall`, `Upgrade`, `Pin`.
+- **`Command`** — an effect a component asks for: `Reload`, `Sync`, `Add`,
+  `RemoveFromProject`, `Uninstall`, `Upgrade`, `Pin`.
 - **`Event`** — what a command produced: the loaded rows, `Notice(String)` and
   `Error(String)`, and the course of its job: `JobQueued`, `JobStarted`, `JobOutput` for each
   line its `uv` writes, and `JobFinished`.
@@ -160,7 +160,7 @@ src/
 │   ├── mod.rs              # what each command does, and the reload
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation; JobsState
 ├── controllers/
-│   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall; reads pyproject.toml
+│   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
 │   └── project.rs          # startup: the project root, or why uv would refuse it
 ├── uv/
 │   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError

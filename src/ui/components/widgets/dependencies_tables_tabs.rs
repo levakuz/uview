@@ -187,6 +187,7 @@ impl DependenciesTablesTabs {
                 }
             }
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
+            Action::Deps(DepsAction::Sync) => return vec![Command::Sync],
             // Confirm and Type only mean something in an input; Quit and Cancel belong to the app.
             Action::Nav(NavAction::Confirm | NavAction::Type(_))
             | Action::Quit

@@ -72,13 +72,19 @@ Press `Space` or `Enter` on a package to open its actions:
 |---|---|
 | Pin to version | Asks for a constraint, then writes it to `pyproject.toml` with `uv add` in every group the package is declared in, and syncs. `1.2.3` becomes `==1.2.3`; `>=2.0` and `<3` are kept as typed. A package that is installed but not declared is added as a main dependency. |
 | Update | Runs `uv sync --upgrade-package`: the newest version the constraints allow. |
-| Remove | **pyproject.toml table:** runs `uv remove` for every group and extra the package is in, then syncs.<br>**Environment table:** runs `uv pip uninstall` on the environment only. `pyproject.toml` and `uv.lock` are untouched, so the next `uv sync` brings a declared package back. |
+| Remove | **pyproject.toml table:** runs `uv remove` for every group and extra the package is in, which syncs: the package leaves the environment too, with any dependency nothing else needs.<br>**Environment table:** runs `uv pip uninstall` on the environment only. `pyproject.toml` and `uv.lock` are untouched, so a declared package comes back with the next sync, which every other action runs. |
 | Cancel | Closes the list. |
 
 To add a package, press `p`, type a requirement such as `requests` or `httpx>=0.27`, and
 press `Enter`. uview adds it to `[project.dependencies]` with `uv add` and syncs.
 
-Syncs run `uv sync --inexact`, which keeps installed packages that are not in the lockfile.
+To sync the environment, press `s`. uview runs plain `uv sync`.
+
+uview runs the `uv` commands you would type yourself, and each action leaves the environment
+as its command would. `uv add`, behind Add and Pin, installs what it needs and leaves other
+packages alone. `uv remove`, behind Remove in the pyproject.toml table, and `uv sync`, behind
+`s` and Update, make the environment match the lockfile exactly: they also uninstall packages
+it does not list, such as ones installed with `uv pip install`.
 
 **Progress.** While an operation runs, the bottom line names it after a spinner, with how
 many wait behind it, and the uv log shows what uv prints as it goes. uv locks the project,
@@ -101,6 +107,7 @@ there. Quitting cancels the same way.
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
 | `p` | Add a package. |
+| `s` | Sync the environment with `uv sync`. |
 | `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. |
 | `q` | Quit, cancelling whatever is running first. |
 

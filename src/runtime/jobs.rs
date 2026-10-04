@@ -87,6 +87,7 @@ fn mutates(command: &Command) -> bool {
 fn label(command: &Command) -> String {
     match command {
         Command::Reload => "Loading dependencies".into(),
+        Command::Sync => "Syncing the environment".into(),
         Command::Add { requirement } => format!("Adding {requirement}"),
         Command::RemoveFromProject { name, .. } => format!("Removing {name}"),
         Command::Uninstall { name } => format!("Uninstalling {name}"),
@@ -186,27 +187,22 @@ impl JobsState {
                 for job in self.jobs.iter_mut().filter(|job| job.id == *id) {
                     job.started = true;
                 }
-                self.head_log(*id);
             }
             Event::JobOutput(id, line) => {
-                // Headed again if another job's header or line came between.
+                // A job's label heads its first line, and its lines again after another job's.
+                // A job that writes nothing, such as the load at startup, leaves no trace.
                 if self.logging != Some(*id) {
-                    self.head_log(*id);
+                    if let Some(job) = self.jobs.iter().find(|job| job.id == *id) {
+                        let label = job.label.clone();
+                        self.push_log(LogLine::Job(label));
+                    }
+                    self.logging = Some(*id);
                 }
                 self.push_log(LogLine::Output(line.clone()));
             }
             Event::JobFinished(id) => self.jobs.retain(|job| job.id != *id),
             _ => {}
         }
-    }
-
-    /// Starts a part of the log for job `id`, under its label.
-    fn head_log(&mut self, id: JobId) {
-        if let Some(job) = self.jobs.iter().find(|job| job.id == id) {
-            let label = job.label.clone();
-            self.push_log(LogLine::Job(label));
-        }
-        self.logging = Some(id);
     }
 
     fn push_log(&mut self, line: LogLine) {

@@ -169,3 +169,13 @@ fn ctrl_c_cancels_even_in_an_input() {
     assert!(page.is_editing());
     assert!(matches!(page.action_for(&ctrl_c), Some(Action::Cancel)));
 }
+
+#[test]
+fn s_syncs_outside_an_input() {
+    let mut page = page_with(&["six"]);
+    assert_eq!(press(&mut page, KeyCode::Char('s')), [Command::Sync]);
+    // In an input, it is typed.
+    press(&mut page, KeyCode::Char('p'));
+    assert!(press(&mut page, KeyCode::Char('s')).is_empty());
+    assert!(page.is_editing());
+}

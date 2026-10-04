@@ -7,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::controllers::dependencies::{
     add_dep, load_env_deps, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
-    uninstall_from_env, upgrade_env_dep,
+    sync_exact, uninstall_from_env, upgrade_env_dep,
 };
 use crate::message::{Command, Event};
 use crate::uv::{UvClient, UvError};
@@ -17,6 +17,9 @@ use crate::uv::{UvClient, UvError};
 async fn run(command: Command, uv: &impl UvClient, events: &UnboundedSender<Event>) {
     let outcome = match command {
         Command::Reload => return reload(uv, events).await,
+        Command::Sync => sync_exact(uv)
+            .await
+            .map(|()| "Synced the environment".to_string()),
         Command::Add { requirement } => add_dep(uv, &requirement)
             .await
             .map(|()| format!("Added {requirement}")),

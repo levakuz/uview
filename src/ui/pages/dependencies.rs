@@ -52,6 +52,7 @@ impl DependenciesPage {
                 Action::Deps(DepsAction::SwitchTable)
             }
             KeyCode::Char('p') => Action::Deps(DepsAction::OpenAdd),
+            KeyCode::Char('s') => Action::Deps(DepsAction::Sync),
             _ => return None,
         })
     }

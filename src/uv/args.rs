@@ -2,20 +2,19 @@
 
 use crate::domain::Membership;
 
-/// Brings the environment up to date without uninstalling packages the lockfile does not
-/// list. A package just removed from pyproject.toml therefore stays installed; the
-/// Environment table can uninstall it.
-pub const SYNC_INEXACT: [&str; 2] = ["sync", "--inexact"];
+/// Brings the environment exactly in line with the lockfile: packages it does not list, such
+/// as `uv pip install`ed ones, are uninstalled.
+pub const SYNC: [&str; 1] = ["sync"];
 
-/// `uv remove` / `uv add` arguments acting on one membership. `--no-sync`: the caller
-/// syncs once, inexactly, afterwards; each implicit sync would be exact and uninstall
-/// whatever the lockfile does not list, such as `uv pip install`ed tools.
+/// `uv remove` / `uv add` arguments acting on one membership. Each syncs the environment as it
+/// ends, as in a shell: `uv add` installs what it needs, and `uv remove` also uninstalls what
+/// the lockfile no longer lists.
 pub fn membership_args<'a>(
     verb: &'a str,
     target: &'a str,
     membership: &'a Membership,
 ) -> Vec<&'a str> {
-    let mut args = vec![verb, "--no-sync", target];
+    let mut args = vec![verb, target];
     match membership {
         Membership::Project => {}
         Membership::Group(name) => args.extend(["--group", name.as_str()]),
@@ -24,9 +23,9 @@ pub fn membership_args<'a>(
     args
 }
 
-/// Upgrades `name` within its constraints, inexactly for the same reason as [`SYNC_INEXACT`].
-pub fn upgrade_args(name: &str) -> [&str; 4] {
-    ["sync", "--inexact", "--upgrade-package", name]
+/// Upgrades `name` within its constraints, and syncs exactly.
+pub fn upgrade_args(name: &str) -> [&str; 3] {
+    ["sync", "--upgrade-package", name]
 }
 
 /// `uv pip list` arguments that read the packages installed in `env` as JSON.

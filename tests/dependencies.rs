@@ -206,7 +206,6 @@ async fn uv_add_streams_its_lines_and_a_cancel_puts_pyproject_back() -> Result<(
     let dir_arg = dir.to_string_lossy();
     let args = [
         "add",
-        "--no-sync",
         "requests",
         "--directory",
         &dir_arg,
@@ -256,16 +255,16 @@ fn membership_args_pick_the_flag_for_each_membership() {
     let main_group = Membership::Group("main".into());
     assert_eq!(
         membership_args("remove", "httpx", &Membership::Project),
-        ["remove", "--no-sync", "httpx"]
+        ["remove", "httpx"]
     );
     // A dependency group that happens to be named `main` is still a group.
     assert_eq!(
         membership_args("remove", "pytest", &main_group),
-        ["remove", "--no-sync", "pytest", "--group", "main"]
+        ["remove", "pytest", "--group", "main"]
     );
     assert_eq!(
         membership_args("add", "flask==3.0", &Membership::Extra("web".into())),
-        ["add", "--no-sync", "flask==3.0", "--optional", "web"]
+        ["add", "flask==3.0", "--optional", "web"]
     );
 }
 
@@ -286,32 +285,25 @@ fn normalize_ignores_case_separators_and_extras() {
 }
 
 #[tokio::test]
-async fn remove_runs_uv_remove_per_membership_then_one_inexact_sync() -> Result<(), UvError> {
+async fn remove_runs_uv_remove_per_membership() -> Result<(), UvError> {
     let uv = FakeUvClient::default();
     let memberships = vec![Membership::Project, Membership::Group("dev".into())];
     remove_dep_from_pyproject(&uv, "httpx", memberships).await?;
     assert_eq!(
         uv.calls(),
         [
-            vec!["remove", "--no-sync", "httpx"],
-            vec!["remove", "--no-sync", "httpx", "--group", "dev"],
-            vec!["sync", "--inexact"],
+            vec!["remove", "httpx"],
+            vec!["remove", "httpx", "--group", "dev"],
         ]
     );
     Ok(())
 }
 
 #[tokio::test]
-async fn add_runs_uv_add_then_one_inexact_sync() -> Result<(), UvError> {
+async fn add_runs_uv_add_alone() -> Result<(), UvError> {
     let uv = FakeUvClient::default();
     add_dep(&uv, "httpx>=0.27").await?;
-    assert_eq!(
-        uv.calls(),
-        [
-            vec!["add", "--no-sync", "httpx>=0.27"],
-            vec!["sync", "--inexact"],
-        ]
-    );
+    assert_eq!(uv.calls(), [vec!["add", "httpx>=0.27"],]);
     Ok(())
 }
 
@@ -340,8 +332,28 @@ async fn every_mutation_reloads_the_tables_however_it_ends() -> Result<(), Box<d
     let commands: Vec<String> = uv.calls().iter().map(|call| call[..2].join(" ")).collect();
     assert_eq!(
         commands,
-        ["sync --inexact", "pip list", "add --no-sync", "pip list"]
+        [
+            "sync --upgrade-package",
+            "pip list",
+            "add httpx",
+            "pip list"
+        ]
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sync_runs_plain_uv_sync_then_reloads() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::default());
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Sync);
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(notice("Synced the environment")));
+    let calls = uv.calls();
+    // Exact, unlike the syncs inside other operations.
+    assert_eq!(calls[0], ["sync"]);
+    assert_eq!(calls[1][..2], ["pip", "list"]);
     Ok(())
 }
 
@@ -381,7 +393,7 @@ async fn cancel_stops_the_running_job_and_drops_the_waiting() -> Result<(), Box<
     // pyproject.toml. The upgrade never ran.
     assert_eq!(uv.dropped.load(Ordering::SeqCst), 1);
     let commands: Vec<String> = uv.calls().iter().map(|call| call[..2].join(" ")).collect();
-    assert_eq!(commands, ["add --no-sync", "pip list"]);
+    assert_eq!(commands, ["add httpx", "pip list"]);
     // A job accepted after the cancel runs as usual.
     runner.execute(Command::Upgrade { name: "six".into() });
     let events = events_until(&mut received, finished(3)).await?;
@@ -434,11 +446,11 @@ fn the_log_heads_each_jobs_lines_with_its_label() {
             LogLine::Output(text) => text.clone(),
         })
         .collect();
-    // Every job is headed as it starts, and headed again when its lines resume after another's.
+    // A job is headed by its first line, and again when its lines resume after another's. The
+    // load had written nothing until then, so it had no header.
     assert_eq!(
         log,
         [
-            "# Loading dependencies",
             "# Updating six",
             "Resolved 2 packages",
             "Audited 1 package",
