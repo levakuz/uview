@@ -11,9 +11,7 @@ Claude Code reads this through the `@AGENTS.md` import in `CLAUDE.md`.
 manager, written in Rust (edition 2024) on ratatui. It owns no packaging logic of its
 own — every operation is delegated to the `uv` binary as a subprocess.
 
-Requirements live in the project documentation in Notion. Sprint goals, process
-decisions and retrospectives live in the Notion Sprint Tracker. Architecture decisions
-live in `docs/adr/`. Tasks and their status live in
+Architecture decisions live in `docs/adr/`. Tasks and their status live in
 [GitHub issues](https://github.com/levakuz/uview/issues).
 
 ## Commands
