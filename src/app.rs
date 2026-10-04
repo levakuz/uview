@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 
 use crate::message::{Action, Command, Event, Input, NavAction};
 use crate::runtime::jobs::JobRunner;
-use crate::state::{AppState, Message, ProjectState};
+use crate::state::{AppState, Loadable, Message, ProjectState};
 use crate::ui::Component;
 use crate::ui::components::features::project_tile::render_project_tile;
 use crate::ui::components::features::uv_log::render_uv_log;
@@ -46,6 +46,9 @@ impl App {
     pub async fn run(&mut self) -> Result<()> {
         // Also installs a panic hook that restores the terminal; must stay after color_eyre::install.
         let mut terminal = ratatui::init();
+        let since = Instant::now();
+        self.state.deps.pyproject = Loadable::Loading { since };
+        self.state.deps.env = Loadable::Loading { since };
         self.runner.execute(Command::Reload);
 
         // Restore whatever the loop returns: an I/O error must not leave the terminal raw.
@@ -125,8 +128,8 @@ impl App {
     /// Puts what a command produced into the state, where every view reads it.
     fn receive(&mut self, event: Event) {
         match event {
-            Event::PyprojectLoaded(deps) => self.state.deps.pyproject = deps,
-            Event::EnvLoaded(deps) => self.state.deps.env = deps,
+            Event::PyprojectLoaded(loaded) => self.state.deps.pyproject = loaded.into(),
+            Event::EnvLoaded(loaded) => self.state.deps.env = loaded.into(),
             Event::Notice(msg) => self.state.message = Some(Message::Info(msg)),
             Event::Error(msg) => self.state.message = Some(Message::Error(msg)),
             Event::JobQueued { .. }

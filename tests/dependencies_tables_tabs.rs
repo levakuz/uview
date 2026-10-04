@@ -1,9 +1,11 @@
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 use ratatui::{Terminal, backend::TestBackend};
-use uview::domain::EnvDependency;
+use std::time::{Duration, Instant};
+
+use uview::domain::{EnvDependency, Membership, PyprojectDependency};
 use uview::message::{Action, DepsAction};
-use uview::state::DepsState;
+use uview::state::{DepsState, Loadable};
 use uview::ui::components::widgets::dependencies_tables_tabs::DependenciesTablesTabs;
 
 fn tabs() -> DependenciesTablesTabs {
@@ -59,7 +61,7 @@ fn tabs_cut_short_keep_the_right_corner() -> Result<(), Box<dyn std::error::Erro
 #[test]
 fn the_first_row_is_highlighted_before_any_key() -> Result<(), Box<dyn std::error::Error>> {
     let deps = DepsState {
-        env: vec![
+        env: Loadable::Loaded(vec![
             EnvDependency {
                 name: "six".into(),
                 version: "1.17.0".into(),
@@ -68,7 +70,7 @@ fn the_first_row_is_highlighted_before_any_key() -> Result<(), Box<dyn std::erro
                 name: "idna".into(),
                 version: "3.10".into(),
             },
-        ],
+        ]),
         ..DepsState::default()
     };
     let mut tabs = tabs();
@@ -79,5 +81,50 @@ fn the_first_row_is_highlighted_before_any_key() -> Result<(), Box<dyn std::erro
     // Below the border and the header: six, highlighted, then idna.
     assert!(buffer[(1, 2)].modifier.contains(Modifier::REVERSED));
     assert!(!buffer[(1, 3)].modifier.contains(Modifier::REVERSED));
+    Ok(())
+}
+
+/// What the pyproject table shows below its header when its rows are `pyproject`.
+fn first_line(
+    pyproject: Loadable<Vec<PyprojectDependency>>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let deps = DepsState {
+        pyproject,
+        ..DepsState::default()
+    };
+    let mut terminal = Terminal::new(TestBackend::new(60, 5))?;
+    terminal.draw(|frame| tabs().render(frame, frame.area(), &deps))?;
+    let buffer = terminal.backend().buffer();
+    Ok((1..59)
+        .map(|x| buffer[(x, 2)].symbol())
+        .collect::<String>()
+        .trim_end()
+        .to_string())
+}
+
+#[test]
+fn each_load_state_shows_differently() -> Result<(), Box<dyn std::error::Error>> {
+    // Nothing has asked for the rows yet.
+    assert_eq!(first_line(Loadable::NotLoaded)?, "");
+    let now = Instant::now();
+    assert_eq!(first_line(Loadable::Loading { since: now })?, "Loading…");
+    let since = now
+        .checked_sub(Duration::from_secs(5))
+        .ok_or("clock too young")?;
+    assert_eq!(first_line(Loadable::Loading { since })?, "Loading… 5s");
+    assert_eq!(
+        first_line(Loadable::Loaded(Vec::new()))?,
+        "No dependencies yet. Press p to add one."
+    );
+    assert_eq!(
+        first_line(Loadable::Failed("No such file or directory".into()))?,
+        "Could not read pyproject.toml: No such file or directory"
+    );
+    let six = PyprojectDependency {
+        name: "six".into(),
+        groups: vec![Membership::Project],
+        version_constraint: ">=1.17".into(),
+    };
+    assert!(first_line(Loadable::Loaded(vec![six]))?.starts_with("six"));
     Ok(())
 }

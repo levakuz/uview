@@ -1,7 +1,7 @@
 use crate::{
     domain::{EnvDependency, PyprojectDependency},
     message::{Action, Command, DepsAction, NavAction},
-    state::DepsState,
+    state::{DepsState, Loadable},
     ui::components::{
         features::{
             input_popup::InputPopup,
@@ -14,6 +14,7 @@ use ratatui::{Frame, symbols, widgets::Tabs};
 use ratatui::{
     layout::{Margin, Rect},
     style::{Style, Stylize},
+    text::Text,
 };
 #[derive(PartialEq)]
 enum ActiveTable {
@@ -97,8 +98,24 @@ impl DependenciesTablesTabs {
     }
     fn render_content(&mut self, frame: &mut Frame, area: Rect, deps: &DepsState) {
         match self.active_table {
-            ActiveTable::Pyproject => self.pyproject_table.render(frame, area, &deps.pyproject),
-            ActiveTable::Environment => self.env_table.render(frame, area, &deps.env),
+            ActiveTable::Pyproject => {
+                let placeholder = placeholder(
+                    &deps.pyproject,
+                    "No dependencies yet. Press p to add one.",
+                    "Could not read pyproject.toml",
+                );
+                let rows = deps.pyproject.rows();
+                self.pyproject_table.render(frame, area, rows, placeholder);
+            }
+            ActiveTable::Environment => {
+                let placeholder = placeholder(
+                    &deps.env,
+                    "Nothing installed yet. Press s to sync.",
+                    "Could not list the environment",
+                );
+                self.env_table
+                    .render(frame, area, deps.env.rows(), placeholder);
+            }
         }
     }
 
@@ -106,9 +123,12 @@ impl DependenciesTablesTabs {
         match self.active_table {
             ActiveTable::Pyproject => self
                 .pyproject_table
-                .selected(&deps.pyproject)
+                .selected(deps.pyproject.rows())
                 .map(|d| d.name.clone()),
-            ActiveTable::Environment => self.env_table.selected(&deps.env).map(|d| d.name.clone()),
+            ActiveTable::Environment => self
+                .env_table
+                .selected(deps.env.rows())
+                .map(|d| d.name.clone()),
         }
     }
 
@@ -143,18 +163,18 @@ impl DependenciesTablesTabs {
                 if self.show_package_control_popup {
                     self.package_control_popup.up();
                 } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.previous(deps.pyproject.len());
+                    self.pyproject_table.previous(deps.pyproject.rows().len());
                 } else {
-                    self.env_table.previous(deps.env.len());
+                    self.env_table.previous(deps.env.rows().len());
                 }
             }
             Action::Nav(NavAction::Down) => {
                 if self.show_package_control_popup {
                     self.package_control_popup.down();
                 } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.next(deps.pyproject.len());
+                    self.pyproject_table.next(deps.pyproject.rows().len());
                 } else {
-                    self.env_table.next(deps.env.len());
+                    self.env_table.next(deps.env.rows().len());
                 }
             }
             Action::Nav(NavAction::Select) => {
@@ -209,6 +229,7 @@ impl DependenciesTablesTabs {
         match self.active_table {
             ActiveTable::Pyproject => {
                 deps.pyproject
+                    .rows()
                     .iter()
                     .find(|d| d.name == name)
                     .map(|d| Command::RemoveFromProject {
@@ -220,6 +241,7 @@ impl DependenciesTablesTabs {
             // come with #12.
             ActiveTable::Environment => {
                 deps.env
+                    .rows()
                     .iter()
                     .find(|d| d.name == name)
                     .map(|d| Command::Uninstall {
@@ -227,5 +249,20 @@ impl DependenciesTablesTabs {
                     })
             }
         }
+    }
+}
+
+/// What a table shows in place of rows: how its load is going, that it loaded nothing, or why
+/// it failed.
+fn placeholder<T>(loadable: &Loadable<Vec<T>>, empty: &'static str, failed: &str) -> Text<'static> {
+    match loadable {
+        Loadable::NotLoaded => Text::default(),
+        Loadable::Loading { since } => match since.elapsed().as_secs() {
+            // A slow load says how long it has taken.
+            waited @ 2.. => Text::from(format!("Loading… {waited}s")).dark_gray(),
+            _ => Text::from("Loading…").dark_gray(),
+        },
+        Loadable::Loaded(_) => Text::from(empty).dark_gray(),
+        Loadable::Failed(reason) => Text::from(format!("{failed}: {reason}")).red(),
     }
 }

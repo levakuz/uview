@@ -82,8 +82,10 @@ pub struct JobId(pub u64);
 /// page.
 #[derive(Debug)]
 pub enum Event {
-    PyprojectLoaded(Vec<PyprojectDependency>),
-    EnvLoaded(Vec<EnvDependency>),
+    /// The pyproject table's rows, or why they could not be read.
+    PyprojectLoaded(Result<Vec<PyprojectDependency>, String>),
+    /// The Environment table's rows, or why they could not be listed.
+    EnvLoaded(Result<Vec<EnvDependency>, String>),
     Notice(String),
     Error(String),
     /// A command became a job, named by `label`. It may wait behind a running mutation.

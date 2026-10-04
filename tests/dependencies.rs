@@ -326,7 +326,7 @@ async fn every_mutation_reloads_the_tables_however_it_ends() -> Result<(), Box<d
     assert!(events.iter().any(notice("Updated six")));
     // The whole environment, not just the upgraded row: uv may have upgraded its dependencies.
     let reloaded = events.iter().find_map(|event| match event {
-        Event::EnvLoaded(deps) => deps.first(),
+        Event::EnvLoaded(Ok(deps)) => deps.first(),
         _ => None,
     });
     assert_eq!(reloaded.map(|dep| dep.version.as_str()), Some("1.17.0"));
@@ -355,6 +355,54 @@ async fn sync_runs_plain_uv_sync_then_reloads() -> Result<(), Box<dyn Error>> {
     // Exact, unlike the syncs inside other operations.
     assert_eq!(calls[0], ["sync"]);
     assert_eq!(calls[1][..2], ["pip", "list"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_load_reaches_its_table_and_the_status_line() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::returning([Err(UvError::Parse(
+        "bad json".into(),
+    ))]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Reload);
+    let events = events_until(&mut received, finished(1)).await?;
+    let reason = "could not read `uv` output: bad json";
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::EnvLoaded(Err(r)) if r == reason))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Error(r) if r == reason))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_cancelled_load_is_not_left_loading() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::hanging_on("pip"));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Reload);
+    events_until(&mut received, started(1)).await?;
+    runner.cancel();
+    let events = events_until(&mut received, finished(1)).await?;
+    // The table says why it has no rows; the status line says the job was cancelled, not that
+    // something failed.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::EnvLoaded(Err(r)) if r == "cancelled"))
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::Error(r) if r == "cancelled"))
+    );
+    assert!(events.iter().any(notice("Cancelled: Loading dependencies")));
     Ok(())
 }
 

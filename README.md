@@ -59,6 +59,8 @@ It prints why and exits instead of starting when:
   the project root, or the path in `UV_PROJECT_ENVIRONMENT`, not whichever virtualenv is
   activated. If the environment does not exist yet, run `uv sync` once.
 
+Until a table has loaded, it says so, and if it cannot load, it says why.
+
 **The right column** shows the project root at the top and, below it, the uv log: each
 operation's name, then the lines uv printed while it ran.
 

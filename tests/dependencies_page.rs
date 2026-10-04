@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use uview::domain::{Membership, PyprojectDependency};
 use uview::message::{Action, Command, Input};
-use uview::state::AppState;
+use uview::state::{AppState, Loadable};
 use uview::ui::Component;
 use uview::ui::pages::dependencies::DependenciesPage;
 
@@ -24,7 +24,7 @@ impl Screen {
     /// A screen whose pyproject table lists `names`.
     fn with(names: &[&str]) -> Self {
         let mut state = AppState::default();
-        state.deps.pyproject = names.iter().map(|name| package(name)).collect();
+        state.deps.pyproject = Loadable::Loaded(names.iter().map(|name| package(name)).collect());
         Self {
             page: DependenciesPage::new(),
             state,
@@ -126,7 +126,7 @@ fn the_actions_act_on_the_row_they_were_opened_for() {
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
     // A reload lands while the list is open for httpx, and the selected row is now requests.
-    screen.state.deps.pyproject = vec![package("httpx"), package("requests")];
+    screen.state.deps.pyproject = Loadable::Loaded(vec![package("httpx"), package("requests")]);
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Down);
     assert_eq!(
@@ -143,7 +143,7 @@ fn a_load_that_lands_while_typing_is_kept() {
     let mut screen = Screen::with(&["six"]);
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Enter);
-    screen.state.deps.pyproject = vec![package("six"), package("idna")];
+    screen.state.deps.pyproject = Loadable::Loaded(vec![package("six"), package("idna")]);
     screen.press(KeyCode::Esc);
     // idna arrived while the version input was open.
     screen.press(KeyCode::Down);
@@ -195,7 +195,7 @@ fn a_selection_past_the_rows_falls_back_to_the_last() {
     let mut screen = Screen::with(&["anyio", "httpx", "requests"]);
     screen.press(KeyCode::Up);
     // A reload leaves fewer rows than the selection was down.
-    screen.state.deps.pyproject = vec![package("anyio"), package("httpx")];
+    screen.state.deps.pyproject = Loadable::Loaded(vec![package("anyio"), package("httpx")]);
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Down);
