@@ -25,8 +25,12 @@ impl DependenciesPage {
     /// The page's keymap: what `input` means here, if anything.
     pub fn action_for(&self, input: &Input) -> Option<Action> {
         let Input::Key(key) = input;
+        // Stops whatever uv is doing, wherever the focus is.
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Some(Action::Cancel);
+        }
         if self.is_editing() {
-            // Every key but Enter and Esc goes into the field.
+            // Every other key but Enter and Esc goes into the field.
             return Some(Action::Nav(match key.code {
                 KeyCode::Enter => NavAction::Confirm,
                 KeyCode::Esc => NavAction::Back,

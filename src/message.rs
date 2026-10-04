@@ -15,6 +15,8 @@ pub enum Input {
 #[derive(Debug)]
 pub enum Action {
     Quit,
+    /// Stop every job: the running ones and those waiting behind them.
+    Cancel,
     Nav(NavAction),
     Deps(DepsAction),
 }
@@ -69,12 +71,24 @@ pub enum Command {
     },
 }
 
-/// What a command produced. The app shows notices and errors and hands the rest to the page.
+/// Names a job: a command the runtime has accepted, from then until it finishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobId(pub u64);
+
+/// What a command produced. The app shows notices, errors and jobs, and hands the rest to the
+/// page.
 #[derive(Debug)]
 pub enum Event {
     PyprojectLoaded(Vec<PyprojectDependency>),
     EnvLoaded(Vec<EnvDependency>),
-    EnvUpdated(EnvDependency),
     Notice(String),
     Error(String),
+    /// A command became a job, named by `label`. It may wait behind a running mutation.
+    JobQueued {
+        id: JobId,
+        label: String,
+    },
+    JobStarted(JobId),
+    /// The job is over: done, failed or cancelled.
+    JobFinished(JobId),
 }

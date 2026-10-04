@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use uview::domain::{Membership, PyprojectDependency};
-use uview::message::{Command, Event, Input};
+use uview::message::{Action, Command, Event, Input};
 use uview::ui::Component;
 use uview::ui::pages::dependencies::DependenciesPage;
 
@@ -158,4 +158,14 @@ fn alt_keys_do_nothing_outside_an_input() {
     let page = page_with(&["six"]);
     let alt_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
     assert!(page.action_for(&Input::Key(alt_enter)).is_none());
+}
+
+#[test]
+fn ctrl_c_cancels_even_in_an_input() {
+    let mut page = page_with(&["six"]);
+    let ctrl_c = Input::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    assert!(matches!(page.action_for(&ctrl_c), Some(Action::Cancel)));
+    press(&mut page, KeyCode::Char('p'));
+    assert!(page.is_editing());
+    assert!(matches!(page.action_for(&ctrl_c), Some(Action::Cancel)));
 }

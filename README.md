@@ -78,6 +78,16 @@ press `Enter`. uview adds it to `[project.dependencies]` with `uv add` and syncs
 
 Syncs run `uv sync --inexact`, which keeps installed packages that are not in the lockfile.
 
+**Progress.** While an operation runs, the bottom line names it after a spinner, with how
+many wait behind it. uv locks the project, so uview runs one change at a time, in the order
+you asked for them. After each, both tables are read again.
+
+**Cancelling.** `Ctrl+C` cancels the running operation and those waiting. On macOS and
+Linux, uview stops `uv` as Ctrl+C would in a shell: an add or a pin cancelled while `uv`
+resolves it leaves `pyproject.toml` as it was. Cancelled at another step, or on Windows, an
+operation may already have changed the project. Either way, the tables then show what is
+there. Quitting cancels the same way.
+
 ### Keybindings
 
 | Key | Action |
@@ -88,6 +98,8 @@ Syncs run `uv sync --inexact`, which keeps installed packages that are not in th
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
 | `p` | Add a package. |
-| `q` | Quit. |
+| `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. |
+| `q` | Quit, cancelling whatever is running first. |
 
-While you type into an input, every key except `Enter` and `Esc` goes into the field.
+While you type into an input, every key except `Enter`, `Esc` and `Ctrl+C` goes into the
+field.

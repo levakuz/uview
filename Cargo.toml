@@ -12,6 +12,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 tui-input = "*"
+tokio-util = "0.7.19"
+
+[target.'cfg(unix)'.dependencies]
+# Sends SIGINT to a cancelled `uv`. Already built for crossterm; this adds the process API.
+rustix = { version = "1.1.4", features = ["process"] }
 
 # The app owns a raw-mode terminal; see AGENTS.md "Code conventions".
 [lints.clippy]

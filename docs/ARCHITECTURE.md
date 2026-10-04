@@ -43,9 +43,9 @@ There are four layers, plus a thin application shell.
 
 | Layer | Location | Responsibility | Must not |
 |---|---|---|---|
-| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel and the active page; hands commands to the runtime | Contain feature logic |
+| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel, the active page and the job runner; hands commands to the runner and shows what it runs | Contain feature logic |
 | **UI** | `src/ui/` | Render frames, turn input into actions and actions into commands, hold view state | Spawn tasks, call controllers, read the filesystem |
-| **Runtime** | `src/runtime/` | Run each command as a task through the controllers, report its outcome as events | Render, hold UI state, know about ratatui |
+| **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
 | **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml` | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
 
@@ -76,13 +76,13 @@ spawns tasks.
                     │  events_rx.try_recv() ◀── Event ──┐     │    │
                     │        │                          │     │    │
                     │        ▼                          │     │    │
-                    │  status line, or page.apply       │     │    │
+                    │  jobs, status line or page.apply  │     │    │
                     │                                   │     │    │
                     │  terminal.draw(page.render)       │     │    │
                     └───────────────────────────────────┼─────┼────┘
                                                         │     ▼
                     ┌───────────────────────────────────┴──────────┐
-                    │  runtime::execute: one task per command      │
+                    │  JobRunner: mutations in turn, reads at once │
                     │  controllers::* → uv add / remove / sync / … │
                     └──────────────────────────────────────────────┘
 ```
@@ -97,12 +97,14 @@ The concrete path for a key press, using "pin a version" as the example:
 4. The widget sends it to the input that is open, the pin input (an `InputPopup`), which
    returns the version typed.
 5. The widget returns `Command::Pin` for the package the actions list was opened for.
-6. `App::dispatch` hands the command to `runtime::execute`, which spawns a task running
-   `controllers::dependencies::pin_dep_version`.
-7. The task sends `Event::Notice`, then reloads both tables and sends
-   `Event::PyprojectLoaded` and `Event::EnvLoaded` through the event channel.
-8. The next loop iteration drains the channel: `App` shows the notice and hands the loaded
-   rows to `DependenciesPage::apply`.
+6. `App::dispatch` hands the command to `JobRunner::execute`, which reports it as
+   `Event::JobQueued` and queues it behind any mutation still running. When its turn comes,
+   the job reports `Event::JobStarted` and runs `controllers::dependencies::pin_dep_version`.
+7. The job sends `Event::Notice`. The runner then reloads both tables, sending
+   `Event::PyprojectLoaded` and `Event::EnvLoaded`, and reports `Event::JobFinished`.
+8. Each loop iteration drains the channel: `App` keeps the job events in `JobsState`, which
+   the spinner on the status line reads, shows the notice, and hands the loaded rows to
+   `DependenciesPage::apply`.
 9. The following `terminal.draw` renders the new state.
 
 ## 4. Messages and dispatch
@@ -110,19 +112,20 @@ The concrete path for a key press, using "pin a version" as the example:
 Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 
 - **`Input`** — what the terminal sends: `Key(KeyEvent)`.
-- **`Action`** — what the user means, nested per domain: `Quit`, `Nav(NavAction)` for
-  moving, choosing and typing, and `Deps(DepsAction)` for the dependencies page.
+- **`Action`** — what the user means, nested per domain: `Quit`, `Cancel`, `Nav(NavAction)`
+  for moving, choosing and typing, and `Deps(DepsAction)` for the dependencies page.
 - **`Command`** — an effect a component asks for: `Reload`, `Add`, `RemoveFromProject`,
   `Uninstall`, `Upgrade`, `Pin`.
 - **`Event`** — what a command produced: the loaded rows, `Notice(String)` and
-  `Error(String)`.
+  `Error(String)`, and the course of its job: `JobQueued`, `JobStarted` and `JobFinished`.
 
-The page's keymap, `DependenciesPage::action_for`, turns an `Input` into an `Action`. While
-an input is open, every key but Enter and Esc becomes `NavAction::Type`. Outside an input,
+The page's keymap, `DependenciesPage::action_for`, turns an `Input` into an `Action`. Ctrl+C
+becomes `Action::Cancel` wherever the focus is. While an input is open, every other key but
+Enter and Esc becomes `NavAction::Type`. Outside an input,
 Alt+key means nothing, because Esc read together with the next key arrives as Alt+key.
 
-`App::dispatch` handles `Quit` itself and hands every other action to the page's `update`,
-which returns `Vec<Command>`. Each command goes to `runtime::execute`. Esc, as
+`App::dispatch` handles `Quit` and `Cancel` itself and hands every other action to the page's
+`update`, which returns `Vec<Command>`. Each command goes to `JobRunner::execute`. Esc, as
 `NavAction::Back`, also dismisses the status message. Components return commands, never
 actions, so nothing comes back into `dispatch` and it cannot recurse. ADR-0001 planned an
 explicit work queue against that recursion; with no action coming back, there is nothing to
@@ -134,7 +137,9 @@ turns that into a command.
 
 The runtime sends `Event`s through one `mpsc::UnboundedSender<Event>`. `App` drains the
 receiver once per loop iteration. `Notice` and `Error` set the one-line status message it
-renders below the page, beside the project root. Every other event goes to
+renders below the page, beside the project root. The job events go to `JobsState`, whose
+summary, the oldest job and how many wait behind it, is drawn after a spinner at the left of
+that line. Every other event goes to
 `DependenciesPage::apply`, which puts the rows into the tables whatever has focus: until
 `AppState` exists (#43), the tables are where the data lives.
 
@@ -148,7 +153,8 @@ src/
 ├── message.rs              # Input / Action / Command / Event
 ├── domain.rs               # PyprojectDependency, EnvDependency, Membership
 ├── runtime/
-│   └── mod.rs              # runs each command as a task and reports events; the only spawn
+│   ├── mod.rs              # what each command does, and the reload
+│   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation; JobsState
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall; reads pyproject.toml
 │   └── project.rs          # startup: the project root, or why uv would refuse it
@@ -165,7 +171,7 @@ src/
         │   ├── table.rs    #   SharedTable<T: TableRow>
         │   ├── input.rs    #   UviewInput (wraps tui-input)
         │   ├── popup.rs    #   Popup — centering and Clear only
-        │   └── status_bar.rs # the bottom line owned by App: error/notice + project root
+        │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice, project root
         ├── features/       # concrete, tied to this domain
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
@@ -256,9 +262,7 @@ then rejects a project `uv` would refuse: no `[project]` table and no workspace,
 `managed = false`.
 
 Output is read in machine-readable form: `uv pip list --format json` is deserialized
-with serde into `Vec<EnvDependency>`, and a single package's installed version is found
-by filtering that list with PEP 503 name normalization rather than by scraping
-`uv pip show`.
+with serde into `Vec<EnvDependency>`.
 
 `pyproject.toml` is read and parsed directly with the `toml` crate rather than through
 `uv`, because the three dependency locations — `[project.dependencies]`,
@@ -268,7 +272,9 @@ therefore deduplicates by name and accumulates the groups.
 
 Every `uv` invocation goes through `UvClient::run`, which returns stdout or a
 `UvError` — `Spawn` (could not start `uv`), `Failed` (non-zero exit, with the command and
-stderr) or `Parse` (output unreadable). The runtime formats the error into `Event::Error`.
+stderr), `Parse` (output unreadable) or `Cancelled`. Inside a job, `run` is the client's
+`run_cancellable` with the job's token (§9). The runtime formats the error into
+`Event::Error`, except `Cancelled`, which the runner reports as a notice.
 `RealUvClient` is the only implementation in `src/` and the only code that starts a
 process (ADR-0002). `uv` runs in the working directory, which `main.rs` has made the project root, without
 `UV_PROJECT`, which that root already accounts for.
@@ -280,23 +286,35 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
 
 - The **event loop is synchronous** and blocking. `App::run` is `async` but never awaits
   inside the loop; `event::poll(50ms)` blocks the thread.
-- **Only the runtime spawns.** `runtime::execute` runs each command in a task of its own,
-  never awaited in the loop, so a slow `uv` invocation cannot freeze rendering. The task
-  reports through a clone of the event sender.
-- At startup, before the loop begins, `App` hands the runtime `Command::Reload`, which
+- **Only the runtime spawns.** `JobRunner` (`runtime/jobs.rs`) turns each command into a job
+  with an id and a label, and reports it as `JobQueued`, `JobStarted` and `JobFinished`. A
+  read, `Reload`, runs in a task of its own at once. A mutation goes to a single task that
+  runs mutations one at a time, in the order accepted: `uv` locks the project, so of two at
+  once one would fail (ADR-0003). Nothing is awaited in the loop, so a slow `uv` invocation
+  cannot freeze rendering.
+- At startup, before the loop begins, `App` hands the runner `Command::Reload`, which
   reads `pyproject.toml` and then lists the environment, sending each result or an
   `Event::Error`.
-- After a mutation the runtime reloads both tables itself, after a failure too, since a
-  failed sequence may already have changed `pyproject.toml`. Update only refreshes its row.
+- After every mutation, done, failed or cancelled, the runner reloads both tables: a
+  sequence that stopped part-way may already have changed `pyproject.toml`. The reload runs
+  in the mutation's turn, so the next mutation cannot change things under it. A read can
+  still overlap a mutation, which is #11's race.
+- **Cancellation.** Ctrl+C cancels every job accepted so far (ADR-0006). A queued job never
+  starts. A running one ends at its current `uv` call: `RealUvClient` sends `uv` SIGINT, on
+  which `uv add` puts `pyproject.toml` back, waits up to two seconds for it to exit, and
+  kills it if it has not; on Windows it kills it at once. The job then reloads and finishes,
+  and the status line says it was cancelled. Quitting cancels the same way and waits for the
+  jobs to finish.
 
 **The redraw is unconditional.** Every iteration calls `terminal.draw` whether or not
 anything changed, giving a floor of roughly 20 fps of wasted work when idle. The draw
 also happens *before* input is processed, so a key press is reflected one iteration
-later. Both are acceptable at the current scale and are addressed by issue #32.
+later. Both are acceptable at the current scale and are addressed by issue #32. The job spinner
+turns only because of the redraw; without it, it will need a tick.
 
-**Spawned handles are dropped.** `runtime::execute` keeps no handle to the task it spawns,
-so a task that panics reports nothing. Every outcome a task returns goes through the
-channel, failures included.
+**Spawned handles are dropped.** The runner keeps no handle to the tasks it spawns, so a
+job that panics reports nothing, and a panic in the mutation task would stop every later
+mutation. Every outcome a job returns goes through the channel, failures included.
 
 ## 10. Testing
 
@@ -309,11 +327,12 @@ Per repository convention:
 The consequence for design: **logic worth testing must be separable from process
 execution.** Argument construction (`uv::args`) and output parsing (`uv::parse`,
 `parse_dep_string`) are pure and tested directly. Operations take a `&impl UvClient`, and
-so does `runtime::run`, so `tests/dependencies.rs` runs them against `FakeUvClient`. The fake returns canned stdout
-and records the argv it receives, and a test asserts on exactly what would have run. It
-lives in `tests/` rather than `src/` because tests are integration tests. Two tests still
-run the real `uv` through `RealUvClient`, as ADR-0002 asks, because a fake can drift from
-real behaviour.
+`JobRunner` an `Arc` of one, so `tests/dependencies.rs` runs them against `FakeUvClient`.
+The fake returns canned stdout and records the argv it receives, and a test asserts on
+exactly what would have run. It lives in `tests/` rather than `src/` because tests are
+integration tests. Three tests still run the real `uv` through `RealUvClient`, as ADR-0002
+asks, because a fake can drift from real behaviour. One of them cancels a `uv add` and checks
+that it put `pyproject.toml` back.
 
 **Architecture fitness tests.** `tests/architecture.rs` turns the structural rules of
 this document into a failing test, using only the standard library:
@@ -336,8 +355,9 @@ test until its rules are updated in the same PR. The matching is textual, and it
 are noted in the file.
 
 Unit coverage beyond that is still thin: parsing, argument and requirement construction,
-`RealUvClient` in both directions, two operations and one runtime command against the fake,
-and the dependencies page driven key by key. The page's `update` returns commands, so those
+`RealUvClient` in both directions, two operations against the fake, the job runner against
+the fake (mutations in turn, reads beside them, cancellation, the reload after every
+mutation), and the dependencies page driven key by key. The page's `update` returns commands, so those
 tests run no runtime and no subprocess. Issue #25 covers expanding it.
 
 ## 11. Known deviations and open questions
@@ -488,6 +508,9 @@ only module that spawns tasks. Everything above it is synchronous and testable.
 ```rust
 pub trait UvClient: Send + Sync {
     fn run(&self, args: &[&str]) -> impl Future<Output = Result<String, UvError>> + Send;
+    // Ends with UvError::Cancelled once `cancel` fires; by default the call is dropped.
+    fn run_cancellable(&self, args: &[&str], cancel: &CancellationToken)
+        -> impl Future<Output = Result<String, UvError>> + Send;
 }
 ```
 
@@ -512,7 +535,8 @@ liability against future `uv` releases and should be isolated in `uv/parse.rs` s
 single module absorbs the breakage.
 
 > Decision records: [ADR-0002](adr/0002-uvclient-is-the-only-seam-to-uv.md) for the seam,
-> [ADR-0005](adr/0005-uvclient-takes-argv.md) for its shape.
+> [ADR-0005](adr/0005-uvclient-takes-argv.md) for its shape,
+> [ADR-0006](adr/0006-cancelling-interrupts-uv-and-waits.md) for cancellation.
 
 ### 13.5 Job runner: a queue of one for mutations
 
@@ -610,7 +634,7 @@ pub enum UvError {
     Spawn(std::io::Error),                                   // uv not installed, not executable
     Failed { command: String, status: ExitStatus, stderr: String }, // uv ran and refused
     Parse(String),                                           // output we could not read
-    Cancelled,                                               // the user abandoned it — arrives with #13
+    Cancelled,                                               // the job was cancelled; uv has stopped
 }
 ```
 
