@@ -1,9 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use uview::domain::{Membership, PyprojectDependency};
-use uview::message::{Action, Command, Input};
+use uview::message::{Action, Command, Input, NavAction};
 use uview::state::{AppState, Loadable};
 use uview::ui::Component;
+use uview::ui::keymap::{self, Mode};
 use uview::ui::pages::dependencies::DependenciesPage;
 
 fn package(name: &str) -> PyprojectDependency {
@@ -31,10 +32,15 @@ impl Screen {
         }
     }
 
-    /// Presses `code` as the app does: the page's keymap turns it into an action, and `update`
-    /// returns the commands that asks for. Nothing runs them: no runtime, no `uv`.
+    /// What `key` means where the page has the focus, as the app reads it.
+    fn action(&self, key: KeyEvent) -> Option<Action> {
+        keymap::action_for(self.page.mode(), &Input::Key(key))
+    }
+
+    /// Presses `code` as the app does: the keymap turns it into an action, and `update` returns
+    /// the commands that asks for. Nothing runs them: no runtime, no `uv`.
     fn press(&mut self, code: KeyCode) -> Vec<Command> {
-        match self.page.action_for(&Input::Key(KeyEvent::from(code))) {
+        match self.action(KeyEvent::from(code)) {
             Some(action) => self.page.update(&action, &self.state),
             None => Vec::new(),
         }
@@ -49,7 +55,7 @@ fn enter_and_space_open_the_actions_and_run_the_highlighted_one() {
         // version input.
         assert!(screen.press(key).is_empty());
         assert!(screen.press(key).is_empty());
-        assert!(screen.page.is_editing(), "{key:?}");
+        assert_eq!(screen.page.mode(), Mode::Input, "{key:?}");
     }
 }
 
@@ -66,7 +72,7 @@ fn a_typed_version_is_pinned() {
             constraint: "1".into()
         }]
     );
-    assert!(!screen.page.is_editing());
+    assert_eq!(screen.page.mode(), Mode::Table);
 }
 
 #[test]
@@ -75,7 +81,7 @@ fn p_adds_the_typed_requirement() {
     screen.press(KeyCode::Char('p'));
     // Enter on an empty field adds nothing and leaves the input open.
     assert!(screen.press(KeyCode::Enter).is_empty());
-    assert!(screen.page.is_editing());
+    assert_eq!(screen.page.mode(), Mode::Input);
     for c in "httpx>=0.27".chars() {
         screen.press(KeyCode::Char(c));
     }
@@ -85,7 +91,7 @@ fn p_adds_the_typed_requirement() {
             requirement: "httpx>=0.27".into()
         }]
     );
-    assert!(!screen.page.is_editing());
+    assert_eq!(screen.page.mode(), Mode::Table);
 }
 
 #[test]
@@ -158,25 +164,27 @@ fn a_load_that_lands_while_typing_is_kept() {
 }
 
 #[test]
-fn alt_keys_do_nothing_outside_an_input() {
+fn alt_and_ctrl_keys_do_nothing_outside_an_input() {
     let screen = Screen::with(&["six"]);
     let alt_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
-    assert!(screen.page.action_for(&Input::Key(alt_enter)).is_none());
+    assert!(screen.action(alt_enter).is_none());
+    // Ctrl+P is not p.
+    let ctrl_p = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
+    assert!(screen.action(ctrl_p).is_none());
 }
 
 #[test]
 fn ctrl_c_cancels_even_in_an_input() {
     let mut screen = Screen::with(&["six"]);
-    let ctrl_c = Input::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
-    assert!(matches!(
-        screen.page.action_for(&ctrl_c),
-        Some(Action::Cancel)
-    ));
+    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert_eq!(screen.action(ctrl_c), Some(Action::Cancel));
     screen.press(KeyCode::Char('p'));
-    assert!(screen.page.is_editing());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    assert_eq!(screen.action(ctrl_c), Some(Action::Cancel));
+    // A plain c is typed.
     assert!(matches!(
-        screen.page.action_for(&ctrl_c),
-        Some(Action::Cancel)
+        screen.action(KeyEvent::from(KeyCode::Char('c'))),
+        Some(Action::Nav(NavAction::Type(_)))
     ));
 }
 
@@ -187,7 +195,7 @@ fn s_syncs_outside_an_input() {
     // In an input, it is typed.
     screen.press(KeyCode::Char('p'));
     assert!(screen.press(KeyCode::Char('s')).is_empty());
-    assert!(screen.page.is_editing());
+    assert_eq!(screen.page.mode(), Mode::Input);
 }
 
 #[test]
@@ -238,4 +246,18 @@ fn the_selection_stays_on_its_package_across_a_reload() {
             groups: vec![Membership::Project]
         }]
     );
+}
+
+#[test]
+fn the_actions_list_takes_only_its_own_keys() {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Enter);
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    // The table's keys do nothing while the list is open, as its footer says.
+    for key in ['p', 's', 'r', '['] {
+        assert!(screen.press(KeyCode::Char(key)).is_empty(), "{key}");
+        assert_eq!(screen.page.mode(), Mode::Actions, "{key}");
+    }
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
 }

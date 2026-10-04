@@ -11,15 +11,19 @@ use crate::message::{Action, Command, Event, Input, NavAction};
 use crate::runtime::jobs::JobRunner;
 use crate::state::{AppState, Loadable, Message, ProjectState};
 use crate::ui::Component;
+use crate::ui::components::features::help::{render_footer, render_help};
 use crate::ui::components::features::project_tile::render_project_tile;
 use crate::ui::components::features::uv_log::render_uv_log;
 use crate::ui::components::shared::status_bar::{render_status_line, spinner};
+use crate::ui::keymap::{self, Mode};
 use crate::ui::pages::dependencies::DependenciesPage;
 use crate::uv::RealUvClient;
 
 pub struct App {
     page: DependenciesPage,
     should_quit: bool,
+    /// Whether the help is open, over every page.
+    help: bool,
     /// What the app knows. Only `receive` and Esc change it.
     state: AppState,
     /// Runs the commands the page returns.
@@ -34,6 +38,7 @@ impl App {
         Self {
             page: DependenciesPage::new(),
             should_quit: false,
+            help: false,
             state: AppState {
                 project: ProjectState {
                     root: project,
@@ -64,9 +69,13 @@ impl App {
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let clock = Instant::now();
         loop {
+            let mode = self.mode();
             terminal.draw(|frame| {
-                let [main, status] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
-                    .areas(frame.area());
+                let [screen, footer] =
+                    Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
+                        .areas(frame.area());
+                let [main, status] =
+                    Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(screen);
                 // The tables get the larger share: their names should not be cut.
                 let [left, right] =
                     Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
@@ -85,12 +94,16 @@ impl App {
                     activity.as_deref(),
                     self.state.message.as_ref(),
                 );
+                render_footer(frame, footer, mode);
+                if self.help {
+                    render_help(frame, screen);
+                }
             })?;
 
             if event::poll(Duration::from_millis(50))?
                 && let event::Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
-                && let Some(action) = self.page.action_for(&Input::Key(key))
+                && let Some(action) = keymap::action_for(mode, &Input::Key(key))
             {
                 self.dispatch(action);
             }
@@ -107,6 +120,15 @@ impl App {
         Ok(())
     }
 
+    /// Where the focus is: the help when it is open, else wherever the page has it.
+    fn mode(&self) -> Mode {
+        if self.help {
+            Mode::Help
+        } else {
+            self.page.mode()
+        }
+    }
+
     /// Hands `action` to the page and the commands it returns to the runner. Components
     /// return commands, never actions, so nothing comes back into dispatch.
     fn dispatch(&mut self, action: Action) {
@@ -118,6 +140,7 @@ impl App {
                 self.should_quit = true;
             }
             Action::Cancel => self.runner.cancel(),
+            Action::Help => self.help = !self.help,
             action => {
                 // Esc closes any popup and also dismisses the message.
                 if let Action::Nav(NavAction::Back) = action {

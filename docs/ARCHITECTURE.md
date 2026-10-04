@@ -34,7 +34,7 @@ It owns no Python or packaging logic of its own. Every operation is delegated to
 turning key presses into `uv` invocations.
 
 The design follows the Elm architecture (TEA), with messages split by direction of travel
-(§4): a page's keymap turns input into actions, components turn actions into commands, and
+(§4): the keymap turns input into actions, components turn actions into commands, and
 the runtime performs the commands and reports what came of them as events.
 
 ## 2. Layers
@@ -43,7 +43,7 @@ There are four layers, plus a thin application shell and the state they share.
 
 | Layer | Location | Responsibility | Must not |
 |---|---|---|---|
-| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel, the active page, the job runner and the `AppState`; writes the runtime's events into the state; lays the page out beside the project tile and the uv log; hands commands to the runner | Contain feature logic |
+| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel, the active page, the job runner and the `AppState`; writes the runtime's events into the state; lays the page out beside the project tile and the uv log, above the status line and the footer; opens and closes the help; hands commands to the runner | Contain feature logic |
 | **State** | `src/state.rs` | Hold what the app knows, once: the project, the dependencies, the jobs and the latest message (ADR-0004) | Render, run anything, know about ratatui, the UI or the runtime |
 | **UI** | `src/ui/` | Render frames from the state, turn input into actions and actions into commands, hold view state | Write the state, spawn tasks, call controllers, read the filesystem |
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
@@ -67,7 +67,7 @@ spawns tasks. Components read `AppState`; only `App` writes it, from the runtime
    key press ──────▶│  crossterm::event::poll / read               │
                     │        │                                     │
                     │        ▼                                     │
-                    │  page.action_for(&Input)          keymap     │
+                    │  keymap::action_for(mode, &Input)            │
                     │        │                                     │
                     │        ▼                                     │
                     │  App::dispatch(action)                       │
@@ -92,8 +92,8 @@ spawns tasks. Components read `AppState`; only `App` writes it, from the runtime
 The concrete path for a key press, using "pin a version" as the example:
 
 1. `App::run` polls crossterm and wraps the key as `Input::Key(KeyEvent)`.
-2. `DependenciesPage::action_for`, the page's keymap, turns it into an action: inside an
-   input, `Enter` becomes `Action::Nav(NavAction::Confirm)`.
+2. `keymap::action_for` turns it into an action, by the mode the page reports: in an input,
+   `Enter` becomes `Action::Nav(NavAction::Confirm)`.
 3. `App::dispatch` hands the action and the `AppState` to `DependenciesPage::update`, which
    passes the action to `DependenciesTablesTabs` with the dependencies, `state.deps`.
 4. The widget sends it to the input that is open, the pin input (an `InputPopup`), which
@@ -117,25 +117,36 @@ The concrete path for a key press, using "pin a version" as the example:
 Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 
 - **`Input`** — what the terminal sends: `Key(KeyEvent)`.
-- **`Action`** — what the user means, nested per domain: `Quit`, `Cancel`, `Nav(NavAction)`
-  for moving, choosing and typing, and `Deps(DepsAction)` for the dependencies page.
+- **`Action`** — what the user means, nested per domain: `Quit`, `Cancel`, `Help`,
+  `Nav(NavAction)` for moving, choosing and typing, and `Deps(DepsAction)` for the
+  dependencies page.
 - **`Command`** — an effect a component asks for: `Reload`, `Sync`, `Add`,
   `RemoveFromProject`, `Uninstall`, `Upgrade`, `Pin`.
 - **`Event`** — what a command produced: the loaded rows and the project's name and
   version, `Notice(String)` and `Error(String)`, and the course of its job: `JobQueued`,
   `JobStarted`, `JobOutput` for each line its `uv` writes, and `JobFinished`.
 
-The page's keymap, `DependenciesPage::action_for`, turns an `Input` into an `Action`. Ctrl+C
-becomes `Action::Cancel` wherever the focus is. While an input is open, every other key but
-Enter and Esc becomes `NavAction::Type`. Outside an input,
-Alt+key means nothing, because Esc read together with the next key arrives as Alt+key.
+The keymap, `src/ui/keymap.rs`, turns an `Input` into an `Action` by the `Mode`, where the
+focus is: a table, the actions list, an input, or the help. `App` reports `Help` while the help
+is open, and the page's `mode()` otherwise. Each mode has its bindings: keys, the action each
+key means, a hint for the footer and a line for the help. The key handling, the footer below
+the status line and the help overlay all read that one table, so they cannot disagree.
 
-`App::dispatch` handles `Quit` and `Cancel` itself and hands every other action to the page's
-`update`, which returns `Vec<Command>`. Each command goes to `JobRunner::execute`. Esc, as
-`NavAction::Back`, also dismisses the status message. Components return commands, never
-actions, so nothing comes back into `dispatch` and it cannot recurse. ADR-0001 planned an
-explicit work queue against that recursion; with no action coming back, there is nothing to
-queue.
+- Ctrl+C becomes `Action::Cancel` in every mode.
+- In an input, every key without a binding, Enter and Esc being bound, becomes
+  `NavAction::Type`.
+- In the actions list only its own keys work, with `?`, `q` and Ctrl+C: the table's would act
+  behind it.
+- Over the help, Esc, `?` and `q` close it, and nothing else but Ctrl+C does anything.
+- With Alt held, no binding matches: Esc read together with the next key arrives as Alt+key.
+  Ctrl must be held exactly when a binding names it, so Ctrl+P is not `p`.
+
+`App::dispatch` handles `Quit`, `Cancel` and `Help` itself and hands every other action to
+the page's `update`, which returns `Vec<Command>`. Each command goes to `JobRunner::execute`.
+Esc, as `NavAction::Back`, also dismisses the status message. Components return commands,
+never actions, so nothing comes back into `dispatch` and it cannot recurse. ADR-0001 planned
+an explicit work queue against that recursion; with no action coming back, there is nothing
+to queue.
 
 Inside the page, a popup reports to the widget that owns it with a plain return value: the
 actions list returns the option chosen, and the pin input the version typed. The widget
@@ -171,7 +182,7 @@ nothing of it: the failure would recur on every reload, and is no mistake of the
 src/
 ├── main.rs                 # tokio entry point; finds the project root and makes it the cwd
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
-├── app.rs                  # App: event loop, event channel, dispatch, screen layout, status line
+├── app.rs                  # App: event loop, event channel, dispatch, screen layout, the help
 ├── message.rs              # Input / Action / Command / Event
 ├── state.rs                # AppState: project, deps, jobs, message; written by App, read by views
 ├── domain.rs               # PyprojectDependency, EnvDependency, Membership, ProjectInfo
@@ -187,8 +198,9 @@ src/
 │   └── parse.rs            # uv output into domain types, pure
 └── ui/
     ├── mod.rs              # Component trait
+    ├── keymap.rs           # Input × Mode → Action, one table; the footer and the help read it too
     ├── pages/
-    │   └── dependencies.rs # DependenciesPage — keymap; drawn in the left 60%
+    │   └── dependencies.rs # DependenciesPage — its mode; drawn in the left 60%
     └── components/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>, over rows it is handed
@@ -197,6 +209,7 @@ src/
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
+        │   ├── help.rs                    # the footer and the help overlay, from the keymap
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
         │   ├── package_control_popup.rs   # the actions list
         │   ├── project_tile.rs            # top right: name and version, and the project root
@@ -214,9 +227,9 @@ of the module tree, and `AGENTS.md` points here rather than repeating it.
 
 Four kinds of UI code, in descending order of generality:
 
-- **`pages/`** — a full screen. Owns the top-level layout and the keymap that turns
-  `KeyCode` into semantic actions. A page is the only UI type that implements
-  `Component`, because it is the only one `App` holds.
+- **`pages/`** — a full screen. Owns the top-level layout and reports its `Mode`, where its
+  focus is, by which the keymap turns keys into semantic actions. A page is the only UI type
+  that implements `Component`, because it is the only one `App` holds.
 - **`components/widgets/`** — a composite that assembles several components into a
   working feature area and holds the view state coordinating them (which tab is active,
   which popup is open). It is handed its own domain of the state only: the tables widget

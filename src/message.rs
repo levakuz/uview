@@ -10,19 +10,21 @@ pub enum Input {
     Key(KeyEvent),
 }
 
-/// What the user means. A page's keymap turns input into an action, which flows down the
-/// component tree.
-#[derive(Debug)]
+/// What the user means. The keymap turns input into an action, which flows down the component
+/// tree.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Quit,
     /// Stop every job: the running ones and those waiting behind them.
     Cancel,
+    /// Open or close the help.
+    Help,
     Nav(NavAction),
     Deps(DepsAction),
 }
 
 /// Moving, choosing and typing, which any page understands.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NavAction {
     Up,
     Down,
@@ -37,7 +39,7 @@ pub enum NavAction {
 }
 
 /// Intent only the dependencies page understands.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DepsAction {
     SwitchTable,
     OpenAdd,

@@ -1,4 +1,5 @@
 pub mod components;
+pub mod keymap;
 pub mod pages;
 
 use ratatui::Frame;
