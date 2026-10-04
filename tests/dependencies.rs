@@ -11,7 +11,8 @@ use uview::controllers::dependencies::{
 };
 use uview::domain::Membership;
 use uview::message::{Command, Event, JobId};
-use uview::runtime::jobs::{JobRunner, JobsState, LOG_LINES, LogLine};
+use uview::runtime::jobs::JobRunner;
+use uview::state::{JobsState, LOG_LINES, LogLine};
 use uview::uv::args::{membership_args, pin_requirement, uninstall_args};
 use uview::uv::{RealUvClient, UvClient, UvError};
 

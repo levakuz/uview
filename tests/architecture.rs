@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 struct Rule {
     name: &'static str,
-    /// Every `.rs` file under this directory is checked. It must exist, so a module move
-    /// cannot silently turn a rule into a no-op.
+    /// This `.rs` file, or every one under this directory, is checked. It must exist, so a
+    /// module move cannot silently turn a rule into a no-op.
     scope: &'static str,
     forbidden: &'static [&'static str],
     source: &'static str,
@@ -46,6 +46,12 @@ const RULES: &[Rule] = &[
         scope: "src/runtime",
         forbidden: &["ratatui", "crate::ui"],
         source: "ARCHITECTURE.md §2, ADR-0001",
+    },
+    Rule {
+        name: "state-data-only",
+        scope: "src/state.rs",
+        forbidden: &["ratatui", "crate::ui", "crate::runtime", "controllers"],
+        source: "ARCHITECTURE.md §2, ADR-0004",
     },
     Rule {
         name: "shared-no-domain",
@@ -85,14 +91,18 @@ fn architecture_rules_hold() {
 
     for rule in RULES {
         let scope = root.join(rule.scope);
-        if !scope.is_dir() {
+        let files = if scope.is_file() {
+            vec![scope]
+        } else if scope.is_dir() {
+            rust_files(&scope)
+        } else {
             failures.push(format!(
                 "rule `{}`: scope `{}` does not exist, update RULES",
                 rule.name, rule.scope
             ));
             continue;
-        }
-        for file in rust_files(&scope) {
+        };
+        for file in files {
             let path = file
                 .strip_prefix(root)
                 .unwrap_or(&file)

@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use crate::runtime::jobs::{JobsState, LogLine};
+use crate::state::{JobsState, LogLine};
 
 /// The uv log: each job's label, then what its `uv` wrote, the newest line at the bottom. Until
 /// `uv` has written anything, a hint says what will appear.

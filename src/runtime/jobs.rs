@@ -1,7 +1,6 @@
 //! Runs commands as jobs (ADR-0003). `uv` locks the project, so of two mutations at once one
 //! fails: they run one at a time, in the order accepted. Reads take no lock and start at once.
 
-use std::collections::VecDeque;
 use std::sync::Arc;
 
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -143,90 +142,5 @@ impl<U: UvClient> UvClient for JobUv<'_, U> {
             let _ = self.events.send(Event::JobOutput(self.id, line.to_owned()));
         };
         self.uv.run_streaming(args, self.cancel, &on_line).await
-    }
-}
-
-/// How many lines the uv log keeps.
-pub const LOG_LINES: usize = 500;
-
-/// A line of the uv log.
-pub enum LogLine {
-    /// The label of the job whose lines follow.
-    Job(String),
-    /// A line its `uv` wrote.
-    Output(String),
-}
-
-/// The jobs, as the runner's events report them: those in flight, which the progress indicator
-/// shows, and the log of what their `uv` wrote. The app holds it until `AppState` does (#43).
-#[derive(Default)]
-pub struct JobsState {
-    /// In the order accepted.
-    jobs: Vec<Tracked>,
-    /// Oldest first, at most `LOG_LINES`.
-    log: VecDeque<LogLine>,
-    /// The job named by the log's last header.
-    logging: Option<JobId>,
-}
-
-struct Tracked {
-    id: JobId,
-    label: String,
-    started: bool,
-}
-
-impl JobsState {
-    pub fn apply(&mut self, event: &Event) {
-        match event {
-            Event::JobQueued { id, label } => self.jobs.push(Tracked {
-                id: *id,
-                label: label.clone(),
-                started: false,
-            }),
-            Event::JobStarted(id) => {
-                for job in self.jobs.iter_mut().filter(|job| job.id == *id) {
-                    job.started = true;
-                }
-            }
-            Event::JobOutput(id, line) => {
-                // A job's label heads its first line, and its lines again after another job's.
-                // A job that writes nothing, such as the load at startup, leaves no trace.
-                if self.logging != Some(*id) {
-                    if let Some(job) = self.jobs.iter().find(|job| job.id == *id) {
-                        let label = job.label.clone();
-                        self.push_log(LogLine::Job(label));
-                    }
-                    self.logging = Some(*id);
-                }
-                self.push_log(LogLine::Output(line.clone()));
-            }
-            Event::JobFinished(id) => self.jobs.retain(|job| job.id != *id),
-            _ => {}
-        }
-    }
-
-    fn push_log(&mut self, line: LogLine) {
-        if self.log.len() == LOG_LINES {
-            self.log.pop_front();
-        }
-        self.log.push_back(line);
-    }
-
-    pub fn log(&self) -> &VecDeque<LogLine> {
-        &self.log
-    }
-
-    pub fn is_idle(&self) -> bool {
-        self.jobs.is_empty()
-    }
-
-    /// The oldest job in flight, and how many are waiting behind it, e.g.
-    /// `Removing six · 1 queued`. `None` once every job has finished.
-    pub fn summary(&self) -> Option<String> {
-        let (first, rest) = self.jobs.split_first()?;
-        Some(match rest.iter().filter(|job| !job.started).count() {
-            0 => first.label.clone(),
-            queued => format!("{} · {queued} queued", first.label),
-        })
     }
 }

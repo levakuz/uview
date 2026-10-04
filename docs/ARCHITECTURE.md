@@ -39,12 +39,13 @@ the runtime performs the commands and reports what came of them as events.
 
 ## 2. Layers
 
-There are four layers, plus a thin application shell.
+There are four layers, plus a thin application shell and the state they share.
 
 | Layer | Location | Responsibility | Must not |
 |---|---|---|---|
-| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel, the active page and the job runner; lays the page out beside the project tile and the uv log; hands commands to the runner and shows what it runs | Contain feature logic |
-| **UI** | `src/ui/` | Render frames, turn input into actions and actions into commands, hold view state | Spawn tasks, call controllers, read the filesystem |
+| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel, the active page, the job runner and the `AppState`; writes the runtime's events into the state; lays the page out beside the project tile and the uv log; hands commands to the runner | Contain feature logic |
+| **State** | `src/state.rs` | Hold what the app knows, once: the project, the dependencies, the jobs and the latest message (ADR-0004) | Render, run anything, know about ratatui, the UI or the runtime |
+| **UI** | `src/ui/` | Render frames from the state, turn input into actions and actions into commands, hold view state | Write the state, spawn tasks, call controllers, read the filesystem |
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
 | **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml` | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
@@ -52,7 +53,8 @@ There are four layers, plus a thin application shell.
 The rule that matters: **controllers never import ratatui, UI code never invokes `uv` or a
 controller, and only `src/uv/` starts a process.** The UI and the controllers never meet: a
 component returns commands, and the runtime runs them. The runtime is the only code that
-spawns tasks.
+spawns tasks. Components read `AppState`; only `App` writes it, from the runtime's events
+(ADR-0007).
 
 `tests/architecture.rs` enforces every part of the rule (§10), with no exceptions.
 
@@ -76,9 +78,9 @@ spawns tasks.
                     │  events_rx.try_recv() ◀── Event ──┐     │    │
                     │        │                          │     │    │
                     │        ▼                          │     │    │
-                    │  jobs, status line or page.apply  │     │    │
+                    │  AppState: deps, jobs, message    │     │    │
                     │                                   │     │    │
-                    │  terminal.draw(page.render)       │     │    │
+                    │  terminal.draw(… &AppState)       │     │    │
                     └───────────────────────────────────┼─────┼────┘
                                                         │     ▼
                     ┌───────────────────────────────────┴──────────┐
@@ -92,8 +94,8 @@ The concrete path for a key press, using "pin a version" as the example:
 1. `App::run` polls crossterm and wraps the key as `Input::Key(KeyEvent)`.
 2. `DependenciesPage::action_for`, the page's keymap, turns it into an action: inside an
    input, `Enter` becomes `Action::Nav(NavAction::Confirm)`.
-3. `App::dispatch` hands the action to `DependenciesPage::update`, which passes it to
-   `DependenciesTablesTabs`.
+3. `App::dispatch` hands the action and the `AppState` to `DependenciesPage::update`, which
+   passes the action to `DependenciesTablesTabs` with the dependencies, `state.deps`.
 4. The widget sends it to the input that is open, the pin input (an `InputPopup`), which
    returns the version typed.
 5. The widget returns `Command::Pin` for the package the actions list was opened for.
@@ -104,9 +106,9 @@ The concrete path for a key press, using "pin a version" as the example:
    `Event::JobOutput` while it runs.
 7. The job sends `Event::Notice`. The runner then reloads both tables, sending
    `Event::PyprojectLoaded` and `Event::EnvLoaded`, and reports `Event::JobFinished`.
-8. Each loop iteration drains the channel: `App` keeps the job events in `JobsState`, which
-   the spinner on the status line and the uv log read, shows the notice, and hands the
-   loaded rows to `DependenciesPage::apply`.
+8. Each loop iteration drains the channel, and `App::receive` puts each event into the
+   `AppState`: the loaded rows into `state.deps`, the job events into `state.jobs`, the
+   notice into `state.message`.
 9. The following `terminal.draw` renders the new state.
 
 ## 4. Messages and dispatch
@@ -139,13 +141,17 @@ actions list returns the option chosen, and the pin input the version typed. The
 turns that into a command.
 
 The runtime sends `Event`s through one `mpsc::UnboundedSender<Event>`. `App` drains the
-receiver once per loop iteration. `Notice` and `Error` set the one-line status message it
-renders below the page. The job events go to `JobsState`. Its summary, the oldest job and how
-many wait behind it, is drawn after a spinner at the left of that line, and its log, each
-job's label and then what its `uv` wrote, fills the uv tile at the bottom right. Above that
-tile, the project tile shows the project root. Every other event goes to
-`DependenciesPage::apply`, which puts the rows into the tables whatever has focus: until
-`AppState` exists (#43), the tables are where the data lives.
+receiver once per loop iteration, and `App::receive` puts each event into the `AppState`
+(`src/state.rs`, ADR-0004), which every view reads when it is drawn:
+
+- `PyprojectLoaded` and `EnvLoaded` replace the rows in `state.deps`, whatever table has
+  focus.
+- `Notice` and `Error` set `state.message`, the one-line message below the page.
+- The job events go to `state.jobs`, a `JobsState`. Its summary, the oldest job and how many
+  wait behind it, is drawn after a spinner at the left of the status line, and its log, each
+  job's label and then what its `uv` wrote, fills the uv tile at the bottom right.
+
+Above the uv tile, the project tile shows `state.project.root`.
 
 ## 5. Module map
 
@@ -155,10 +161,11 @@ src/
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, status line
 ├── message.rs              # Input / Action / Command / Event
+├── state.rs                # AppState: project, deps, jobs, message; written by App, read by views
 ├── domain.rs               # PyprojectDependency, EnvDependency, Membership
 ├── runtime/
 │   ├── mod.rs              # what each command does, and the reload
-│   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation; JobsState
+│   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
 │   └── project.rs          # startup: the project root, or why uv would refuse it
@@ -172,7 +179,7 @@ src/
     │   └── dependencies.rs # DependenciesPage — keymap; drawn in the left half
     └── components/
         ├── shared/         # generic, feature-agnostic
-        │   ├── table.rs    #   SharedTable<T: TableRow>
+        │   ├── table.rs    #   SharedTable<T: TableRow>, over rows it is handed
         │   ├── input.rs    #   UviewInput (wraps tui-input)
         │   ├── popup.rs    #   Popup — centering and Clear only
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
@@ -199,14 +206,15 @@ Four kinds of UI code, in descending order of generality:
   `KeyCode` into semantic actions. A page is the only UI type that implements
   `Component`, because it is the only one `App` holds.
 - **`components/widgets/`** — a composite that assembles several components into a
-  working feature area and holds the state coordinating them (which tab is active, which
-  popup is open). It holds the largest component in the project and was missing from the
+  working feature area and holds the view state coordinating them (which tab is active,
+  which popup is open). It is handed its own domain of the state only: the tables widget
+  gets `state.deps`. It holds the largest component in the project and was missing from the
   earlier agent instructions entirely.
 - **`components/features/`** — concrete, domain-aware pieces. They know about
   `PyprojectDependency`, about pinning versions, about package groups.
-- **`components/shared/`** — generic and reusable. `SharedTable<T>` handles rendering,
-  selection and wrap-around scrolling for any `T: TableRow`; the feature layer supplies
-  the `TableRow` impl that formats the domain type. `Popup` and `UviewInput` are
+- **`components/shared/`** — generic and reusable. `SharedTable<T>` renders the rows it is
+  handed, of any `T: TableRow`, and keeps only the selection, with wrap-around; the feature
+  layer supplies the `TableRow` impl that formats the domain type. `Popup` and `UviewInput` are
   similarly domain-free.
 
 **Deciding between `shared` and `features`:** if the type mentions a domain type, a `uv`
@@ -219,14 +227,13 @@ may name a domain type or a controller.
 
 ```rust
 pub trait Component {
-    fn render(&mut self, frame: &mut Frame, area: Rect);
-    fn update(&mut self, action: &Action) -> Vec<Command>;
+    fn render(&mut self, frame: &mut Frame, area: Rect, state: &AppState);
+    fn update(&mut self, action: &Action, state: &AppState) -> Vec<Command>;
 }
 ```
 
-`&mut self` in `render` is required because ratatui's `TableState` and `ListState` are
-mutated during rendering. `update` takes no `&mut AppState` yet: `AppState` arrives with
-#43, which adds the parameter together with the data it holds.
+Both read the state; neither writes it (ADR-0007). `&mut self` is for the component's view
+state: ratatui's `TableState` and `ListState` are mutated during rendering.
 
 **Its real scope today is pages only.** `DependenciesPage` is the sole implementor. The
 widget below it has an inherent `update` of the same shape. The pieces below the widget
@@ -237,7 +244,7 @@ render shape itself differs:
   the caller to draw into. It cannot satisfy the trait as written.
 - `UviewInput::render` takes `&self`, not `&mut self`.
 - `SharedTable` has no `update` at all; navigation is driven by the owning widget
-  calling `next()` / `previous()`.
+  calling `next(len)` / `previous(len)`, and `render` and `selected` take the rows.
 
 This was a real design question, not an oversight to be silently fixed. `App` only ever
 needs the trait in order to hold pages behind a `Box<dyn Component>`, which it does not
@@ -357,6 +364,7 @@ this document into a failing test, using only the standard library:
 | `controllers-no-process` | nothing under `src/controllers/` starts a process (ADR-0002) |
 | `uv-bottom-layer` | nothing under `src/uv/` references ratatui, a controller, the runtime, the messages or the UI (§2, ADR-0002) |
 | `runtime-no-ui` | nothing under `src/runtime/` references ratatui or the UI (§2, ADR-0001) |
+| `state-data-only` | `src/state.rs` references neither ratatui, the UI, the runtime nor a controller (§2, ADR-0004) |
 | `shared-no-domain` | nothing under `src/ui/components/shared/` names a domain type or a controller (§6) |
 | `ui-no-spawn` | nothing under `src/ui/` spawns a task or a process, calls a controller or names the uv layer (§2, ADR-0001, ADR-0002) |
 | `no-tests-in-src` | no `#[test]` or `#[cfg(test)]` under `src/` (this section) |
@@ -371,8 +379,9 @@ are noted in the file.
 Unit coverage beyond that is still thin: parsing, argument and requirement construction,
 `RealUvClient` in both directions, two operations against the fake, the job runner against
 the fake (mutations in turn, reads beside them, cancellation, the reload after every
-mutation), and the dependencies page driven key by key. The page's `update` returns commands, so those
-tests run no runtime and no subprocess. Issue #25 covers expanding it.
+mutation), and the dependencies page driven key by key. Those tests build the `AppState` the
+page reads, and its `update` returns commands, so they run no runtime and no subprocess.
+Issue #25 covers expanding it.
 
 ## 11. Known deviations and open questions
 
@@ -483,9 +492,13 @@ Sprint 6.
 ```rust
 pub trait Component {
     fn render(&mut self, frame: &mut Frame, area: Rect, state: &AppState);
-    fn update(&mut self, action: &Action, state: &mut AppState) -> Vec<Command>;
+    fn update(&mut self, action: &Action, state: &AppState) -> Vec<Command>;
 }
 ```
+
+ADR-0001 gave `update` a `&mut AppState`. #43 made it `&AppState`: the app is the only writer,
+from the runtime's events, and a component that wants the data changed returns a command
+(ADR-0007).
 
 Two changes carry most of the value:
 
@@ -515,7 +528,8 @@ Input ─▶ keymap ─▶ Action ─▶ page.update() ─▶ Vec<Command> ─�
 The runtime owns the `UvClient`, the job queue and the cancellation tokens. It is the
 only module that spawns tasks. Everything above it is synchronous and testable.
 
-> Decision record for §13.1–13.3: [ADR-0001](adr/0001-components-return-commands.md).
+> Decision records for §13.1–13.3: [ADR-0001](adr/0001-components-return-commands.md), and
+> [ADR-0007](adr/0007-components-read-appstate-only-the-app-writes-it.md) for who writes the state.
 
 ### 13.4 `UvClient`: one seam to the outside
 

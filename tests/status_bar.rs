@@ -1,13 +1,13 @@
 use ratatui::{Terminal, backend::TestBackend};
-use uview::ui::components::shared::status_bar::{StatusMessage, render_status_line};
+use uview::state::Message;
+use uview::ui::components::shared::status_bar::render_status_line;
 
 #[test]
 fn error_is_one_labelled_line_clipped_to_width() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(TestBackend::new(30, 1))?;
     // Multi-line like uv's stderr: must be flattened, not cut off at the first newline.
-    let message =
-        StatusMessage::Error("failed:\n  Caused by: something long enough to clip".into());
-    terminal.draw(|frame| message.render(frame, frame.area()))?;
+    let message = Message::Error("failed:\n  Caused by: something long enough to clip".into());
+    terminal.draw(|frame| render_status_line(frame, frame.area(), None, Some(&message)))?;
     let line: String = terminal
         .backend()
         .buffer()
@@ -22,7 +22,7 @@ fn error_is_one_labelled_line_clipped_to_width() -> Result<(), Box<dyn std::erro
 #[test]
 fn a_running_job_comes_before_the_message() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(TestBackend::new(40, 1))?;
-    let message = StatusMessage::Info("Removed six".into());
+    let message = Message::Info("Removed six".into());
     terminal.draw(|frame| {
         let activity = Some("⠋ Adding httpx");
         render_status_line(frame, frame.area(), activity, Some(&message))

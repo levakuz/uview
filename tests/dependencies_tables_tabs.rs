@@ -1,7 +1,9 @@
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 use ratatui::{Terminal, backend::TestBackend};
+use uview::domain::EnvDependency;
 use uview::message::{Action, DepsAction};
+use uview::state::DepsState;
 use uview::ui::components::widgets::dependencies_tables_tabs::DependenciesTablesTabs;
 
 fn tabs() -> DependenciesTablesTabs {
@@ -13,7 +15,7 @@ fn render(
     width: u16,
 ) -> Result<Buffer, Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(TestBackend::new(width, 4))?;
-    terminal.draw(|frame| tabs.render(frame, frame.area()))?;
+    terminal.draw(|frame| tabs.render(frame, frame.area(), &DepsState::default()))?;
     Ok(terminal.backend().buffer().clone())
 }
 
@@ -36,7 +38,10 @@ fn tabs_leave_the_table_its_own_colours() -> Result<(), Box<dyn std::error::Erro
     assert_eq!(buffer[(1, 1)].symbol(), "N");
     assert_eq!(buffer[(1, 1)].fg, Color::Reset);
 
-    tabs.update(&Action::Deps(DepsAction::SwitchTable));
+    tabs.update(
+        &Action::Deps(DepsAction::SwitchTable),
+        &DepsState::default(),
+    );
     let buffer = render(&mut tabs, 40)?;
     assert_eq!(buffer[(0, 0)].fg, Color::Cyan);
     assert_eq!(buffer[(2, 0)].fg, Color::White);
@@ -48,5 +53,31 @@ fn tabs_leave_the_table_its_own_colours() -> Result<(), Box<dyn std::error::Erro
 fn tabs_cut_short_keep_the_right_corner() -> Result<(), Box<dyn std::error::Error>> {
     let buffer = render(&mut tabs(), 30)?;
     assert_eq!(buffer[(29, 0)].symbol(), "┐");
+    Ok(())
+}
+
+#[test]
+fn the_first_row_is_highlighted_before_any_key() -> Result<(), Box<dyn std::error::Error>> {
+    let deps = DepsState {
+        env: vec![
+            EnvDependency {
+                name: "six".into(),
+                version: "1.17.0".into(),
+            },
+            EnvDependency {
+                name: "idna".into(),
+                version: "3.10".into(),
+            },
+        ],
+        ..DepsState::default()
+    };
+    let mut tabs = tabs();
+    tabs.update(&Action::Deps(DepsAction::SwitchTable), &deps);
+    let mut terminal = Terminal::new(TestBackend::new(30, 5))?;
+    terminal.draw(|frame| tabs.render(frame, frame.area(), &deps))?;
+    let buffer = terminal.backend().buffer();
+    // Below the border and the header: six, highlighted, then idna.
+    assert!(buffer[(1, 2)].modifier.contains(Modifier::REVERSED));
+    assert!(!buffer[(1, 3)].modifier.contains(Modifier::REVERSED));
     Ok(())
 }

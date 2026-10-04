@@ -8,22 +8,17 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-/// The latest error or notice, shown on a single line at the bottom of the screen.
-pub enum StatusMessage {
-    Error(String),
-    Info(String),
-}
+use crate::state::Message;
 
-impl StatusMessage {
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let (text, style) = match self {
-            StatusMessage::Error(msg) => (format!("Error: {msg}"), Style::new().red().bold()),
-            StatusMessage::Info(msg) => (msg.clone(), Style::new().green()),
-        };
-        // uv's stderr spans several lines; flatten it, and let the widget clip at the width.
-        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        frame.render_widget(Paragraph::new(text).style(style), area);
-    }
+/// `message` on a single line: uv's stderr spans several, so they are flattened, and the
+/// widget clips at the width.
+fn render_message(frame: &mut Frame, area: Rect, message: &Message) {
+    let (text, style) = match message {
+        Message::Error(msg) => (format!("Error: {msg}"), Style::new().red().bold()),
+        Message::Info(msg) => (msg.clone(), Style::new().green()),
+    };
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
 /// The frame of a spinner that has turned for `elapsed`.
@@ -37,7 +32,7 @@ pub fn render_status_line(
     frame: &mut Frame,
     mut area: Rect,
     activity: Option<&str>,
-    message: Option<&StatusMessage>,
+    message: Option<&Message>,
 ) {
     if let Some(activity) = activity {
         let activity = Line::raw(activity).cyan();
@@ -51,6 +46,6 @@ pub fn render_status_line(
         area = rest;
     }
     if let Some(message) = message {
-        message.render(frame, area);
+        render_message(frame, area, message);
     }
 }

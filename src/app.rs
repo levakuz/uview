@@ -8,25 +8,22 @@ use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
 use crate::message::{Action, Command, Event, Input, NavAction};
-use crate::runtime::jobs::{JobRunner, JobsState};
+use crate::runtime::jobs::JobRunner;
+use crate::state::{AppState, Message, ProjectState};
 use crate::ui::Component;
 use crate::ui::components::features::project_tile::render_project_tile;
 use crate::ui::components::features::uv_log::render_uv_log;
-use crate::ui::components::shared::status_bar::{StatusMessage, render_status_line, spinner};
+use crate::ui::components::shared::status_bar::{render_status_line, spinner};
 use crate::ui::pages::dependencies::DependenciesPage;
 use crate::uv::RealUvClient;
 
 pub struct App {
     page: DependenciesPage,
     should_quit: bool,
-    /// The latest error or notice; Esc dismisses it.
-    status: Option<StatusMessage>,
-    /// The project root, shown in the project tile.
-    project: String,
+    /// What the app knows. Only `receive` and Esc change it.
+    state: AppState,
     /// Runs the commands the page returns.
     runner: JobRunner<RealUvClient>,
-    /// What the runner is doing, shown on the status line, and what its `uv` wrote, in the log.
-    jobs: JobsState,
     /// Where the runner reports what commands produced.
     events_rx: mpsc::UnboundedReceiver<Event>,
 }
@@ -37,10 +34,11 @@ impl App {
         Self {
             page: DependenciesPage::new(),
             should_quit: false,
-            status: None,
-            project,
+            state: AppState {
+                project: ProjectState { root: project },
+                ..AppState::default()
+            },
             runner: JobRunner::new(Arc::new(RealUvClient), events_tx),
-            jobs: JobsState::default(),
             events_rx,
         }
     }
@@ -65,14 +63,20 @@ impl App {
                 let [left, right] =
                     Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                         .areas(main);
-                self.page.render(frame, left);
-                let log = render_project_tile(frame, right, &self.project);
-                render_uv_log(frame, log, &self.jobs);
+                self.page.render(frame, left, &self.state);
+                let log = render_project_tile(frame, right, &self.state.project.root);
+                render_uv_log(frame, log, &self.state.jobs);
                 let activity = self
+                    .state
                     .jobs
                     .summary()
                     .map(|summary| format!("{} {summary}", spinner(clock.elapsed())));
-                render_status_line(frame, status, activity.as_deref(), self.status.as_ref());
+                render_status_line(
+                    frame,
+                    status,
+                    activity.as_deref(),
+                    self.state.message.as_ref(),
+                );
             })?;
 
             if event::poll(Duration::from_millis(50))?
@@ -88,7 +92,7 @@ impl App {
                 self.receive(event);
             }
 
-            if self.should_quit && self.jobs.is_idle() {
+            if self.should_quit && self.state.jobs.is_idle() {
                 break;
             }
         }
@@ -109,25 +113,26 @@ impl App {
             action => {
                 // Esc closes any popup and also dismisses the message.
                 if let Action::Nav(NavAction::Back) = action {
-                    self.status = None;
+                    self.state.message = None;
                 }
-                for command in self.page.update(&action) {
+                for command in self.page.update(&action, &self.state) {
                     self.runner.execute(command);
                 }
             }
         }
     }
 
-    /// Shows a notice, an error or a job; anything else goes to the page.
+    /// Puts what a command produced into the state, where every view reads it.
     fn receive(&mut self, event: Event) {
         match event {
-            Event::Notice(msg) => self.status = Some(StatusMessage::Info(msg)),
-            Event::Error(msg) => self.status = Some(StatusMessage::Error(msg)),
+            Event::PyprojectLoaded(deps) => self.state.deps.pyproject = deps,
+            Event::EnvLoaded(deps) => self.state.deps.env = deps,
+            Event::Notice(msg) => self.state.message = Some(Message::Info(msg)),
+            Event::Error(msg) => self.state.message = Some(Message::Error(msg)),
             Event::JobQueued { .. }
             | Event::JobStarted(_)
             | Event::JobOutput(..)
-            | Event::JobFinished(_) => self.jobs.apply(&event),
-            event => self.page.apply(&event),
+            | Event::JobFinished(_) => self.state.jobs.apply(&event),
         }
     }
 }
