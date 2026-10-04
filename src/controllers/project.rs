@@ -1,5 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 
+use crate::domain::ProjectInfo;
+use crate::uv::{UvClient, UvError, args, parse};
+
 /// The nearest directory at or above `start` that holds a pyproject.toml: where uv, started
 /// from `start`, looks for its project. A relative `start` is taken from the working
 /// directory, and `..` is resolved lexically.
@@ -40,4 +43,9 @@ pub fn refusal(root: &Path) -> Option<String> {
              Add one, or run uview inside a Python project."
         ))
     }
+}
+
+/// The project's name and version, as `uv version` reports them.
+pub async fn load_project_info(uv: &impl UvClient) -> Result<ProjectInfo, UvError> {
+    parse::version(&uv.run(&args::VERSION).await?)
 }

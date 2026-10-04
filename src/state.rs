@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::domain::{EnvDependency, PyprojectDependency};
+use crate::domain::{EnvDependency, ProjectInfo, PyprojectDependency};
 use crate::message::{Event, JobId};
 
 /// Everything the app knows, by domain. It carries no behaviour; a domain that needs some
@@ -22,6 +22,8 @@ pub struct AppState {
 #[derive(Default)]
 pub struct ProjectState {
     pub root: String,
+    /// Its name and version.
+    pub info: Loadable<ProjectInfo>,
 }
 
 /// The project's dependencies: as pyproject.toml declares them, and as the environment has them.

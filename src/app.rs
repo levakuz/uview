@@ -35,7 +35,10 @@ impl App {
             page: DependenciesPage::new(),
             should_quit: false,
             state: AppState {
-                project: ProjectState { root: project },
+                project: ProjectState {
+                    root: project,
+                    ..ProjectState::default()
+                },
                 ..AppState::default()
             },
             runner: JobRunner::new(Arc::new(RealUvClient), events_tx),
@@ -49,6 +52,7 @@ impl App {
         let since = Instant::now();
         self.state.deps.pyproject = Loadable::Loading { since };
         self.state.deps.env = Loadable::Loading { since };
+        self.state.project.info = Loadable::Loading { since };
         self.runner.execute(Command::Reload);
 
         // Restore whatever the loop returns: an I/O error must not leave the terminal raw.
@@ -68,7 +72,7 @@ impl App {
                     Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
                         .areas(main);
                 self.page.render(frame, left, &self.state);
-                let log = render_project_tile(frame, right, &self.state.project.root);
+                let log = render_project_tile(frame, right, &self.state.project);
                 render_uv_log(frame, log, &self.state.jobs);
                 let activity = self
                     .state
@@ -132,6 +136,7 @@ impl App {
             event @ (Event::PyprojectLoaded { .. } | Event::EnvLoaded { .. }) => {
                 self.state.deps.apply(event)
             }
+            Event::ProjectLoaded(loaded) => self.state.project.info = loaded.into(),
             // What the tables show may be stale. Not worth reading again on the way out.
             Event::ProjectMutated => {
                 if !self.should_quit {

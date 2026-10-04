@@ -28,6 +28,10 @@ pub fn upgrade_args(name: &str) -> [&str; 3] {
     ["sync", "--upgrade-package", name]
 }
 
+/// Reads the project's name and version as JSON. Given no new version, `uv version` neither
+/// locks nor syncs.
+pub const VERSION: [&str; 3] = ["version", "--output-format", "json"];
+
 /// `uv pip list` arguments that read the packages installed in `env` as JSON.
 pub fn pip_list_args(env: &str) -> [&str; 6] {
     ["pip", "list", "--format", "json", "--python", env]

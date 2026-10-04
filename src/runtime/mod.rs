@@ -9,6 +9,7 @@ use crate::controllers::dependencies::{
     add_dep, load_env_deps, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
     sync_exact, uninstall_from_env, upgrade_env_dep,
 };
+use crate::controllers::project::load_project_info;
 use crate::message::{Command, Event};
 use crate::uv::{UvClient, UvError};
 
@@ -51,8 +52,8 @@ async fn run(
     let _ = events.send(event);
 }
 
-/// Reads both tables again, as at startup. A table that cannot load shows why, and the status
-/// line says so too.
+/// Reads both tables, and the project's name and version, again, as at startup. A table that
+/// cannot load shows why, and the status line says so too.
 async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>, generation: u64) {
     let pyproject = load_pyproject_deps().await.map_err(|e| e.to_string());
     if let Err(reason) = &pyproject {
@@ -73,4 +74,11 @@ async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>, generation:
         generation,
         loaded: env.map_err(|e| e.to_string()),
     });
+    // Only the project tile says so: uv cannot read a dynamic version, and that is no mistake
+    // to report after every reload.
+    let info = load_project_info(uv).await.map_err(|e| match e {
+        UvError::Failed { stderr, .. } => stderr,
+        e => e.to_string(),
+    });
+    let _ = events.send(Event::ProjectLoaded(info));
 }
