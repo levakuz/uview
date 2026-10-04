@@ -4,25 +4,32 @@ use ratatui::{
     widgets::{Block, List, ListState},
 };
 
-use crate::{
-    events::Action,
-    ui::components::shared::popup::{Popup, PopupSize},
-};
+use crate::ui::components::shared::popup::{Popup, PopupSize};
 
-enum PackageControlOptions {
+/// What the actions list offers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PackageControlOption {
     Update,
     PinToVersion,
     Remove,
     Cancel,
 }
 
-impl PackageControlOptions {
+/// The options in the order the list shows them.
+const OPTIONS: [PackageControlOption; 4] = [
+    PackageControlOption::PinToVersion,
+    PackageControlOption::Update,
+    PackageControlOption::Remove,
+    PackageControlOption::Cancel,
+];
+
+impl PackageControlOption {
     fn label(&self) -> &'static str {
         match self {
-            PackageControlOptions::Update => "Update",
-            PackageControlOptions::PinToVersion => "Pin to version",
-            PackageControlOptions::Remove => "Remove",
-            PackageControlOptions::Cancel => "Cancel",
+            PackageControlOption::Update => "Update",
+            PackageControlOption::PinToVersion => "Pin to version",
+            PackageControlOption::Remove => "Remove",
+            PackageControlOption::Cancel => "Cancel",
         }
     }
 }
@@ -37,14 +44,9 @@ impl PackageControlPopup<'_> {
     pub fn new() -> Self {
         let block = Block::bordered().title("Package Control");
         let list_state = ListState::default().with_selected(Some(0));
-        let list = List::new([
-            PackageControlOptions::PinToVersion.label(),
-            PackageControlOptions::Update.label(),
-            PackageControlOptions::Remove.label(),
-            PackageControlOptions::Cancel.label(),
-        ])
-        .block(block)
-        .highlight_style(ratatui::style::Style::default().reversed());
+        let list = List::new(OPTIONS.map(|option| option.label()))
+            .block(block)
+            .highlight_style(ratatui::style::Style::default().reversed());
 
         Self {
             popup: Popup::new(PopupSize {
@@ -61,31 +63,23 @@ impl PackageControlPopup<'_> {
         frame.render_stateful_widget(self.list.clone(), popup_area, &mut self.list_state);
     }
 
-    pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
-        match action {
-            Action::MoveUp => {
-                if let Some(selected) = self.list_state.selected()
-                    && selected > 0
-                {
-                    self.list_state.select(Some(selected - 1));
-                }
-            }
-            Action::MoveDown => {
-                if let Some(selected) = self.list_state.selected() {
-                    self.list_state.select(Some((selected + 1).min(3)));
-                }
-            }
-            Action::SelectItem => match self.list_state.selected() {
-                Some(0) => return Some(Action::OpenPinPopup),
-                Some(1) => return Some(Action::UpgradeEnvDep),
-                Some(2) => return Some(Action::RemovePackage),
-                Some(3) => return Some(Action::ClosePopup),
-                _ => {}
-            },
-            _ => {
-                return self.popup.handle_event(action);
-            }
+    pub fn up(&mut self) {
+        if let Some(selected) = self.list_state.selected()
+            && selected > 0
+        {
+            self.list_state.select(Some(selected - 1));
         }
-        self.popup.handle_event(action)
+    }
+
+    pub fn down(&mut self) {
+        if let Some(selected) = self.list_state.selected() {
+            self.list_state
+                .select(Some((selected + 1).min(OPTIONS.len() - 1)));
+        }
+    }
+
+    /// The highlighted option.
+    pub fn selected(&self) -> Option<PackageControlOption> {
+        OPTIONS.get(self.list_state.selected()?).copied()
     }
 }

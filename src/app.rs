@@ -1,17 +1,16 @@
 use std::time::Duration;
 
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, KeyEventKind};
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
-use crate::controllers::dependencies;
-use crate::events::Action;
+use crate::message::{Action, Command, Event, Input, NavAction};
+use crate::runtime;
 use crate::ui::Component;
 use crate::ui::components::shared::status_bar::{StatusMessage, render_status_line};
 use crate::ui::pages::dependencies::DependenciesPage;
-use crate::uv::RealUvClient;
 
 pub struct App {
     page: DependenciesPage,
@@ -20,51 +19,28 @@ pub struct App {
     status: Option<StatusMessage>,
     /// The project root, shown at the right of the status line.
     project: String,
-    tx: mpsc::UnboundedSender<Action>,
-    rx: mpsc::UnboundedReceiver<Action>,
+    /// Where the runtime reports what commands produced.
+    events_tx: mpsc::UnboundedSender<Event>,
+    events_rx: mpsc::UnboundedReceiver<Event>,
 }
 
 impl App {
     pub fn new(project: String) -> Self {
-        let (tx, rx) = mpsc::unbounded_channel::<Action>();
+        let (events_tx, events_rx) = mpsc::unbounded_channel();
         Self {
-            page: DependenciesPage::new(tx.clone()),
+            page: DependenciesPage::new(),
             should_quit: false,
             status: None,
             project,
-            tx,
-            rx,
+            events_tx,
+            events_rx,
         }
     }
 
     pub async fn run(&mut self) -> Result<()> {
         // Also installs a panic hook that restores the terminal; must stay after color_eyre::install.
         let mut terminal = ratatui::init();
-
-        // Spawn controller tasks
-        let tx_pyproject = self.tx.clone();
-        tokio::spawn(async move {
-            match dependencies::load_pyproject_deps().await {
-                Ok(deps) => {
-                    let _ = tx_pyproject.send(Action::LoadedPyprojectDeps(deps));
-                }
-                Err(e) => {
-                    let _ = tx_pyproject.send(Action::Error(format!("pyproject.toml: {e}")));
-                }
-            }
-        });
-
-        let tx_env = self.tx.clone();
-        tokio::spawn(async move {
-            match dependencies::load_env_deps(&RealUvClient).await {
-                Ok(deps) => {
-                    let _ = tx_env.send(Action::LoadedEnvDeps(deps));
-                }
-                Err(e) => {
-                    let _ = tx_env.send(Action::Error(e.to_string()));
-                }
-            }
-        });
+        runtime::execute(Command::Reload, &self.events_tx);
 
         // Restore whatever the loop returns: an I/O error must not leave the terminal raw.
         let result = self.event_loop(&mut terminal);
@@ -81,20 +57,17 @@ impl App {
                 render_status_line(frame, status, self.status.as_ref(), &self.project);
             })?;
 
-            // Poll crossterm events
             if event::poll(Duration::from_millis(50))?
-                && let Event::Key(key) = event::read()?
+                && let event::Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
+                && let Some(action) = self.page.action_for(&Input::Key(key))
             {
-                let action = Some(Action::ButtonPressed(key));
-                if let Some(action) = action {
-                    self.dispatch(action);
-                }
+                self.dispatch(action);
             }
 
-            // Drain controller results
-            while let Ok(action) = self.rx.try_recv() {
-                self.dispatch(action);
+            // Take in what commands produced
+            while let Ok(event) = self.events_rx.try_recv() {
+                self.receive(event);
             }
 
             if self.should_quit {
@@ -104,20 +77,28 @@ impl App {
         Ok(())
     }
 
+    /// Hands `action` to the page and the commands it returns to the runtime. Components
+    /// return commands, never actions, so nothing comes back into dispatch.
     fn dispatch(&mut self, action: Action) {
-        match &action {
-            Action::Quit => self.should_quit = true,
-            Action::Error(msg) => self.status = Some(StatusMessage::Error(msg.clone())),
-            Action::Notice(msg) => self.status = Some(StatusMessage::Info(msg.clone())),
-            _ => {
-                // Esc arrives as StopEditing: it closes any popup and dismisses the message.
-                if matches!(action, Action::StopEditing) {
-                    self.status = None;
-                }
-                if let Some(next) = self.page.handle_event(&action) {
-                    self.dispatch(next);
-                }
-            }
+        if let Action::Quit = action {
+            self.should_quit = true;
+            return;
+        }
+        // Esc closes any popup and also dismisses the message.
+        if let Action::Nav(NavAction::Back) = action {
+            self.status = None;
+        }
+        for command in self.page.update(&action) {
+            runtime::execute(command, &self.events_tx);
+        }
+    }
+
+    /// Shows a notice or an error; anything else goes to the page.
+    fn receive(&mut self, event: Event) {
+        match event {
+            Event::Notice(msg) => self.status = Some(StatusMessage::Info(msg)),
+            Event::Error(msg) => self.status = Some(StatusMessage::Error(msg)),
+            event => self.page.apply(&event),
         }
     }
 }

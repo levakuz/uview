@@ -1,12 +1,11 @@
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 use ratatui::{Terminal, backend::TestBackend};
-use tokio::sync::mpsc;
-use uview::events::Action;
+use uview::message::{Action, DepsAction};
 use uview::ui::components::widgets::dependencies_tables_tabs::DependenciesTablesTabs;
 
 fn tabs() -> DependenciesTablesTabs {
-    DependenciesTablesTabs::new(mpsc::unbounded_channel().0)
+    DependenciesTablesTabs::new()
 }
 
 fn render(
@@ -37,7 +36,7 @@ fn tabs_leave_the_table_its_own_colours() -> Result<(), Box<dyn std::error::Erro
     assert_eq!(buffer[(1, 1)].symbol(), "N");
     assert_eq!(buffer[(1, 1)].fg, Color::Reset);
 
-    tabs.handle_event(&Action::SwitchTable);
+    tabs.update(&Action::Deps(DepsAction::SwitchTable));
     let buffer = render(&mut tabs, 40)?;
     assert_eq!(buffer[(0, 0)].fg, Color::Cyan);
     assert_eq!(buffer[(2, 0)].fg, Color::White);

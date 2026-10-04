@@ -1,7 +1,7 @@
 //! `uv` output, read without spawning or awaiting anything.
 
 use super::UvError;
-use crate::events::EnvDependency;
+use crate::domain::EnvDependency;
 
 /// The packages in `uv pip list --format json` output.
 pub fn pip_list(stdout: &str) -> Result<Vec<EnvDependency>, UvError> {

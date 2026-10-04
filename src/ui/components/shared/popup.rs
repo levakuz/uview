@@ -4,8 +4,6 @@ use ratatui::{
     widgets::Clear,
 };
 
-use crate::events::Action;
-
 pub struct PopupSize {
     pub width: u16,
     pub height: u16,
@@ -35,9 +33,5 @@ impl Popup {
 
         frame.render_widget(Clear, popup_area);
         popup_area
-    }
-
-    pub fn handle_event(&mut self, _action: &Action) -> Option<Action> {
-        None
     }
 }

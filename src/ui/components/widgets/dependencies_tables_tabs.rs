@@ -1,24 +1,20 @@
 use crate::{
-    controllers::dependencies::{
-        get_env_package_info, load_env_deps, load_pyproject_deps, pin_dep_version,
-        remove_dep_from_pyproject, uninstall_from_env, upgrade_env_dep,
-    },
-    events::{Action, EnvDependency, PyprojectDependency},
+    domain::{EnvDependency, PyprojectDependency},
+    message::{Action, Command, DepsAction, Event, NavAction},
     ui::components::{
         features::{
-            add_packaage_popup::AddPackagePopup, package_control_popup::PackageControlPopup,
+            add_packaage_popup::AddPackagePopup,
+            package_control_popup::{PackageControlOption, PackageControlPopup},
             pin_version_popup::PinVersionPopup,
         },
         shared::table::SharedTable,
     },
-    uv::RealUvClient,
 };
 use ratatui::{Frame, symbols, widgets::Tabs};
 use ratatui::{
     layout::{Margin, Rect},
     style::{Style, Stylize},
 };
-use tokio::sync::mpsc;
 #[derive(PartialEq)]
 enum ActiveTable {
     Pyproject,
@@ -34,15 +30,13 @@ pub struct DependenciesTablesTabs {
     /// The package the actions list was opened for. Its actions use this, not the selection
     /// when they run, which a reload can move to another row.
     target: Option<String>,
+    /// The popups with an input are shown exactly while they are being typed into.
     package_add_popup: AddPackagePopup,
-    show_add_package_popup: bool,
     pin_version_popup: PinVersionPopup,
-    show_pin_version_popup: bool,
-    tx: mpsc::UnboundedSender<Action>,
 }
 
 impl DependenciesTablesTabs {
-    pub fn new(tx: mpsc::UnboundedSender<Action>) -> Self {
+    pub fn new() -> Self {
         let package_control_popup = PackageControlPopup::new();
         let package_add_popup = AddPackagePopup::new();
         let pin_version_popup = PinVersionPopup::new();
@@ -61,11 +55,8 @@ impl DependenciesTablesTabs {
             package_control_popup,
             show_package_control_popup: false,
             target: None,
-            tx,
             package_add_popup,
-            show_add_package_popup: false,
             pin_version_popup,
-            show_pin_version_popup: false,
         }
     }
 
@@ -75,10 +66,10 @@ impl DependenciesTablesTabs {
         if self.show_package_control_popup {
             self.package_control_popup.render(frame, area);
         }
-        if self.show_add_package_popup {
+        if self.package_add_popup.is_editing() {
             self.package_add_popup.render(frame, area);
         }
-        if self.show_pin_version_popup {
+        if self.pin_version_popup.is_editing() {
             self.pin_version_popup.render(frame, area);
         }
     }
@@ -123,220 +114,120 @@ impl DependenciesTablesTabs {
         };
     }
 
-    pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
-        // Results update the tables whatever has focus: an open input must not swallow them.
-        match action {
-            Action::LoadedPyprojectDeps(deps) => {
-                self.pyproject_table.set_items(deps.clone());
-                return None;
-            }
-            Action::LoadedEnvDeps(deps) => {
-                self.env_table.set_items(deps.clone());
-                return None;
-            }
-            Action::UpdatedEnvDep(dep) => {
+    /// Puts what a command produced into the tables, whatever has focus.
+    pub fn apply(&mut self, event: &Event) {
+        match event {
+            Event::PyprojectLoaded(deps) => self.pyproject_table.set_items(deps.clone()),
+            Event::EnvLoaded(deps) => self.env_table.set_items(deps.clone()),
+            Event::EnvUpdated(dep) => {
                 let name = dep.name.clone();
                 self.env_table
                     .update_item_where(|d| d.name == name, dep.clone());
-                return None;
             }
-            _ => {}
+            Event::Notice(_) | Event::Error(_) => {}
         }
-        if let Action::StopEditing = action {
-            if self.package_add_popup.is_editing() {
-                self.package_add_popup.handle_event(action);
-                self.show_add_package_popup = false;
-                return None;
-            }
-            if self.pin_version_popup.is_editing() {
-                self.pin_version_popup.handle_event(action);
-                self.show_pin_version_popup = false;
-                return None;
-            }
-        }
+    }
+
+    pub fn update(&mut self, action: &Action) -> Vec<Command> {
+        // An open input takes every key.
         if self.package_add_popup.is_editing() {
-            return self.package_add_popup.handle_event(action);
+            if let Action::Nav(nav) = action {
+                self.package_add_popup.update(nav);
+            }
+            return Vec::new();
         }
         if self.pin_version_popup.is_editing() {
-            return self.pin_version_popup.handle_event(action);
+            if let Action::Nav(nav) = action
+                && let Some(constraint) = self.pin_version_popup.update(nav)
+                && let Some(name) = self.target.clone()
+            {
+                return vec![Command::Pin { name, constraint }];
+            }
+            return Vec::new();
         }
         match action {
-            Action::MoveUp => {
+            Action::Nav(NavAction::Up) => {
                 if self.show_package_control_popup {
-                    return self.package_control_popup.handle_event(action);
-                }
-                if self.active_table == ActiveTable::Pyproject {
+                    self.package_control_popup.up();
+                } else if self.active_table == ActiveTable::Pyproject {
                     self.pyproject_table.previous();
                 } else {
                     self.env_table.previous();
                 }
             }
-            Action::MoveDown => {
+            Action::Nav(NavAction::Down) => {
                 if self.show_package_control_popup {
-                    return self.package_control_popup.handle_event(action);
-                }
-                if self.active_table == ActiveTable::Pyproject {
+                    self.package_control_popup.down();
+                } else if self.active_table == ActiveTable::Pyproject {
                     self.pyproject_table.next();
                 } else {
                     self.env_table.next();
                 }
             }
-            Action::SwitchTable => {
+            Action::Nav(NavAction::Select) => {
+                if self.show_package_control_popup {
+                    return self.choose();
+                }
+                // Without a row the actions would have nothing to act on.
+                let Some(name) = self.selected_name() else {
+                    return Vec::new();
+                };
+                self.target = Some(name);
+                // A fresh popup, so it never opens with Remove still selected.
+                self.package_control_popup = PackageControlPopup::new();
+                self.show_package_control_popup = true;
+            }
+            Action::Nav(NavAction::Back) => self.show_package_control_popup = false,
+            Action::Deps(DepsAction::SwitchTable) => {
                 // The control popup acts on the row it was opened for.
                 if !self.show_package_control_popup {
                     self.switch_table();
                 }
             }
-            Action::OpenPopup => {
-                self.show_add_package_popup = true;
-                self.package_add_popup.handle_event(&Action::Editing);
-            }
-            Action::OpenPinPopup => {
-                self.show_package_control_popup = false;
-                self.show_pin_version_popup = true;
-                self.pin_version_popup.handle_event(&Action::Editing);
-            }
-            Action::SelectItem => {
-                if self.show_package_control_popup {
-                    return self.package_control_popup.handle_event(action);
-                }
-                if self.show_add_package_popup {
-                    return self.package_add_popup.handle_event(action);
-                }
-                // Without a row the actions would have nothing to act on.
-                self.target = Some(self.selected_name()?);
-                // A fresh popup, so it never opens with Remove still selected.
-                self.package_control_popup = PackageControlPopup::new();
-                self.show_package_control_popup = true;
-            }
-            Action::RemovePackage => {
-                let tx = self.tx.clone();
-                if self.active_table == ActiveTable::Pyproject {
-                    if let Some(PyprojectDependency { name, groups, .. }) = self
-                        .pyproject_table
-                        .find(|d| Some(&d.name) == self.target.as_ref())
-                        .cloned()
-                    {
-                        tokio::spawn(async move {
-                            let _ = tx.send(
-                                match remove_dep_from_pyproject(&RealUvClient, &name, groups).await
-                                {
-                                    Ok(()) => Action::Notice(format!(
-                                        "Removed {name} from pyproject.toml"
-                                    )),
-                                    Err(e) => Action::Error(e.to_string()),
-                                },
-                            );
-                            // Also after a failure: `uv remove` may already have edited
-                            // pyproject.toml, and a stale row would replay that membership.
-                            reload_tables(&tx).await;
-                        });
-                    }
-                } else if let Some(dep) = self
-                    .env_table
-                    .find(|d| Some(&d.name) == self.target.as_ref())
-                    .cloned()
-                {
-                    // Environment only: pyproject.toml is left alone. Confirmation and its
-                    // warnings come with #12.
-                    let name = dep.name;
-                    tokio::spawn(async move {
-                        let _ = tx.send(match uninstall_from_env(&RealUvClient, &name).await {
-                            Ok(()) => {
-                                Action::Notice(format!("Uninstalled {name} from the environment"))
-                            }
-                            Err(e) => Action::Error(e.to_string()),
-                        });
-                        // Drop the row, so it cannot be "uninstalled" again as a no-op.
-                        reload_tables(&tx).await;
-                    });
-                }
-                self.show_package_control_popup = false;
-                return None;
-            }
-            Action::UpgradeEnvDep => {
-                if let Some(name) = self.target.clone() {
-                    let tx = self.tx.clone();
-                    tokio::spawn(async move {
-                        match upgrade_env_dep(&RealUvClient, &name).await {
-                            Ok(()) => {
-                                let _ = tx.send(Action::Notice(format!("Updated {name}")));
-                                send_env_refresh(&tx, &name).await;
-                            }
-                            Err(e) => {
-                                let _ = tx.send(Action::Error(e.to_string()));
-                            }
-                        }
-                    });
-                }
-                self.show_package_control_popup = false;
-                return None;
-            }
-            Action::PinVersion(constraint) => {
-                if let Some(name) = self.target.clone() {
-                    let constraint = constraint.clone();
-                    let tx = self.tx.clone();
-                    tokio::spawn(async move {
-                        // Sent first, so an error from the reload below replaces it.
-                        let _ = tx.send(
-                            match pin_dep_version(&RealUvClient, &name, &constraint).await {
-                                Ok(pinned) => Action::Notice(format!("Pinned {pinned}")),
-                                Err(e) => Action::Error(e.to_string()),
-                            },
-                        );
-                        // Reload rather than patch rows, so the tables show what uv wrote,
-                        // including after a failure part-way through the memberships.
-                        reload_tables(&tx).await;
-                    });
-                }
-                self.pin_version_popup.handle_event(&Action::StopEditing);
-                self.show_pin_version_popup = false;
-                return None;
-            }
-            Action::ClosePopup | Action::StopEditing => {
-                self.show_package_control_popup = false;
-                self.show_add_package_popup = false;
-                self.show_pin_version_popup = false;
-                return None;
-            }
-            _ => {
-                if self.show_add_package_popup {
-                    return self.package_add_popup.handle_event(action);
-                }
-                if self.show_pin_version_popup {
-                    return self.pin_version_popup.handle_event(action);
-                }
-                if self.show_package_control_popup {
-                    return self.package_control_popup.handle_event(action);
-                }
-            }
+            Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
+            // Confirm and Type only mean something in an input, and Quit belongs to the app.
+            Action::Nav(NavAction::Confirm | NavAction::Type(_)) | Action::Quit => {}
         }
-        None
+        Vec::new()
     }
-}
 
-/// Sends the refreshed environment entry for `name`. Silent when the package is not
-/// installed — e.g. an extra that a plain sync leaves out — since the mutation itself succeeded.
-async fn send_env_refresh(tx: &mpsc::UnboundedSender<Action>, name: &str) {
-    match get_env_package_info(&RealUvClient, name).await {
-        Ok(Some(dep)) => {
-            let _ = tx.send(Action::UpdatedEnvDep(dep));
-        }
-        Ok(None) => {}
-        Err(e) => {
-            let _ = tx.send(Action::Error(e.to_string()));
+    /// Runs the option highlighted in the actions list on the package it was opened for.
+    fn choose(&mut self) -> Vec<Command> {
+        self.show_package_control_popup = false;
+        let Some(name) = self.target.clone() else {
+            return Vec::new();
+        };
+        match self.package_control_popup.selected() {
+            Some(PackageControlOption::PinToVersion) => {
+                self.pin_version_popup.open();
+                Vec::new()
+            }
+            Some(PackageControlOption::Update) => vec![Command::Upgrade { name }],
+            Some(PackageControlOption::Remove) => self.remove(&name).into_iter().collect(),
+            Some(PackageControlOption::Cancel) | None => Vec::new(),
         }
     }
-}
 
-/// Re-reads both tables from disk after a mutation. Uses the same loaders as startup.
-async fn reload_tables(tx: &mpsc::UnboundedSender<Action>) {
-    let _ = tx.send(match load_pyproject_deps().await {
-        Ok(deps) => Action::LoadedPyprojectDeps(deps),
-        Err(e) => Action::Error(format!("pyproject.toml: {e}")),
-    });
-    let _ = tx.send(match load_env_deps(&RealUvClient).await {
-        Ok(deps) => Action::LoadedEnvDeps(deps),
-        Err(e) => Action::Error(e.to_string()),
-    });
+    /// Removes `name` from wherever the active table lists it, if it still does.
+    fn remove(&self, name: &str) -> Option<Command> {
+        match self.active_table {
+            ActiveTable::Pyproject => {
+                self.pyproject_table
+                    .find(|d| d.name == name)
+                    .map(|d| Command::RemoveFromProject {
+                        name: d.name.clone(),
+                        groups: d.groups.clone(),
+                    })
+            }
+            // Environment only: pyproject.toml is left alone. Confirmation and its warnings
+            // come with #12.
+            ActiveTable::Environment => {
+                self.env_table
+                    .find(|d| d.name == name)
+                    .map(|d| Command::Uninstall {
+                        name: d.name.clone(),
+                    })
+            }
+        }
+    }
 }

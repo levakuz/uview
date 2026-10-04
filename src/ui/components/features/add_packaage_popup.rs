@@ -1,7 +1,7 @@
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    events::Action,
+    message::NavAction,
     ui::components::shared::{
         input::UviewInput,
         popup::{Popup, PopupSize},
@@ -35,8 +35,22 @@ impl AddPackagePopup {
         self.input.is_editing()
     }
 
-    pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
-        self.input.handle_event(action);
-        self.popup.handle_event(action)
+    /// Opens the input, empty.
+    pub fn open(&mut self) {
+        self.input.start_editing();
+    }
+
+    /// Handles a key while the input is open.
+    pub fn update(&mut self, nav: &NavAction) {
+        match nav {
+            // Not wired to `uv add` yet (#8): Enter only clears the field.
+            NavAction::Confirm => {
+                self.input.take_value();
+            }
+            NavAction::Back => self.input.stop_editing(),
+            NavAction::Type(key) => self.input.key(*key),
+            // While an input is open the keymap sends only Confirm, Back and Type.
+            _ => {}
+        }
     }
 }

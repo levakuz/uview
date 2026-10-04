@@ -1,6 +1,6 @@
 //! `uv` argument lists, built without spawning or awaiting anything.
 
-use crate::events::Membership;
+use crate::domain::Membership;
 
 /// Brings the environment up to date without uninstalling packages the lockfile does not
 /// list. A package just removed from pyproject.toml therefore stays installed; the

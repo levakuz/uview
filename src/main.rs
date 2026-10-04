@@ -1,6 +1,8 @@
 mod app;
 mod controllers;
-mod events;
+mod domain;
+mod message;
+mod runtime;
 mod ui;
 mod uv;
 
