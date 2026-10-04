@@ -118,12 +118,12 @@ impl DependenciesTablesTabs {
         match event {
             Event::PyprojectLoaded(deps) => self.pyproject_table.set_items(deps.clone()),
             Event::EnvLoaded(deps) => self.env_table.set_items(deps.clone()),
-            Event::EnvUpdated(dep) => {
-                let name = dep.name.clone();
-                self.env_table
-                    .update_item_where(|d| d.name == name, dep.clone());
-            }
-            Event::Notice(_) | Event::Error(_) => {}
+            // The app shows these.
+            Event::Notice(_)
+            | Event::Error(_)
+            | Event::JobQueued { .. }
+            | Event::JobStarted(_)
+            | Event::JobFinished(_) => {}
         }
     }
 
@@ -186,8 +186,10 @@ impl DependenciesTablesTabs {
                 }
             }
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
-            // Confirm and Type only mean something in an input, and Quit belongs to the app.
-            Action::Nav(NavAction::Confirm | NavAction::Type(_)) | Action::Quit => {}
+            // Confirm and Type only mean something in an input; Quit and Cancel belong to the app.
+            Action::Nav(NavAction::Confirm | NavAction::Type(_))
+            | Action::Quit
+            | Action::Cancel => {}
         }
         Vec::new()
     }

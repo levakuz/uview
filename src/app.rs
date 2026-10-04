@@ -1,4 +1,5 @@
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use color_eyre::Result;
 use crossterm::event::{self, KeyEventKind};
@@ -7,10 +8,11 @@ use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
 use crate::message::{Action, Command, Event, Input, NavAction};
-use crate::runtime;
+use crate::runtime::jobs::{JobRunner, JobsState};
 use crate::ui::Component;
-use crate::ui::components::shared::status_bar::{StatusMessage, render_status_line};
+use crate::ui::components::shared::status_bar::{StatusMessage, render_status_line, spinner};
 use crate::ui::pages::dependencies::DependenciesPage;
+use crate::uv::RealUvClient;
 
 pub struct App {
     page: DependenciesPage,
@@ -19,8 +21,11 @@ pub struct App {
     status: Option<StatusMessage>,
     /// The project root, shown at the right of the status line.
     project: String,
-    /// Where the runtime reports what commands produced.
-    events_tx: mpsc::UnboundedSender<Event>,
+    /// Runs the commands the page returns.
+    runner: JobRunner<RealUvClient>,
+    /// What the runner is doing, shown at the left of the status line.
+    jobs: JobsState,
+    /// Where the runner reports what commands produced.
     events_rx: mpsc::UnboundedReceiver<Event>,
 }
 
@@ -32,7 +37,8 @@ impl App {
             should_quit: false,
             status: None,
             project,
-            events_tx,
+            runner: JobRunner::new(Arc::new(RealUvClient), events_tx),
+            jobs: JobsState::default(),
             events_rx,
         }
     }
@@ -40,7 +46,7 @@ impl App {
     pub async fn run(&mut self) -> Result<()> {
         // Also installs a panic hook that restores the terminal; must stay after color_eyre::install.
         let mut terminal = ratatui::init();
-        runtime::execute(Command::Reload, &self.events_tx);
+        self.runner.execute(Command::Reload);
 
         // Restore whatever the loop returns: an I/O error must not leave the terminal raw.
         let result = self.event_loop(&mut terminal);
@@ -49,12 +55,23 @@ impl App {
     }
 
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        let clock = Instant::now();
         loop {
             terminal.draw(|frame| {
                 let [main, status] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
                     .areas(frame.area());
                 self.page.render(frame, main);
-                render_status_line(frame, status, self.status.as_ref(), &self.project);
+                let activity = self
+                    .jobs
+                    .summary()
+                    .map(|summary| format!("{} {summary}", spinner(clock.elapsed())));
+                render_status_line(
+                    frame,
+                    status,
+                    activity.as_deref(),
+                    self.status.as_ref(),
+                    &self.project,
+                );
             })?;
 
             if event::poll(Duration::from_millis(50))?
@@ -70,34 +87,44 @@ impl App {
                 self.receive(event);
             }
 
-            if self.should_quit {
+            if self.should_quit && self.jobs.is_idle() {
                 break;
             }
         }
         Ok(())
     }
 
-    /// Hands `action` to the page and the commands it returns to the runtime. Components
+    /// Hands `action` to the page and the commands it returns to the runner. Components
     /// return commands, never actions, so nothing comes back into dispatch.
     fn dispatch(&mut self, action: Action) {
-        if let Action::Quit = action {
-            self.should_quit = true;
-            return;
-        }
-        // Esc closes any popup and also dismisses the message.
-        if let Action::Nav(NavAction::Back) = action {
-            self.status = None;
-        }
-        for command in self.page.update(&action) {
-            runtime::execute(command, &self.events_tx);
+        match action {
+            // Quits once the jobs have stopped, so a `uv` interrupted mid-way can put back what
+            // it changed.
+            Action::Quit => {
+                self.runner.cancel();
+                self.should_quit = true;
+            }
+            Action::Cancel => self.runner.cancel(),
+            action => {
+                // Esc closes any popup and also dismisses the message.
+                if let Action::Nav(NavAction::Back) = action {
+                    self.status = None;
+                }
+                for command in self.page.update(&action) {
+                    self.runner.execute(command);
+                }
+            }
         }
     }
 
-    /// Shows a notice or an error; anything else goes to the page.
+    /// Shows a notice, an error or a job; anything else goes to the page.
     fn receive(&mut self, event: Event) {
         match event {
             Event::Notice(msg) => self.status = Some(StatusMessage::Info(msg)),
             Event::Error(msg) => self.status = Some(StatusMessage::Error(msg)),
+            Event::JobQueued { .. } | Event::JobStarted(_) | Event::JobFinished(_) => {
+                self.jobs.apply(&event)
+            }
             event => self.page.apply(&event),
         }
     }

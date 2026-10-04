@@ -1,27 +1,42 @@
 use std::collections::VecDeque;
-use std::sync::{Mutex, PoisonError};
+use std::error::Error;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uview::controllers::dependencies::{
-    add_dep, get_env_package_info, normalize, parse_dep_string, remove_dep_from_pyproject,
+    add_dep, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
 use uview::domain::Membership;
-use uview::message::{Command, Event};
-use uview::runtime;
+use uview::message::{Command, Event, JobId};
+use uview::runtime::jobs::{JobRunner, JobsState};
 use uview::uv::args::{membership_args, pin_requirement, uninstall_args};
 use uview::uv::{RealUvClient, UvClient, UvError};
 
 /// Stands in for `uv`: answers each call with the next canned result, or empty stdout once
-/// they run out, and records the argv it received.
+/// they run out, and records the argv it received. A call whose verb is `hang` never returns,
+/// like a slow resolve.
 #[derive(Default)]
 struct FakeUvClient {
     results: Mutex<VecDeque<Result<String, UvError>>>,
     calls: Mutex<Vec<Vec<String>>>,
+    hang: Option<&'static str>,
+    /// Hanging calls dropped unfinished: the default `run_cancellable` drops a cancelled call.
+    dropped: AtomicUsize,
 }
 
 impl FakeUvClient {
     fn returning(results: impl IntoIterator<Item = Result<String, UvError>>) -> Self {
         Self {
             results: Mutex::new(results.into_iter().collect()),
+            ..Self::default()
+        }
+    }
+
+    fn hanging_on(verb: &'static str) -> Self {
+        Self {
+            hang: Some(verb),
             ..Self::default()
         }
     }
@@ -40,12 +55,55 @@ impl UvClient for FakeUvClient {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(args.iter().map(ToString::to_string).collect());
+        if self.hang.is_some_and(|verb| args.first() == Some(&verb)) {
+            let _counted = CountsDrop(&self.dropped);
+            std::future::pending::<()>().await;
+        }
         self.results
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
             .unwrap_or_else(|| Ok(String::new()))
     }
+}
+
+struct CountsDrop<'a>(&'a AtomicUsize);
+
+impl Drop for CountsDrop<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Receives events up to the first that `last` matches, and returns them all. Gives up after a
+/// few seconds rather than hang the test run.
+async fn events_until(
+    received: &mut UnboundedReceiver<Event>,
+    last: impl Fn(&Event) -> bool,
+) -> Result<Vec<Event>, Box<dyn Error>> {
+    let mut events = Vec::new();
+    loop {
+        let event = tokio::time::timeout(Duration::from_secs(5), received.recv())
+            .await?
+            .ok_or("the runner stopped")?;
+        let done = last(&event);
+        events.push(event);
+        if done {
+            return Ok(events);
+        }
+    }
+}
+
+fn finished(id: u64) -> impl Fn(&Event) -> bool {
+    move |event| matches!(event, Event::JobFinished(JobId(n)) if *n == id)
+}
+
+fn started(id: u64) -> impl Fn(&Event) -> bool {
+    move |event| matches!(event, Event::JobStarted(JobId(n)) if *n == id)
+}
+
+fn notice(text: &str) -> impl Fn(&Event) -> bool {
+    move |event| matches!(event, Event::Notice(m) if m == text)
 }
 
 #[test]
@@ -103,6 +161,62 @@ async fn successful_uv_call_returns_stdout() {
         Err(UvError::Spawn(_)) => {} // `uv` is not installed here; nothing to check.
         other => assert!(other.is_ok_and(|out| out.starts_with("uv "))),
     }
+}
+
+/// `uv add` writes pyproject.toml before it resolves. Cancelled, it must be stopped the way
+/// Ctrl+C stops it, which puts the file back, and the call must return only once it has.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_cancelled_uv_add_has_put_pyproject_back_when_it_returns() -> Result<(), Box<dyn Error>> {
+    // An index that takes connections and never answers, so the resolve hangs.
+    let index = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let url = format!("http://{}/simple", index.local_addr()?);
+    std::thread::spawn(move || index.incoming().collect::<Vec<_>>());
+    let dir = std::env::temp_dir().join(format!("uview-cancel-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let pyproject = dir.join("pyproject.toml");
+    std::fs::write(
+        &pyproject,
+        "[project]\nname = \"p\"\nversion = \"0.1.0\"\ndependencies = []\n",
+    )?;
+    let lists_requests = || -> std::io::Result<bool> {
+        Ok(std::fs::read_to_string(&pyproject)?.contains("requests"))
+    };
+
+    let dir_arg = dir.to_string_lossy();
+    let args = [
+        "add",
+        "--no-sync",
+        "requests",
+        "--directory",
+        &dir_arg,
+        "--default-index",
+        &url,
+    ];
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let mut add = Box::pin(RealUvClient.run_cancellable(&args, &cancel));
+    let mut waited = 0;
+    while !lists_requests()? {
+        // Finished already: no `uv` or no Python here, so nothing to cancel.
+        if tokio::time::timeout(Duration::from_millis(50), &mut add)
+            .await
+            .is_ok()
+        {
+            return Ok(());
+        }
+        waited += 1;
+        if waited > 200 {
+            return Err("uv never wrote pyproject.toml".into());
+        }
+    }
+    // uv sets its Ctrl+C handler only just after it writes the file. No user is that quick, but
+    // a test watching for the write can be.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    cancel.cancel();
+    assert!(matches!(add.await, Err(UvError::Cancelled)));
+    assert!(!lists_requests()?, "uv left requests in pyproject.toml");
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
 }
 
 #[test]
@@ -170,25 +284,98 @@ async fn add_runs_uv_add_then_one_inexact_sync() -> Result<(), UvError> {
 }
 
 #[tokio::test]
-async fn env_lookup_reads_pip_list_json_by_normalized_name() -> Result<(), UvError> {
-    let pip_list = r#"[{"name": "Flask-SQLAlchemy", "version": "3.1.1"}]"#;
-    let uv = FakeUvClient::returning([Ok(pip_list.to_string())]);
-    let found = get_env_package_info(&uv, "flask_sqlalchemy").await?;
-    assert_eq!(found.map(|dep| dep.version), Some("3.1.1".to_string()));
-    assert_eq!(uv.calls()[0][..4], ["pip", "list", "--format", "json"]);
+async fn every_mutation_reloads_the_tables_however_it_ends() -> Result<(), Box<dyn Error>> {
+    let pip_list = r#"[{"name": "six", "version": "1.17.0"}]"#;
+    let uv = Arc::new(FakeUvClient::returning([
+        Ok(String::new()),
+        Ok(pip_list.to_string()),
+        Err(UvError::Parse("no".into())),
+    ]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Upgrade { name: "six".into() });
+    runner.execute(Command::Add {
+        requirement: "httpx".into(),
+    });
+    let events = events_until(&mut received, finished(2)).await?;
+    assert!(events.iter().any(notice("Updated six")));
+    // The whole environment, not just the upgraded row: uv may have upgraded its dependencies.
+    let reloaded = events.iter().find_map(|event| match event {
+        Event::EnvLoaded(deps) => deps.first(),
+        _ => None,
+    });
+    assert_eq!(reloaded.map(|dep| dep.version.as_str()), Some("1.17.0"));
+    let commands: Vec<String> = uv.calls().iter().map(|call| call[..2].join(" ")).collect();
+    assert_eq!(
+        commands,
+        ["sync --inexact", "pip list", "add --no-sync", "pip list"]
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn the_runtime_reports_an_upgrade_and_the_upgraded_row() {
-    let pip_list = r#"[{"name": "six", "version": "1.17.0"}]"#;
-    let uv = FakeUvClient::returning([Ok(String::new()), Ok(pip_list.to_string())]);
-    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
-    runtime::run(Command::Upgrade { name: "six".into() }, &uv, &events).await;
-    assert_eq!(
-        uv.calls()[0],
-        ["sync", "--inexact", "--upgrade-package", "six"]
-    );
-    assert!(matches!(received.try_recv(), Ok(Event::Notice(m)) if m == "Updated six"));
-    assert!(matches!(received.try_recv(), Ok(Event::EnvUpdated(dep)) if dep.version == "1.17.0"));
+async fn a_mutation_waits_for_the_one_running_and_a_read_does_not() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::hanging_on("add"));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Add {
+        requirement: "httpx".into(),
+    });
+    events_until(&mut received, started(1)).await?;
+    runner.execute(Command::Upgrade { name: "six".into() });
+    runner.execute(Command::Reload);
+    // The reload runs to its end while the add still runs, and the upgrade waits behind it.
+    let events = events_until(&mut received, finished(3)).await?;
+    assert!(!events.iter().any(started(2)));
+    assert!(!uv.calls().iter().any(|call| call[0] == "sync"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancel_stops_the_running_job_and_drops_the_waiting() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::hanging_on("add"));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Add {
+        requirement: "httpx".into(),
+    });
+    runner.execute(Command::Upgrade { name: "six".into() });
+    events_until(&mut received, started(1)).await?;
+    runner.cancel();
+    let events = events_until(&mut received, finished(2)).await?;
+    assert!(events.iter().any(notice("Cancelled: Adding httpx")));
+    assert!(!events.iter().any(started(2)));
+    // The running `uv add` was stopped, and the tables were read again in case it had written
+    // pyproject.toml. The upgrade never ran.
+    assert_eq!(uv.dropped.load(Ordering::SeqCst), 1);
+    let commands: Vec<String> = uv.calls().iter().map(|call| call[..2].join(" ")).collect();
+    assert_eq!(commands, ["add --no-sync", "pip list"]);
+    // A job accepted after the cancel runs as usual.
+    runner.execute(Command::Upgrade { name: "six".into() });
+    let events = events_until(&mut received, finished(3)).await?;
+    assert!(events.iter().any(notice("Updated six")));
+    Ok(())
+}
+
+#[test]
+fn the_indicator_names_the_oldest_job_and_counts_those_waiting() {
+    let mut jobs = JobsState::default();
+    let queued = |id, label: &str| Event::JobQueued {
+        id: JobId(id),
+        label: label.into(),
+    };
+    jobs.apply(&queued(1, "Removing six"));
+    jobs.apply(&Event::JobStarted(JobId(1)));
+    jobs.apply(&queued(2, "Adding httpx"));
+    // A read runs beside the mutation; it is not waiting.
+    jobs.apply(&queued(3, "Loading dependencies"));
+    jobs.apply(&Event::JobStarted(JobId(3)));
+    assert_eq!(jobs.summary().as_deref(), Some("Removing six · 1 queued"));
+    jobs.apply(&Event::JobFinished(JobId(3)));
+    jobs.apply(&Event::JobFinished(JobId(1)));
+    jobs.apply(&Event::JobStarted(JobId(2)));
+    assert_eq!(jobs.summary().as_deref(), Some("Adding httpx"));
+    // The runner sends JobFinished however a job ends: done, failed or cancelled.
+    jobs.apply(&Event::JobFinished(JobId(2)));
+    assert_eq!(jobs.summary(), None);
 }

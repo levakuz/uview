@@ -121,18 +121,6 @@ pub async fn uninstall_from_env(uv: &impl UvClient, name: &str) -> Result<(), Uv
     Ok(())
 }
 
-/// The installed entry for `name`, or `None` if it is not in the environment.
-pub async fn get_env_package_info(
-    uv: &impl UvClient,
-    name: &str,
-) -> Result<Option<EnvDependency>, UvError> {
-    let wanted = normalize(name);
-    Ok(load_env_deps(uv)
-        .await?
-        .into_iter()
-        .find(|d| normalize(&d.name) == wanted))
-}
-
 /// PEP 503 name normalization, ignoring extras, so `Flask_SQLAlchemy` matches
 /// `flask-sqlalchemy` and a declared `flask[dotenv]` matches an installed `flask`.
 pub fn normalize(name: &str) -> String {

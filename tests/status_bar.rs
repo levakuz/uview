@@ -25,11 +25,27 @@ fn project_stays_beside_a_message_with_its_tail_visible() -> Result<(), Box<dyn 
     let mut terminal = Terminal::new(TestBackend::new(30, 1))?;
     let message = StatusMessage::Info("Removed six".into());
     let project = "/Users/jane/services/billing-api";
-    terminal.draw(|frame| render_status_line(frame, frame.area(), Some(&message), project))?;
+    terminal
+        .draw(|frame| render_status_line(frame, frame.area(), None, Some(&message), project))?;
     let cells = terminal.backend().buffer().content();
     let line: String = cells.iter().map(|cell| cell.symbol()).collect();
     assert_eq!(line, "Removed six    ces/billing-api");
     // The default colour: a palette grey can be the background colour itself.
     assert_eq!(cells[29].fg, ratatui::style::Color::Reset);
+    Ok(())
+}
+
+#[test]
+fn a_running_job_comes_before_the_message() -> Result<(), Box<dyn std::error::Error>> {
+    let mut terminal = Terminal::new(TestBackend::new(40, 1))?;
+    let message = StatusMessage::Info("Removed six".into());
+    terminal.draw(|frame| {
+        let activity = Some("⠋ Adding httpx");
+        render_status_line(frame, frame.area(), activity, Some(&message), "/proj")
+    })?;
+    let cells = terminal.backend().buffer().content();
+    let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+    assert_eq!(line, "⠋ Adding httpx  Removed six        /proj");
+    assert_eq!(cells[0].fg, ratatui::style::Color::Cyan);
     Ok(())
 }
