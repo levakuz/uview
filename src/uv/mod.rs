@@ -7,6 +7,7 @@ use std::fmt;
 use std::process::Stdio;
 use std::time::Duration;
 
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
 use tokio_util::sync::CancellationToken;
 
 /// Why a `uv` invocation failed.
@@ -52,12 +53,14 @@ pub trait UvClient: Send + Sync {
     /// Runs `uv` with `args` and returns its stdout.
     fn run(&self, args: &[&str]) -> impl Future<Output = Result<String, UvError>> + Send;
 
-    /// `run`, ended with `UvError::Cancelled` once `cancel` fires (ADR-0006). By default the
-    /// call is simply dropped.
-    fn run_cancellable(
+    /// `run`, handing each line `uv` writes to stderr to `on_line` as it arrives, and ended with
+    /// `UvError::Cancelled` once `cancel` fires (ADR-0006). By default there are no lines, and a
+    /// cancelled call is simply dropped.
+    fn run_streaming(
         &self,
         args: &[&str],
         cancel: &CancellationToken,
+        _on_line: &(dyn Fn(&str) + Sync),
     ) -> impl Future<Output = Result<String, UvError>> + Send {
         async move {
             tokio::select! {
@@ -75,21 +78,26 @@ pub struct RealUvClient;
 
 impl UvClient for RealUvClient {
     async fn run(&self, args: &[&str]) -> Result<String, UvError> {
-        self.run_cancellable(args, &CancellationToken::new()).await
+        self.run_streaming(args, &CancellationToken::new(), &|_| {})
+            .await
     }
 
-    /// Stops `uv` as Ctrl+C would once `cancel` fires: with SIGINT on Unix, on which `uv add`
-    /// puts pyproject.toml back. Windows has no such signal for a child, so there it is killed.
-    /// Returns once `uv` has exited, so what it left behind can be read.
-    async fn run_cancellable(
+    /// Hands `on_line` each line of stderr, where `uv` reports its progress line by line when
+    /// stderr is not a terminal. Once `cancel` fires, stops `uv` as Ctrl+C would: with SIGINT on
+    /// Unix, on which `uv add` puts pyproject.toml back. Windows has no such signal for a child,
+    /// so there it is killed. Returns once `uv` has exited, so what it left behind can be read.
+    async fn run_streaming(
         &self,
         args: &[&str],
         cancel: &CancellationToken,
+        on_line: &(dyn Fn(&str) + Sync),
     ) -> Result<String, UvError> {
         if cancel.is_cancelled() {
             return Err(UvError::Cancelled);
         }
-        let child = tokio::process::Command::new("uv")
+        let mut child = tokio::process::Command::new("uv")
+            // Plain text: FORCE_COLOR would otherwise colour even a pipe.
+            .args(["--color", "never"])
             .args(args)
             // main.rs already turned UV_PROJECT into the working directory; left set, uv would
             // resolve a relative value a second time, from there.
@@ -103,13 +111,15 @@ impl UvClient for RealUvClient {
             .spawn()
             .map_err(UvError::Spawn)?;
         let pid = child.id();
-        let output = child.wait_with_output();
+        let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+        let output =
+            async { tokio::try_join!(child.wait(), read_all(stdout), read_lines(stderr, on_line)) };
         tokio::pin!(output);
-        let output = tokio::select! {
+        let (status, stdout, stderr) = tokio::select! {
             biased;
             () = cancel.cancelled() => {
                 // `uv add` puts pyproject.toml back, then exits; other commands stop at once.
-                // A `uv` still running after that is killed as `output` is dropped.
+                // A `uv` still running after that is killed as `child` is dropped.
                 if interrupt(pid) {
                     let _ = tokio::time::timeout(Duration::from_secs(2), output).await;
                 }
@@ -117,15 +127,46 @@ impl UvClient for RealUvClient {
             }
             output = &mut output => output.map_err(UvError::Spawn)?,
         };
-        if !output.status.success() {
+        if !status.success() {
             return Err(UvError::Failed {
                 command: args.join(" "),
-                status: output.status,
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                status,
+                stderr: stderr.trim().to_string(),
             });
         }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        Ok(String::from_utf8_lossy(&stdout).into_owned())
     }
+}
+
+/// Everything `pipe` holds until it closes.
+async fn read_all(pipe: Option<impl AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+    let mut all = Vec::new();
+    if let Some(mut pipe) = pipe {
+        pipe.read_to_end(&mut all).await?;
+    }
+    Ok(all)
+}
+
+/// Everything `pipe` holds until it closes, handing each line that is not blank to `on_line`,
+/// trimmed, as it arrives.
+async fn read_lines(
+    pipe: Option<impl AsyncRead + Unpin>,
+    on_line: &(dyn Fn(&str) + Sync),
+) -> std::io::Result<String> {
+    let mut all = String::new();
+    let Some(pipe) = pipe else {
+        return Ok(all);
+    };
+    let mut lines = BufReader::new(pipe).split(b'\n');
+    while let Some(line) = lines.next_segment().await? {
+        let line = String::from_utf8_lossy(&line);
+        if !line.trim().is_empty() {
+            on_line(line.trim());
+        }
+        all.push_str(&line);
+        all.push('\n');
+    }
+    Ok(all)
 }
 
 /// Sends SIGINT to `uv`, and says whether it could.

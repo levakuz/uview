@@ -32,21 +32,13 @@ pub fn spinner(elapsed: Duration) -> char {
     FRAMES[(elapsed.as_millis() / 80 % 10) as usize]
 }
 
-/// The bottom line: on the left, what is running, if anything, then the latest message; on the
-/// right, `context` in the default colour. `context` gets at most half the width and is cut from
-/// the left, so its most specific end stays visible.
+/// The bottom line: what is running, if anything, then the latest message.
 pub fn render_status_line(
     frame: &mut Frame,
-    area: Rect,
+    mut area: Rect,
     activity: Option<&str>,
     message: Option<&StatusMessage>,
-    context: &str,
 ) {
-    let context = Line::raw(context).right_aligned();
-    let width = context.width().min(usize::from(area.width / 2)) as u16;
-    let [mut left, right] = Layout::horizontal([Constraint::Min(0), Constraint::Length(width)])
-        .spacing(1)
-        .areas(area);
     if let Some(activity) = activity {
         let activity = Line::raw(activity).cyan();
         let [shown, rest] = Layout::horizontal([
@@ -54,12 +46,11 @@ pub fn render_status_line(
             Constraint::Min(0),
         ])
         .spacing(2)
-        .areas(left);
+        .areas(area);
         frame.render_widget(activity, shown);
-        left = rest;
+        area = rest;
     }
     if let Some(message) = message {
-        message.render(frame, left);
+        message.render(frame, area);
     }
-    frame.render_widget(context, right);
 }

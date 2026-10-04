@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::Rect;
 
 use crate::message::{Action, Command, DepsAction, Event, Input, NavAction};
 use crate::ui::Component;
@@ -64,10 +64,7 @@ impl DependenciesPage {
 
 impl Component for DependenciesPage {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let [left, _] =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .areas(area);
-        self.dependencies_tabs.render(frame, left);
+        self.dependencies_tabs.render(frame, area);
     }
 
     fn update(&mut self, action: &Action) -> Vec<Command> {

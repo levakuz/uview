@@ -10,6 +10,8 @@ use tokio::sync::mpsc;
 use crate::message::{Action, Command, Event, Input, NavAction};
 use crate::runtime::jobs::{JobRunner, JobsState};
 use crate::ui::Component;
+use crate::ui::components::features::project_tile::render_project_tile;
+use crate::ui::components::features::uv_log::render_uv_log;
 use crate::ui::components::shared::status_bar::{StatusMessage, render_status_line, spinner};
 use crate::ui::pages::dependencies::DependenciesPage;
 use crate::uv::RealUvClient;
@@ -19,11 +21,11 @@ pub struct App {
     should_quit: bool,
     /// The latest error or notice; Esc dismisses it.
     status: Option<StatusMessage>,
-    /// The project root, shown at the right of the status line.
+    /// The project root, shown in the project tile.
     project: String,
     /// Runs the commands the page returns.
     runner: JobRunner<RealUvClient>,
-    /// What the runner is doing, shown at the left of the status line.
+    /// What the runner is doing, shown on the status line, and what its `uv` wrote, in the log.
     jobs: JobsState,
     /// Where the runner reports what commands produced.
     events_rx: mpsc::UnboundedReceiver<Event>,
@@ -60,18 +62,17 @@ impl App {
             terminal.draw(|frame| {
                 let [main, status] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
                     .areas(frame.area());
-                self.page.render(frame, main);
+                let [left, right] =
+                    Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                        .areas(main);
+                self.page.render(frame, left);
+                let log = render_project_tile(frame, right, &self.project);
+                render_uv_log(frame, log, &self.jobs);
                 let activity = self
                     .jobs
                     .summary()
                     .map(|summary| format!("{} {summary}", spinner(clock.elapsed())));
-                render_status_line(
-                    frame,
-                    status,
-                    activity.as_deref(),
-                    self.status.as_ref(),
-                    &self.project,
-                );
+                render_status_line(frame, status, activity.as_deref(), self.status.as_ref());
             })?;
 
             if event::poll(Duration::from_millis(50))?
@@ -122,9 +123,10 @@ impl App {
         match event {
             Event::Notice(msg) => self.status = Some(StatusMessage::Info(msg)),
             Event::Error(msg) => self.status = Some(StatusMessage::Error(msg)),
-            Event::JobQueued { .. } | Event::JobStarted(_) | Event::JobFinished(_) => {
-                self.jobs.apply(&event)
-            }
+            Event::JobQueued { .. }
+            | Event::JobStarted(_)
+            | Event::JobOutput(..)
+            | Event::JobFinished(_) => self.jobs.apply(&event),
             event => self.page.apply(&event),
         }
     }
