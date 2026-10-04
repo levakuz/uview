@@ -54,6 +54,7 @@ impl DependenciesPage {
             }
             KeyCode::Char('p') => Action::Deps(DepsAction::OpenAdd),
             KeyCode::Char('s') => Action::Deps(DepsAction::Sync),
+            KeyCode::Char('r') => Action::Deps(DepsAction::Refresh),
             _ => return None,
         })
     }

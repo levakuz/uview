@@ -2,6 +2,7 @@
 //! fails: they run one at a time, in the order accepted. Reads take no lock and start at once.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_util::sync::CancellationToken;
@@ -18,6 +19,9 @@ pub struct JobRunner<U> {
     last_id: u64,
     /// Held by every job accepted since the last `cancel`.
     cancel: CancellationToken,
+    /// How many mutations have ended. A reload reports its rows with the count as it started,
+    /// so that the app can tell rows read before a mutation from rows read after it.
+    generation: Arc<AtomicU64>,
 }
 
 struct Job {
@@ -31,11 +35,13 @@ impl<U: UvClient + 'static> JobRunner<U> {
     /// Starts the task that runs mutations, so it must be called inside a tokio runtime.
     pub fn new(uv: Arc<U>, events: UnboundedSender<Event>) -> Self {
         let (mutations, mut queue) = mpsc::unbounded_channel::<Job>();
+        let generation = Arc::new(AtomicU64::new(0));
         tokio::spawn({
-            let (uv, events) = (Arc::clone(&uv), events.clone());
+            let (uv, events, generation) =
+                (Arc::clone(&uv), events.clone(), Arc::clone(&generation));
             async move {
                 while let Some(job) = queue.recv().await {
-                    run_job(job, &*uv, &events).await;
+                    run_job(job, &*uv, &events, &generation).await;
                 }
             }
         });
@@ -45,6 +51,7 @@ impl<U: UvClient + 'static> JobRunner<U> {
             mutations,
             last_id: 0,
             cancel: CancellationToken::new(),
+            generation,
         }
     }
 
@@ -65,7 +72,8 @@ impl<U: UvClient + 'static> JobRunner<U> {
             let _ = self.mutations.send(job);
         } else {
             let (uv, events) = (Arc::clone(&self.uv), self.events.clone());
-            tokio::spawn(async move { run_job(job, &*uv, &events).await });
+            let generation = Arc::clone(&self.generation);
+            tokio::spawn(async move { run_job(job, &*uv, &events, &generation).await });
         }
     }
 
@@ -96,7 +104,12 @@ fn label(command: &Command) -> String {
 }
 
 /// Runs `job` and reports it from start to finish.
-async fn run_job(job: Job, uv: &impl UvClient, events: &UnboundedSender<Event>) {
+async fn run_job(
+    job: Job,
+    uv: &impl UvClient,
+    events: &UnboundedSender<Event>,
+    generation: &AtomicU64,
+) {
     let send = |event| {
         let _ = events.send(event);
     };
@@ -113,16 +126,17 @@ async fn run_job(job: Job, uv: &impl UvClient, events: &UnboundedSender<Event>) 
         cancel: &job.cancel,
         events,
     };
-    super::run(job.command, &job_uv, events).await;
+    let as_it_starts = generation.load(Ordering::SeqCst);
+    super::run(job.command, &job_uv, events, as_it_starts).await;
     if job.cancel.is_cancelled() {
         send(Event::Notice(format!("Cancelled: {}", job.label)));
     }
     // However the mutation ended: `uv` may have written pyproject.toml before it failed, and a
     // stale row would replay a removed membership or uninstall a package twice. A cancelled `uv`
-    // has exited by now, after putting back what it could. Still in the mutation's turn, so the
-    // next one cannot change things under the reload.
+    // has exited by now, after putting back what it could. Rows read before now are older.
     if mutates {
-        super::reload(uv, events).await;
+        generation.fetch_add(1, Ordering::SeqCst);
+        send(Event::ProjectMutated);
     }
     send(Event::JobFinished(job.id));
 }

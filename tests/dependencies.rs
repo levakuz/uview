@@ -9,10 +9,10 @@ use tokio_util::sync::CancellationToken;
 use uview::controllers::dependencies::{
     add_dep, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
-use uview::domain::Membership;
+use uview::domain::{Membership, PyprojectDependency};
 use uview::message::{Command, Event, JobId};
 use uview::runtime::jobs::JobRunner;
-use uview::state::{JobsState, LOG_LINES, LogLine};
+use uview::state::{DepsState, JobsState, LOG_LINES, LogLine};
 use uview::uv::args::{membership_args, pin_requirement, uninstall_args};
 use uview::uv::{RealUvClient, UvClient, UvError};
 
@@ -309,11 +309,10 @@ async fn add_runs_uv_add_alone() -> Result<(), UvError> {
 }
 
 #[tokio::test]
-async fn every_mutation_reloads_the_tables_however_it_ends() -> Result<(), Box<dyn Error>> {
-    let pip_list = r#"[{"name": "six", "version": "1.17.0"}]"#;
+async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<(), Box<dyn Error>>
+{
     let uv = Arc::new(FakeUvClient::returning([
         Ok(String::new()),
-        Ok(pip_list.to_string()),
         Err(UvError::Parse("no".into())),
     ]));
     let (events, mut received) = unbounded_channel();
@@ -324,37 +323,54 @@ async fn every_mutation_reloads_the_tables_however_it_ends() -> Result<(), Box<d
     });
     let events = events_until(&mut received, finished(2)).await?;
     assert!(events.iter().any(notice("Updated six")));
-    // The whole environment, not just the upgraded row: uv may have upgraded its dependencies.
-    let reloaded = events.iter().find_map(|event| match event {
-        Event::EnvLoaded(Ok(deps)) => deps.first(),
-        _ => None,
-    });
-    assert_eq!(reloaded.map(|dep| dep.version.as_str()), Some("1.17.0"));
+    // Done and failed alike: a failed `uv add` can have written pyproject.toml.
+    let mutated = events
+        .iter()
+        .filter(|event| matches!(event, Event::ProjectMutated))
+        .count();
+    assert_eq!(mutated, 2);
+    // The runner reads nothing itself: the app reloads, in answer to ProjectMutated.
     let commands: Vec<String> = uv.calls().iter().map(|call| call[..2].join(" ")).collect();
-    assert_eq!(
-        commands,
-        [
-            "sync --upgrade-package",
-            "pip list",
-            "add httpx",
-            "pip list"
-        ]
-    );
+    assert_eq!(commands, ["sync --upgrade-package", "add httpx"]);
     Ok(())
 }
 
 #[tokio::test]
-async fn sync_runs_plain_uv_sync_then_reloads() -> Result<(), Box<dyn Error>> {
+async fn a_reload_carries_how_many_mutations_had_ended() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::default());
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    let generation = |events: &[Event]| {
+        events.iter().find_map(|event| match event {
+            Event::PyprojectLoaded { generation, .. } => Some(*generation),
+            _ => None,
+        })
+    };
+    runner.execute(Command::Reload);
+    let before = events_until(&mut received, finished(1)).await?;
+    runner.execute(Command::Upgrade { name: "six".into() });
+    events_until(&mut received, finished(2)).await?;
+    runner.execute(Command::Reload);
+    let after = events_until(&mut received, finished(3)).await?;
+    assert_eq!(generation(&before), Some(0));
+    assert_eq!(generation(&after), Some(1));
+    Ok(())
+}
+
+#[tokio::test]
+async fn sync_runs_plain_uv_sync() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
     let mut runner = JobRunner::new(Arc::clone(&uv), events);
     runner.execute(Command::Sync);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(notice("Synced the environment")));
-    let calls = uv.calls();
-    // Exact, unlike the syncs inside other operations.
-    assert_eq!(calls[0], ["sync"]);
-    assert_eq!(calls[1][..2], ["pip", "list"]);
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::ProjectMutated))
+    );
+    assert_eq!(uv.calls(), [["sync"]]);
     Ok(())
 }
 
@@ -371,7 +387,7 @@ async fn a_failed_load_reaches_its_table_and_the_status_line() -> Result<(), Box
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, Event::EnvLoaded(Err(r)) if r == reason))
+            .any(|e| matches!(e, Event::EnvLoaded { loaded: Err(r), .. } if r == reason))
     );
     assert!(
         events
@@ -395,7 +411,7 @@ async fn a_cancelled_load_is_not_left_loading() -> Result<(), Box<dyn Error>> {
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, Event::EnvLoaded(Err(r)) if r == "cancelled"))
+            .any(|e| matches!(e, Event::EnvLoaded { loaded: Err(r), .. } if r == "cancelled"))
     );
     assert!(
         !events
@@ -438,11 +454,16 @@ async fn cancel_stops_the_running_job_and_drops_the_waiting() -> Result<(), Box<
     let events = events_until(&mut received, finished(2)).await?;
     assert!(events.iter().any(notice("Cancelled: Adding httpx")));
     assert!(!events.iter().any(started(2)));
-    // The running `uv add` was stopped, and the tables were read again in case it had written
-    // pyproject.toml. The upgrade never ran.
+    // The running `uv add` was stopped, and the app is told that the project may have changed,
+    // in case it had written pyproject.toml. The upgrade never ran.
     assert_eq!(uv.dropped.load(Ordering::SeqCst), 1);
     let commands: Vec<String> = uv.calls().iter().map(|call| call[..2].join(" ")).collect();
-    assert_eq!(commands, ["add httpx", "pip list"]);
+    assert_eq!(commands, ["add httpx"]);
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::ProjectMutated))
+    );
     // A job accepted after the cancel runs as usual.
     runner.execute(Command::Upgrade { name: "six".into() });
     let events = events_until(&mut received, finished(3)).await?;
@@ -467,7 +488,7 @@ async fn a_jobs_uv_lines_arrive_in_order_as_its_output() -> Result<(), Box<dyn E
             _ => None,
         })
         .collect();
-    // The update's own call; the reload after it adds nothing.
+    // The update's own call.
     assert_eq!(output, ["Resolved 1 package in 2ms", "+ six==1.17.0"]);
     Ok(())
 }
@@ -536,4 +557,35 @@ fn the_indicator_names_the_oldest_job_and_counts_those_waiting() {
     // The runner sends JobFinished however a job ends: done, failed or cancelled.
     jobs.apply(&Event::JobFinished(JobId(2)));
     assert_eq!(jobs.summary(), None);
+}
+
+#[test]
+fn a_reload_from_before_a_mutation_is_discarded() {
+    let six = |version: &str| PyprojectDependency {
+        name: "six".into(),
+        groups: vec![Membership::Project],
+        version_constraint: version.into(),
+    };
+    let loaded = |generation, version: &str| Event::PyprojectLoaded {
+        generation,
+        loaded: Ok(vec![six(version)]),
+    };
+    let mut deps = DepsState::default();
+    // Reload A starts, a mutation ends, and reload B starts after it. B lands first.
+    deps.apply(loaded(1, "==1.16.0"));
+    deps.apply(loaded(0, ">=1.17"));
+    let shown: Vec<&str> = deps
+        .pyproject
+        .rows()
+        .iter()
+        .map(|dep| dep.version_constraint.as_str())
+        .collect();
+    assert_eq!(shown, ["==1.16.0"]);
+    // A stale failure is discarded too, and a load as new as what is shown is not.
+    deps.apply(Event::PyprojectLoaded {
+        generation: 0,
+        loaded: Err("gone".into()),
+    });
+    deps.apply(loaded(1, "==1.15.0"));
+    assert_eq!(deps.pyproject.rows()[0].version_constraint, "==1.15.0");
 }

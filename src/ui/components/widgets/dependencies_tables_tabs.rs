@@ -163,18 +163,18 @@ impl DependenciesTablesTabs {
                 if self.show_package_control_popup {
                     self.package_control_popup.up();
                 } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.previous(deps.pyproject.rows().len());
+                    self.pyproject_table.previous(deps.pyproject.rows());
                 } else {
-                    self.env_table.previous(deps.env.rows().len());
+                    self.env_table.previous(deps.env.rows());
                 }
             }
             Action::Nav(NavAction::Down) => {
                 if self.show_package_control_popup {
                     self.package_control_popup.down();
                 } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.next(deps.pyproject.rows().len());
+                    self.pyproject_table.next(deps.pyproject.rows());
                 } else {
-                    self.env_table.next(deps.env.rows().len());
+                    self.env_table.next(deps.env.rows());
                 }
             }
             Action::Nav(NavAction::Select) => {
@@ -199,6 +199,7 @@ impl DependenciesTablesTabs {
             }
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
             Action::Deps(DepsAction::Sync) => return vec![Command::Sync],
+            Action::Deps(DepsAction::Refresh) => return vec![Command::Reload],
             // Confirm and Type only mean something in an input; Quit and Cancel belong to the app.
             Action::Nav(NavAction::Confirm | NavAction::Type(_))
             | Action::Quit

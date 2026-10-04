@@ -128,8 +128,15 @@ impl App {
     /// Puts what a command produced into the state, where every view reads it.
     fn receive(&mut self, event: Event) {
         match event {
-            Event::PyprojectLoaded(loaded) => self.state.deps.pyproject = loaded.into(),
-            Event::EnvLoaded(loaded) => self.state.deps.env = loaded.into(),
+            event @ (Event::PyprojectLoaded { .. } | Event::EnvLoaded { .. }) => {
+                self.state.deps.apply(event)
+            }
+            // What the tables show may be stale. Not worth reading again on the way out.
+            Event::ProjectMutated => {
+                if !self.should_quit {
+                    self.runner.execute(Command::Reload);
+                }
+            }
             Event::Notice(msg) => self.state.message = Some(Message::Info(msg)),
             Event::Error(msg) => self.state.message = Some(Message::Error(msg)),
             Event::JobQueued { .. }
