@@ -1,4 +1,4 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use tokio::sync::mpsc;
@@ -28,14 +28,18 @@ impl Component for DependenciesPage {
 
     fn handle_event(&mut self, action: &Action) -> Option<Action> {
         match action {
+            // Esc and a key read together arrive as Alt+key: outside an input it would act on
+            // the list the Esc was closing. Inputs keep Alt, which they use for editing.
+            Action::ButtonPressed(key)
+                if key.modifiers.contains(KeyModifiers::ALT)
+                    && !self.dependencies_tabs.is_editing() =>
+            {
+                None
+            }
             Action::ButtonPressed(key) => match key.code {
                 KeyCode::Esc => Some(Action::StopEditing),
-                KeyCode::Enter => {
-                    let confirm_input_event = Action::ConfirmInput;
-                    if self.dependencies_tabs.is_editing() {
-                        return self.dependencies_tabs.handle_event(&confirm_input_event);
-                    }
-                    Some(confirm_input_event)
+                KeyCode::Enter if self.dependencies_tabs.is_editing() => {
+                    self.dependencies_tabs.handle_event(&Action::ConfirmInput)
                 }
                 KeyCode::Char('q') => {
                     if self.dependencies_tabs.is_editing() {
@@ -61,7 +65,7 @@ impl Component for DependenciesPage {
                     }
                     Some(Action::SwitchTable)
                 }
-                KeyCode::Char(' ') => {
+                KeyCode::Char(' ') | KeyCode::Enter => {
                     if self.dependencies_tabs.is_editing() {
                         return self.dependencies_tabs.handle_event(action);
                     }

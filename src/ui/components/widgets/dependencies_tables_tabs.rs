@@ -31,6 +31,9 @@ pub struct DependenciesTablesTabs {
     active_table: ActiveTable,
     package_control_popup: PackageControlPopup<'static>,
     show_package_control_popup: bool,
+    /// The package the actions list was opened for. Its actions use this, not the selection
+    /// when they run, which a reload can move to another row.
+    target: Option<String>,
     package_add_popup: AddPackagePopup,
     show_add_package_popup: bool,
     pin_version_popup: PinVersionPopup,
@@ -54,6 +57,7 @@ impl DependenciesTablesTabs {
             active_table: ActiveTable::Pyproject,
             package_control_popup,
             show_package_control_popup: false,
+            target: None,
             tx,
             package_add_popup,
             show_add_package_popup: false,
@@ -115,6 +119,24 @@ impl DependenciesTablesTabs {
     }
 
     pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
+        // Results update the tables whatever has focus: an open input must not swallow them.
+        match action {
+            Action::LoadedPyprojectDeps(deps) => {
+                self.pyproject_table.set_items(deps.clone());
+                return None;
+            }
+            Action::LoadedEnvDeps(deps) => {
+                self.env_table.set_items(deps.clone());
+                return None;
+            }
+            Action::UpdatedEnvDep(dep) => {
+                let name = dep.name.clone();
+                self.env_table
+                    .update_item_where(|d| d.name == name, dep.clone());
+                return None;
+            }
+            _ => {}
+        }
         if let Action::StopEditing = action {
             if self.package_add_popup.is_editing() {
                 self.package_add_popup.handle_event(action);
@@ -160,12 +182,6 @@ impl DependenciesTablesTabs {
                     self.switch_table();
                 }
             }
-            Action::LoadedPyprojectDeps(deps) => {
-                self.pyproject_table.set_items(deps.clone());
-            }
-            Action::LoadedEnvDeps(deps) => {
-                self.env_table.set_items(deps.clone());
-            }
             Action::OpenPopup => {
                 self.show_add_package_popup = true;
                 self.package_add_popup.handle_event(&Action::Editing);
@@ -182,6 +198,8 @@ impl DependenciesTablesTabs {
                 if self.show_add_package_popup {
                     return self.package_add_popup.handle_event(action);
                 }
+                // Without a row the actions would have nothing to act on.
+                self.target = Some(self.selected_name()?);
                 // A fresh popup, so it never opens with Remove still selected.
                 self.package_control_popup = PackageControlPopup::new();
                 self.show_package_control_popup = true;
@@ -189,8 +207,10 @@ impl DependenciesTablesTabs {
             Action::RemovePackage => {
                 let tx = self.tx.clone();
                 if self.active_table == ActiveTable::Pyproject {
-                    if let Some(PyprojectDependency { name, groups, .. }) =
-                        self.pyproject_table.selected().cloned()
+                    if let Some(PyprojectDependency { name, groups, .. }) = self
+                        .pyproject_table
+                        .find(|d| Some(&d.name) == self.target.as_ref())
+                        .cloned()
                     {
                         tokio::spawn(async move {
                             let _ = tx.send(
@@ -207,7 +227,11 @@ impl DependenciesTablesTabs {
                             reload_tables(&tx).await;
                         });
                     }
-                } else if let Some(dep) = self.env_table.selected().cloned() {
+                } else if let Some(dep) = self
+                    .env_table
+                    .find(|d| Some(&d.name) == self.target.as_ref())
+                    .cloned()
+                {
                     // Environment only: pyproject.toml is left alone. Confirmation and its
                     // warnings come with #12.
                     let name = dep.name;
@@ -226,7 +250,7 @@ impl DependenciesTablesTabs {
                 return None;
             }
             Action::UpgradeEnvDep => {
-                if let Some(name) = self.selected_name() {
+                if let Some(name) = self.target.clone() {
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
                         match upgrade_env_dep(&RealUvClient, &name).await {
@@ -244,7 +268,7 @@ impl DependenciesTablesTabs {
                 return None;
             }
             Action::PinVersion(constraint) => {
-                if let Some(name) = self.selected_name() {
+                if let Some(name) = self.target.clone() {
                     let constraint = constraint.clone();
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
@@ -263,11 +287,6 @@ impl DependenciesTablesTabs {
                 self.pin_version_popup.handle_event(&Action::StopEditing);
                 self.show_pin_version_popup = false;
                 return None;
-            }
-            Action::UpdatedEnvDep(dep) => {
-                let name = dep.name.clone();
-                self.env_table
-                    .update_item_where(|d| d.name == name, dep.clone());
             }
             Action::ClosePopup | Action::StopEditing => {
                 self.show_package_control_popup = false;

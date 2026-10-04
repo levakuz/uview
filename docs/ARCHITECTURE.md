@@ -97,7 +97,7 @@ The concrete path for a key press, using "pin a version" as the example:
 
 1. `App::run` polls crossterm and wraps the key as `Action::ButtonPressed(KeyEvent)`.
 2. `App::dispatch` forwards it to `DependenciesPage::handle_event`.
-3. The page maps `KeyCode` to a semantic action — `Enter` becomes `Action::ConfirmInput`.
+3. The page maps `KeyCode` to a semantic action — inside an input, `Enter` becomes `Action::ConfirmInput`.
 4. The action reaches `DependenciesTablesTabs`, which routes it to whichever popup is
    open and editing.
 5. `PinVersionPopup` takes the input value and returns `Action::PinVersion(String)`.

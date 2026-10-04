@@ -39,6 +39,10 @@ impl PinVersionPopup {
         if let Action::ConfirmInput = action {
             if self.input.is_editing() {
                 let constraint = self.input.take_value();
+                // Enter alone reaches an empty field from a table row; it must not run `uv add`.
+                if constraint.trim().is_empty() {
+                    return None;
+                }
                 self.input.handle_event(&Action::StopEditing);
                 return Some(Action::PinVersion(constraint));
             }
