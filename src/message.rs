@@ -41,6 +41,7 @@ pub enum NavAction {
 pub enum DepsAction {
     SwitchTable,
     OpenAdd,
+    Sync,
 }
 
 /// An effect a component asks for. Components return these and never perform them; the
@@ -49,11 +50,13 @@ pub enum DepsAction {
 pub enum Command {
     /// Read both tables again.
     Reload,
-    /// Add a requirement such as `httpx>=0.27` to the main dependencies, then sync.
+    /// Bring the environment exactly in line with the lockfile: plain `uv sync`.
+    Sync,
+    /// Add a requirement such as `httpx>=0.27` to the main dependencies with `uv add`.
     Add {
         requirement: String,
     },
-    /// Remove a package from every membership in pyproject.toml, then sync.
+    /// Remove a package from every membership in pyproject.toml with `uv remove`.
     RemoveFromProject {
         name: String,
         groups: Vec<Membership>,

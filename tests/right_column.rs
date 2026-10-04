@@ -35,6 +35,15 @@ fn the_project_tile_wraps_the_root_and_leaves_the_rest_to_the_log() -> Result<()
 }
 
 #[test]
+fn an_empty_uv_log_says_what_will_appear() -> Result<(), Box<dyn Error>> {
+    let mut terminal = Terminal::new(TestBackend::new(30, 4))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &JobsState::default()))?;
+    assert_eq!(rows(&terminal)[1], "│uv output will appear here  │");
+    assert_eq!(terminal.backend().buffer()[(1, 1)].fg, Color::DarkGray);
+    Ok(())
+}
+
+#[test]
 fn the_uv_log_keeps_its_newest_lines_in_view() -> Result<(), Box<dyn Error>> {
     let mut jobs = JobsState::default();
     jobs.apply(&Event::JobQueued {
