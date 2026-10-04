@@ -1,5 +1,9 @@
 use std::fs;
-use uview::controllers::project::{find_project_root, refusal};
+use std::path::Path;
+
+use uview::controllers::project::{
+    find_project_root, project_environment, refusal, workspace_root,
+};
 
 #[test]
 fn finds_the_nearest_pyproject_toml_upwards() -> std::io::Result<()> {
@@ -45,5 +49,101 @@ fn refuses_the_projects_uv_refuses() -> std::io::Result<()> {
     assert!(!project);
     assert!(!virtual_workspace);
     assert!(unmanaged);
+    Ok(())
+}
+
+/// A pyproject.toml in `dir` for a project named after it, with `extra` appended.
+fn project(dir: &Path, extra: &str) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
+    let name = dir
+        .file_name()
+        .map_or("p".into(), |name| name.to_string_lossy());
+    fs::write(
+        dir.join("pyproject.toml"),
+        format!("[project]\nname = \"{name}\"\nversion = \"0.1.0\"\n{extra}"),
+    )
+}
+
+#[test]
+fn a_workspace_member_has_the_workspace_root_and_others_their_own() -> std::io::Result<()> {
+    // Brackets, which a glob would read as a class, unless the root is escaped as uv escapes it.
+    let base = std::env::temp_dir().join(format!("uview-workspace-[{}]", std::process::id()));
+    let ws = base.join("ws");
+    project(
+        &ws,
+        "[tool.uv.workspace]\nmembers = [\"packages/*\"]\nexclude = [\"packages/excluded\"]\n",
+    )?;
+    let member = ws.join("packages").join("a");
+    let excluded = ws.join("packages").join("excluded");
+    let unmatched = ws.join("other").join("b");
+    // Behind a plain project: uv looks no further than the nearest pyproject.toml above.
+    let behind_a_project = member.join("examples").join("demo");
+    // Matched, but a workspace of its own.
+    let own_workspace = ws.join("packages").join("own");
+    // Two levels below `packages`: uv's `*` crosses `/`.
+    let deeper = ws.join("packages").join("group").join("deep");
+    for dir in [&member, &excluded, &unmatched, &behind_a_project, &deeper] {
+        project(dir, "")?;
+    }
+    project(&own_workspace, "[tool.uv.workspace]\nmembers = []\n")?;
+    // A virtual workspace root, with no [project] of its own.
+    let virtual_root = base.join("virtual");
+    fs::create_dir_all(&virtual_root)?;
+    fs::write(
+        virtual_root.join("pyproject.toml"),
+        "[tool.uv.workspace]\nmembers = [\"libs/*\"]\n",
+    )?;
+    let library = virtual_root.join("libs").join("lib");
+    project(&library, "")?;
+
+    let roots = [
+        &member,
+        &excluded,
+        &unmatched,
+        &behind_a_project,
+        &own_workspace,
+        &deeper,
+        &ws,
+        &library,
+    ]
+    .map(|project| workspace_root(project));
+    // Launched below a member's root, uview finds the member first, as uv does.
+    let from_below = find_project_root(&member.join("src")).map(|project| workspace_root(&project));
+    fs::remove_dir_all(&base)?;
+
+    assert_eq!(
+        roots,
+        [
+            ws.clone(),
+            excluded,
+            unmatched,
+            behind_a_project,
+            own_workspace,
+            ws.clone(),
+            ws.clone(),
+            virtual_root,
+        ]
+    );
+    assert_eq!(from_below, Some(ws));
+    Ok(())
+}
+
+#[test]
+fn the_environment_is_taken_from_the_workspace_root() -> std::io::Result<()> {
+    let base = std::env::temp_dir().join(format!("uview-environment-{}", std::process::id()));
+    project(&base, "[tool.uv.workspace]\nmembers = [\"a\"]\n")?;
+    let member = base.join("a");
+    project(&member, "")?;
+
+    let default = project_environment(&member, None);
+    let unset = project_environment(&member, Some(""));
+    let relative = project_environment(&member, Some("envs/dev"));
+    let absolute = project_environment(&member, Some("/opt/env"));
+    fs::remove_dir_all(&base)?;
+
+    assert_eq!(default, base.join(".venv"));
+    assert_eq!(unset, base.join(".venv"));
+    assert_eq!(relative, base.join("envs").join("dev"));
+    assert_eq!(absolute, Path::new("/opt/env"));
     Ok(())
 }

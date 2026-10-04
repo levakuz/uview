@@ -14,7 +14,7 @@ use uview::domain::{Membership, PyprojectDependency};
 use uview::message::{Command, Event, JobId};
 use uview::runtime::jobs::JobRunner;
 use uview::state::{DepsState, JobsState, LOG_LINES, LogLine};
-use uview::uv::args::{membership_args, pin_requirement, uninstall_args};
+use uview::uv::args::{membership_args, pin_requirement, pip_list_args, uninstall_args};
 use uview::uv::{RealUvClient, UvClient, UvError};
 
 /// Stands in for `uv`: answers each call with the next canned result, or empty stdout once
@@ -267,6 +267,24 @@ fn membership_args_pick_the_flag_for_each_membership() {
     assert_eq!(
         membership_args("add", "flask==3.0", &Membership::Extra("web".into())),
         ["add", "flask==3.0", "--optional", "web"]
+    );
+}
+
+#[test]
+fn the_environment_is_listed_quietly() {
+    // A workspace member's environment is not the `.venv` beside it, and uv would say so on
+    // every reload.
+    assert_eq!(
+        pip_list_args("/ws/.venv"),
+        [
+            "pip",
+            "list",
+            "--quiet",
+            "--format",
+            "json",
+            "--python",
+            "/ws/.venv"
+        ]
     );
 }
 
