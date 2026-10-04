@@ -46,16 +46,20 @@ async fn run(command: Command, uv: &impl UvClient, events: &UnboundedSender<Even
     let _ = events.send(event);
 }
 
-/// Reads both tables again, as at startup.
+/// Reads both tables again, as at startup. A table that cannot load shows why, and the status
+/// line says so too.
 async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>) {
-    let _ = events.send(match load_pyproject_deps().await {
-        Ok(deps) => Event::PyprojectLoaded(deps),
-        Err(e) => Event::Error(format!("pyproject.toml: {e}")),
-    });
-    let event = match load_env_deps(uv).await {
-        Ok(deps) => Event::EnvLoaded(deps),
-        Err(UvError::Cancelled) => return,
-        Err(e) => Event::Error(e.to_string()),
-    };
-    let _ = events.send(event);
+    let pyproject = load_pyproject_deps().await.map_err(|e| e.to_string());
+    if let Err(reason) = &pyproject {
+        let _ = events.send(Event::Error(format!("pyproject.toml: {reason}")));
+    }
+    let _ = events.send(Event::PyprojectLoaded(pyproject));
+    let env = load_env_deps(uv).await;
+    // A cancel is the runner's to report.
+    if let Err(e) = &env
+        && !matches!(e, UvError::Cancelled)
+    {
+        let _ = events.send(Event::Error(e.to_string()));
+    }
+    let _ = events.send(Event::EnvLoaded(env.map_err(|e| e.to_string())));
 }

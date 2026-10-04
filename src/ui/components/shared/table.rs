@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Row, Table, TableState};
+use ratatui::text::Text;
+use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, TableState, Wrap};
 
 pub trait TableRow {
     fn columns() -> Vec<&'static str>;
@@ -59,7 +60,8 @@ impl<T: TableRow> SharedTable<T> {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, rows: &[T]) {
+    /// Draws `rows` under the header, or `placeholder` when there are none.
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, rows: &[T], placeholder: Text) {
         let header_cells = T::columns();
         let num_cols = header_cells.len() as u16;
         let header = Row::new(header_cells).style(Style::new().bold());
@@ -82,18 +84,23 @@ impl<T: TableRow> SharedTable<T> {
             Style::new()
         };
 
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(self.title.as_str())
+            .border_style(border_style);
+        let [_, below_header] =
+            Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(block.inner(area));
         let table = Table::new(table_rows, &widths)
             .header(header)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(self.title.as_str())
-                    .border_style(border_style),
-            )
+            .block(block)
             .row_highlight_style(highlight_style);
 
         // The highlight follows the selection as `selected` sees it.
         self.state.select(self.index(rows.len()));
         frame.render_stateful_widget(table, area, &mut self.state);
+        if rows.is_empty() {
+            let placeholder = Paragraph::new(placeholder).wrap(Wrap { trim: false });
+            frame.render_widget(placeholder, below_header);
+        }
     }
 }

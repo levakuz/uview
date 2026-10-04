@@ -2,6 +2,7 @@
 //! runtime's events; components only read it, and keep nothing but view state of their own.
 
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use crate::domain::{EnvDependency, PyprojectDependency};
 use crate::message::{Event, JobId};
@@ -26,8 +27,42 @@ pub struct ProjectState {
 /// The project's dependencies: as pyproject.toml declares them, and as the environment has them.
 #[derive(Default)]
 pub struct DepsState {
-    pub pyproject: Vec<PyprojectDependency>,
-    pub env: Vec<EnvDependency>,
+    pub pyproject: Loadable<Vec<PyprojectDependency>>,
+    pub env: Loadable<Vec<EnvDependency>>,
+}
+
+/// Data loaded in the background, and how far its load has got. As a bare list, one not yet
+/// loaded, one that failed and one that is empty would all look alike.
+#[derive(Default)]
+pub enum Loadable<T> {
+    /// Nothing has asked for it yet.
+    #[default]
+    NotLoaded,
+    Loading {
+        since: Instant,
+    },
+    Loaded(T),
+    /// Why the load failed, for the view to show.
+    Failed(String),
+}
+
+impl<T> From<Result<T, String>> for Loadable<T> {
+    fn from(loaded: Result<T, String>) -> Self {
+        match loaded {
+            Ok(value) => Self::Loaded(value),
+            Err(reason) => Self::Failed(reason),
+        }
+    }
+}
+
+impl<T> Loadable<Vec<T>> {
+    /// The rows, or none until they have loaded.
+    pub fn rows(&self) -> &[T] {
+        match self {
+            Self::Loaded(rows) => rows,
+            _ => &[],
+        }
+    }
 }
 
 /// What the status line says.

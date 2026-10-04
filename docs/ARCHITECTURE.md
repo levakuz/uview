@@ -144,8 +144,10 @@ The runtime sends `Event`s through one `mpsc::UnboundedSender<Event>`. `App` dra
 receiver once per loop iteration, and `App::receive` puts each event into the `AppState`
 (`src/state.rs`, ADR-0004), which every view reads when it is drawn:
 
-- `PyprojectLoaded` and `EnvLoaded` replace the rows in `state.deps`, whatever table has
-  focus.
+- `PyprojectLoaded` and `EnvLoaded` carry a table's rows, or why they could not be loaded.
+  Each replaces its table in `state.deps`, whatever has focus, as a `Loadable`: `Loaded` or
+  `Failed`. A table with no rows shows in their place how its load is going, that it loaded
+  nothing, or why it failed.
 - `Notice` and `Error` set `state.message`, the one-line message below the page.
 - The job events go to `state.jobs`, a `JobsState`. Its summary, the oldest job and how many
   wait behind it, is drawn after a spinner at the left of the status line, and its log, each
@@ -213,8 +215,9 @@ Four kinds of UI code, in descending order of generality:
 - **`components/features/`** — concrete, domain-aware pieces. They know about
   `PyprojectDependency`, about pinning versions, about package groups.
 - **`components/shared/`** — generic and reusable. `SharedTable<T>` renders the rows it is
-  handed, of any `T: TableRow`, and keeps only the selection, with wrap-around; the feature
-  layer supplies the `TableRow` impl that formats the domain type. `Popup` and `UviewInput` are
+  handed, of any `T: TableRow`, or the placeholder it is handed when there are none, and keeps
+  only the selection, with wrap-around; the feature layer supplies the `TableRow` impl that
+  formats the domain type. `Popup` and `UviewInput` are
   similarly domain-free.
 
 **Deciding between `shared` and `features`:** if the type mentions a domain type, a `uv`
@@ -307,9 +310,10 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   runs mutations one at a time, in the order accepted: `uv` locks the project, so of two at
   once one would fail (ADR-0003). Nothing is awaited in the loop, so a slow `uv` invocation
   cannot freeze rendering.
-- At startup, before the loop begins, `App` hands the runner `Command::Reload`, which
-  reads `pyproject.toml` and then lists the environment, sending each result or an
-  `Event::Error`.
+- At startup, before the loop begins, `App` marks both tables `Loading` and hands the runner
+  `Command::Reload`, which reads `pyproject.toml` and then lists the environment. It sends
+  each table's rows, or why they failed, which also goes to the status line as an
+  `Event::Error`. A reload after a mutation leaves the rows in view until the new ones land.
 - After every mutation, done, failed or cancelled, the runner reloads both tables: a
   sequence that stopped part-way may already have changed `pyproject.toml`. The reload runs
   in the mutation's turn, so the next mutation cannot change things under it. A read can
@@ -624,17 +628,20 @@ returning must not drop loaded data, and two views — the pyproject table and t
 tree — may legitimately show the same underlying facts.
 
 **Load state is not a `Vec`.** An empty `Vec<T>` cannot distinguish "not loaded yet" from
-"loaded and genuinely empty" from "the load failed", and today all three render as an
-identical empty table. Make it explicit:
+"loaded and genuinely empty" from "the load failed", and all three would render as an
+identical empty table. #44 made it explicit:
 
 ```rust
 pub enum Loadable<T> {
     NotLoaded,
     Loading { since: Instant },
-    Loaded { value: T, generation: u64 },
-    Failed(UvError),
+    Loaded(T),        // gains its generation with #11
+    Failed(String),   // why, as both loaders can say it: one reads a file, one runs uv
 }
 ```
+
+`Failed` holds the reason as text because the two loaders fail differently:
+`load_pyproject_deps` with an I/O or TOML error, `load_env_deps` with a `UvError`.
 
 `generation` is not decoration. Reloads are spawned, so they can return out of order: a
 reload issued before a mutation can land *after* one issued in response to it, overwriting
