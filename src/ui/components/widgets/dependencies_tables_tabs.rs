@@ -3,9 +3,8 @@ use crate::{
     message::{Action, Command, DepsAction, Event, NavAction},
     ui::components::{
         features::{
-            add_packaage_popup::AddPackagePopup,
+            input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
-            pin_version_popup::PinVersionPopup,
         },
         shared::table::SharedTable,
     },
@@ -31,15 +30,15 @@ pub struct DependenciesTablesTabs {
     /// when they run, which a reload can move to another row.
     target: Option<String>,
     /// The popups with an input are shown exactly while they are being typed into.
-    package_add_popup: AddPackagePopup,
-    pin_version_popup: PinVersionPopup,
+    package_add_popup: InputPopup,
+    pin_version_popup: InputPopup,
 }
 
 impl DependenciesTablesTabs {
     pub fn new() -> Self {
         let package_control_popup = PackageControlPopup::new();
-        let package_add_popup = AddPackagePopup::new();
-        let pin_version_popup = PinVersionPopup::new();
+        let package_add_popup = InputPopup::new("Package (e.g. requests, httpx>=0.27)", 50);
+        let pin_version_popup = InputPopup::new("Version (e.g. ==1.2.3, >=2.0, <3.0)", 50);
         // Only the active table is drawn, so both are styled as focused. The unfocused style
         // is for showing them side by side, which #16 may choose. The tabs on the top border
         // name the tables, so they have no title of their own.
@@ -131,8 +130,10 @@ impl DependenciesTablesTabs {
     pub fn update(&mut self, action: &Action) -> Vec<Command> {
         // An open input takes every key.
         if self.package_add_popup.is_editing() {
-            if let Action::Nav(nav) = action {
-                self.package_add_popup.update(nav);
+            if let Action::Nav(nav) = action
+                && let Some(requirement) = self.package_add_popup.update(nav)
+            {
+                return vec![Command::Add { requirement }];
             }
             return Vec::new();
         }

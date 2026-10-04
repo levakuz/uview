@@ -47,6 +47,10 @@ pub enum DepsAction {
 pub enum Command {
     /// Read both tables again.
     Reload,
+    /// Add a requirement such as `httpx>=0.27` to the main dependencies, then sync.
+    Add {
+        requirement: String,
+    },
     /// Remove a package from every membership in pyproject.toml, then sync.
     RemoveFromProject {
         name: String,

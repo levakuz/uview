@@ -4,7 +4,7 @@
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::controllers::dependencies::{
-    get_env_package_info, load_env_deps, load_pyproject_deps, pin_dep_version,
+    add_dep, get_env_package_info, load_env_deps, load_pyproject_deps, pin_dep_version,
     remove_dep_from_pyproject, uninstall_from_env, upgrade_env_dep,
 };
 use crate::message::{Command, Event};
@@ -23,6 +23,14 @@ pub async fn run(command: Command, uv: &impl UvClient, events: &UnboundedSender<
     };
     match command {
         Command::Reload => reload(uv, events).await,
+        Command::Add { requirement } => {
+            send(match add_dep(uv, &requirement).await {
+                Ok(()) => Event::Notice(format!("Added {requirement}")),
+                Err(e) => Event::Error(e.to_string()),
+            });
+            // Also after a failure: the sync can fail after `uv add` has written pyproject.toml.
+            reload(uv, events).await;
+        }
         Command::RemoveFromProject { name, groups } => {
             send(match remove_dep_from_pyproject(uv, &name, groups).await {
                 Ok(()) => Event::Notice(format!("Removed {name} from pyproject.toml")),

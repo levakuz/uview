@@ -8,21 +8,17 @@ use crate::{
     },
 };
 
-pub struct PinVersionPopup {
+/// A popup with one input: Enter hands back what was typed, Esc cancels.
+pub struct InputPopup {
     popup: Popup,
     input: UviewInput,
 }
 
-impl PinVersionPopup {
-    pub fn new() -> Self {
-        let input = UviewInput::default().with_title("Version (e.g. ==1.2.3, >=2.0, <3.0)");
-
+impl InputPopup {
+    pub fn new(title: &str, width: u16) -> Self {
         Self {
-            popup: Popup::new(PopupSize {
-                width: 50,
-                height: 10,
-            }),
-            input,
+            popup: Popup::new(PopupSize { width, height: 10 }),
+            input: UviewInput::default().with_title(title),
         }
     }
 
@@ -40,18 +36,19 @@ impl PinVersionPopup {
         self.input.start_editing();
     }
 
-    /// Handles a key while the input is open. Returns the version once Enter confirms one,
+    /// Handles a key while the input is open. Returns the text once Enter confirms some,
     /// which also closes the input.
     pub fn update(&mut self, nav: &NavAction) -> Option<String> {
         match nav {
             NavAction::Confirm => {
-                let constraint = self.input.take_value();
-                // Enter alone reaches an empty field from a table row; it must not run `uv add`.
-                if constraint.trim().is_empty() {
+                let text = self.input.take_value();
+                // An empty field confirms nothing: Enter alone reaches the version input from a
+                // table row, and it must not run `uv add`.
+                if text.trim().is_empty() {
                     return None;
                 }
                 self.input.stop_editing();
-                Some(constraint)
+                Some(text)
             }
             NavAction::Back => {
                 self.input.stop_editing();

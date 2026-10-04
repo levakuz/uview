@@ -94,8 +94,8 @@ The concrete path for a key press, using "pin a version" as the example:
    input, `Enter` becomes `Action::Nav(NavAction::Confirm)`.
 3. `App::dispatch` hands the action to `DependenciesPage::update`, which passes it to
    `DependenciesTablesTabs`.
-4. The widget sends it to the input that is open, `PinVersionPopup`, which returns the
-   version typed.
+4. The widget sends it to the input that is open, the pin input (an `InputPopup`), which
+   returns the version typed.
 5. The widget returns `Command::Pin` for the package the actions list was opened for.
 6. `App::dispatch` hands the command to `runtime::execute`, which spawns a task running
    `controllers::dependencies::pin_dep_version`.
@@ -112,7 +112,7 @@ Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 - **`Input`** — what the terminal sends: `Key(KeyEvent)`.
 - **`Action`** — what the user means, nested per domain: `Quit`, `Nav(NavAction)` for
   moving, choosing and typing, and `Deps(DepsAction)` for the dependencies page.
-- **`Command`** — an effect a component asks for: `Reload`, `RemoveFromProject`,
+- **`Command`** — an effect a component asks for: `Reload`, `Add`, `RemoveFromProject`,
   `Uninstall`, `Upgrade`, `Pin`.
 - **`Event`** — what a command produced: the loaded rows, `Notice(String)` and
   `Error(String)`.
@@ -150,7 +150,7 @@ src/
 ├── runtime/
 │   └── mod.rs              # runs each command as a task and reports events; the only spawn
 ├── controllers/
-│   ├── dependencies.rs     # operations: list, pin, update, remove, uninstall; reads pyproject.toml
+│   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall; reads pyproject.toml
 │   └── project.rs          # startup: the project root, or why uv would refuse it
 ├── uv/
 │   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
@@ -168,9 +168,8 @@ src/
         │   └── status_bar.rs # the bottom line owned by App: error/notice + project root
         ├── features/       # concrete, tied to this domain
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
-        │   ├── add_packaage_popup.rs      # [sic] misspelled filename
-        │   ├── package_control_popup.rs
-        │   └── pin_version_popup.rs
+        │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
+        │   └── package_control_popup.rs   # the actions list
         └── widgets/
             └── dependencies_tables_tabs.rs # composes tables + popups, turns their results into commands
 ```
@@ -354,7 +353,7 @@ tests run no runtime and no subprocess. Issue #25 covers expanding it.
 | 7 | Spawned task handles are dropped, so failures vanish | #6 |
 | 8 | ~~`uv pip show` output is parsed by line prefix~~ Resolved: filtered from `uv pip list --format json` | #1 |
 | 9 | `App` holds a concrete page type, so routing is impossible without a refactor | #26 |
-| 10 | Filename `add_packaage_popup.rs` is misspelled | #8 |
+| 10 | ~~Filename `add_packaage_popup.rs` is misspelled~~ Resolved: the add and pin inputs are one `InputPopup` | #8 |
 
 **Open design questions — now answered in Part II**
 

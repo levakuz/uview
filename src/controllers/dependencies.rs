@@ -80,6 +80,17 @@ async fn sync_inexact(uv: &impl UvClient) -> Result<(), UvError> {
     Ok(())
 }
 
+/// Adds `requirement` to `[project.dependencies]`, then syncs once, inexactly.
+pub async fn add_dep(uv: &impl UvClient, requirement: &str) -> Result<(), UvError> {
+    uv.run(&args::membership_args(
+        "add",
+        requirement,
+        &Membership::Project,
+    ))
+    .await?;
+    sync_inexact(uv).await
+}
+
 pub async fn remove_dep_from_pyproject(
     uv: &impl UvClient,
     name: &str,

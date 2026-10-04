@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Mutex, PoisonError};
 
 use uview::controllers::dependencies::{
-    get_env_package_info, normalize, parse_dep_string, remove_dep_from_pyproject,
+    add_dep, get_env_package_info, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
 use uview::domain::Membership;
 use uview::message::{Command, Event};
@@ -149,6 +149,20 @@ async fn remove_runs_uv_remove_per_membership_then_one_inexact_sync() -> Result<
         [
             vec!["remove", "--no-sync", "httpx"],
             vec!["remove", "--no-sync", "httpx", "--group", "dev"],
+            vec!["sync", "--inexact"],
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn add_runs_uv_add_then_one_inexact_sync() -> Result<(), UvError> {
+    let uv = FakeUvClient::default();
+    add_dep(&uv, "httpx>=0.27").await?;
+    assert_eq!(
+        uv.calls(),
+        [
+            vec!["add", "--no-sync", "httpx>=0.27"],
             vec!["sync", "--inexact"],
         ]
     );
