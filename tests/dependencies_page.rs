@@ -60,6 +60,25 @@ fn a_typed_version_is_pinned() {
 }
 
 #[test]
+fn p_adds_the_typed_requirement() {
+    let mut page = page_with(&["six"]);
+    press(&mut page, KeyCode::Char('p'));
+    // Enter on an empty field adds nothing and leaves the input open.
+    assert!(press(&mut page, KeyCode::Enter).is_empty());
+    assert!(page.is_editing());
+    for c in "httpx>=0.27".chars() {
+        press(&mut page, KeyCode::Char(c));
+    }
+    assert_eq!(
+        press(&mut page, KeyCode::Enter),
+        [Command::Add {
+            requirement: "httpx>=0.27".into()
+        }]
+    );
+    assert!(!page.is_editing());
+}
+
+#[test]
 fn enter_alone_cannot_pin() {
     let mut page = page_with(&["six"]);
     // The version input opens empty: a third Enter, as from a held key, runs nothing.

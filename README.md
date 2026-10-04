@@ -73,6 +73,9 @@ Press `Space` or `Enter` on a package to open its actions:
 | Remove | **pyproject.toml table:** runs `uv remove` for every group and extra the package is in, then syncs.<br>**Environment table:** runs `uv pip uninstall` on the environment only. `pyproject.toml` and `uv.lock` are untouched, so the next `uv sync` brings a declared package back. |
 | Cancel | Closes the list. |
 
+To add a package, press `p`, type a requirement such as `requests` or `httpx>=0.27`, and
+press `Enter`. uview adds it to `[project.dependencies]` with `uv add` and syncs.
+
 Syncs run `uv sync --inexact`, which keeps installed packages that are not in the lockfile.
 
 ### Keybindings
@@ -82,9 +85,9 @@ Syncs run `uv sync --inexact`, which keeps installed packages that are not in th
 | `↑` / `k`, `↓` / `j` | Move the selection. Table selections wrap around at the ends. |
 | `Tab`, `[`, `]` | Switch between the pyproject.toml and Environment tables. |
 | `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
-| `Enter` | In the **Pin to version** input, confirm the typed version. |
+| `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
-| `p` | Open the add-package input. It is not wired to `uv add` yet ([#8](https://github.com/levakuz/uview/issues/8)): `Enter` there only clears the field. |
+| `p` | Add a package. |
 | `q` | Quit. |
 
-While you type a version, every key except `Enter` and `Esc` goes into the field.
+While you type into an input, every key except `Enter` and `Esc` goes into the field.
