@@ -79,6 +79,8 @@ impl UviewInput {
                     None
                 }
                 Action::StopEditing => {
+                    // Abandoned text must not come back the next time the input opens.
+                    self.input.reset();
                     self.stop_editing();
                     None
                 }

@@ -39,6 +39,10 @@ impl<T: TableRow> SharedTable<T> {
         self.state.select(selected);
     }
 
+    pub fn find<F: Fn(&T) -> bool>(&self, pred: F) -> Option<&T> {
+        self.items.iter().find(|item| pred(item))
+    }
+
     pub fn update_item_where<F: Fn(&T) -> bool>(&mut self, pred: F, item: T) {
         if let Some(i) = self.items.iter().position(pred) {
             self.items[i] = item;

@@ -64,7 +64,7 @@ the right.
 
 ### Actions
 
-Press `Space` on a package to open its actions:
+Press `Space` or `Enter` on a package to open its actions:
 
 | Action | What it does |
 |---|---|
@@ -81,10 +81,10 @@ Syncs run `uv sync --inexact`, which keeps installed packages that are not in th
 |---|---|
 | `↑` / `k`, `↓` / `j` | Move the selection. Table selections wrap around at the ends. |
 | `Tab`, `[`, `]` | Switch between the pyproject.toml and Environment tables. |
-| `Space` | Open the actions for the selected package. In the actions list, run the highlighted one. |
-| `Enter` | Confirm the version typed for **Pin to version**. |
+| `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
+| `Enter` | In the **Pin to version** input, confirm the typed version. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
-| `p` | Open the add-package input. It is not wired to `uv add` yet ([#8](https://github.com/levakuz/uview/issues/8)). |
+| `p` | Open the add-package input. It is not wired to `uv add` yet ([#8](https://github.com/levakuz/uview/issues/8)): `Enter` there only clears the field. |
 | `q` | Quit. |
 
 While you type a version, every key except `Enter` and `Esc` goes into the field.
