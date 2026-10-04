@@ -15,8 +15,8 @@ use crate::{
 };
 use ratatui::{Frame, symbols, widgets::Tabs};
 use ratatui::{
-    layout::Rect,
-    style::{Color, Style},
+    layout::{Margin, Rect},
+    style::{Style, Stylize},
 };
 use tokio::sync::mpsc;
 #[derive(PartialEq)]
@@ -46,9 +46,12 @@ impl DependenciesTablesTabs {
         let package_control_popup = PackageControlPopup::new();
         let package_add_popup = AddPackagePopup::new();
         let pin_version_popup = PinVersionPopup::new();
-        let mut pyproject_table = SharedTable::new(" pyproject.toml ");
+        // Only the active table is drawn, so both are styled as focused. The unfocused style
+        // is for showing them side by side, which #16 may choose. The tabs on the top border
+        // name the tables, so they have no title of their own.
+        let mut pyproject_table = SharedTable::new("");
         pyproject_table.set_focused(true);
-        let mut env_table = SharedTable::new(" Environment ");
+        let mut env_table = SharedTable::new("");
         env_table.set_focused(true);
 
         Self {
@@ -89,13 +92,15 @@ impl DependenciesTablesTabs {
             ActiveTable::Pyproject => 0,
             ActiveTable::Environment => 1,
         };
-        let tabs = Tabs::new(vec!["pyproject.toml", "Environment"])
-            .style(Color::White)
+        // `Tabs` paints its base style over the whole area it is given, border included, so the
+        // white goes on the titles and the divider themselves.
+        let tabs = Tabs::new(vec!["pyproject.toml".white(), "Environment".white()])
             .highlight_style(Style::default().green().bold())
             .select(selected_tab)
-            .divider(symbols::DOT)
+            .divider(symbols::DOT.white())
             .padding(" ", " ");
-        frame.render_widget(tabs, area);
+        // On the table's top border, inside its corners, until #16 gives the tabs their own row.
+        frame.render_widget(tabs, area.inner(Margin::new(1, 0)));
     }
     fn render_content(&mut self, frame: &mut Frame, area: Rect) {
         match self.active_table {
