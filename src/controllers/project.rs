@@ -45,6 +45,65 @@ pub fn refusal(root: &Path) -> Option<String> {
     }
 }
 
+/// The root of the uv workspace the project rooted at `project` belongs to: the directory whose
+/// environment uv syncs for it. A project that declares a workspace is its own root. Otherwise
+/// uv looks only at the nearest pyproject.toml above: its directory is the root if its
+/// workspace's `members` match the project and its `exclude` does not. A plain project in
+/// between, an unreadable file, or no workspace at all leaves the project on its own.
+pub fn workspace_root(project: &Path) -> PathBuf {
+    if workspace_globs(project).is_none()
+        && let Some(above) = project
+            .ancestors()
+            .skip(1)
+            .find(|dir| dir.join("pyproject.toml").is_file())
+        && let Some((members, exclude)) = workspace_globs(above)
+        && matches_any(&members, above, project)
+        && !matches_any(&exclude, above, project)
+    {
+        return above.to_path_buf();
+    }
+    project.to_path_buf()
+}
+
+/// The environment uv syncs for `project`: `configured`, the value of
+/// `UV_PROJECT_ENVIRONMENT`, or else `.venv`. A relative path is taken from the workspace root.
+pub fn project_environment(project: &Path, configured: Option<&str>) -> PathBuf {
+    // Empty means unset to uv.
+    let env = configured.filter(|env| !env.is_empty()).unwrap_or(".venv");
+    workspace_root(project).join(env)
+}
+
+/// The `members` and `exclude` globs of the workspace the pyproject.toml in `dir` declares, if
+/// it declares one.
+fn workspace_globs(dir: &Path) -> Option<(Vec<String>, Vec<String>)> {
+    let toml: toml::Table = std::fs::read_to_string(dir.join("pyproject.toml"))
+        .ok()?
+        .parse()
+        .ok()?;
+    let workspace = toml.get("tool")?.get("uv")?.get("workspace")?;
+    let globs = |key: &str| -> Vec<String> {
+        workspace
+            .get(key)
+            .and_then(toml::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(toml::Value::as_str)
+            .map(String::from)
+            .collect()
+    };
+    Some((globs("members"), globs("exclude")))
+}
+
+/// Whether one of `globs`, taken from `root`, matches `path`, as uv matches them: `*` crosses
+/// `/`, and a glob that does not parse matches nothing.
+fn matches_any(globs: &[String], root: &Path, path: &Path) -> bool {
+    let root = glob::Pattern::escape(&root.to_string_lossy());
+    globs.iter().any(|glob| {
+        let pattern = Path::new(&root).join(glob);
+        glob::Pattern::new(&pattern.to_string_lossy()).is_ok_and(|p| p.matches_path(path))
+    })
+}
+
 /// The project's name and version, as `uv version` reports them.
 pub async fn load_project_info(uv: &impl UvClient) -> Result<ProjectInfo, UvError> {
     parse::version(&uv.run(&args::VERSION).await?)

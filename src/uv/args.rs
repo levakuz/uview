@@ -32,9 +32,13 @@ pub fn upgrade_args(name: &str) -> [&str; 3] {
 /// locks nor syncs.
 pub const VERSION: [&str; 3] = ["version", "--output-format", "json"];
 
-/// `uv pip list` arguments that read the packages installed in `env` as JSON.
-pub fn pip_list_args(env: &str) -> [&str; 6] {
-    ["pip", "list", "--format", "json", "--python", env]
+/// `uv pip list` arguments that read the packages installed in `env` as JSON. Quietly: when
+/// `env` is not the `.venv` in the working directory, as for a workspace member, uv names it
+/// on stderr, which would put a line in the uv log on every reload. Errors still come through.
+pub fn pip_list_args(env: &str) -> [&str; 7] {
+    [
+        "pip", "list", "--quiet", "--format", "json", "--python", env,
+    ]
 }
 
 /// `uv pip uninstall` arguments that remove `name` from `env` only.

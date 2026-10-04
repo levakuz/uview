@@ -191,7 +191,7 @@ src/
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
-│   └── project.rs          # the project root, or why uv would refuse it; its name and version
+│   └── project.rs          # the project root, or why uv would refuse it; its workspace root and environment; its name and version
 ├── uv/
 │   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
 │   ├── args.rs             # the argv of each operation, pure
@@ -302,6 +302,14 @@ than a `Result`; `main.rs` prints a failure to stderr and exits. `main.rs` start
 to the nearest `pyproject.toml`, as `uv` does; an I/O error while looking counts as "no
 file", as it does for `uv`. `refusal` then rejects a project `uv` would refuse: no
 `[project]` table and no workspace, or `managed = false`.
+
+`workspace_root`, also in `project.rs`, finds the root of the uv workspace the project
+belongs to, by uv's rules (ADR-0008). The project is its own root if it declares a workspace.
+Otherwise the nearest `pyproject.toml` above it decides: its directory is the root if its
+workspace's `members` match the project and its `exclude` does not. Failing both, the project
+stands alone. `project_environment` joins `.venv`, or `UV_PROJECT_ENVIRONMENT`, to that root,
+and `controllers::dependencies` hands the result to `uv pip` as `--python`. Both read the files
+again on each call, from the working directory, as uv does.
 
 Output is read in machine-readable form: `uv pip list --format json` is deserialized
 with serde into `Vec<EnvDependency>`, and `uv version --output-format json` into

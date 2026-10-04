@@ -55,9 +55,10 @@ It prints why and exits instead of starting when:
 
 - **pyproject.toml** lists the declared dependencies. For each one it shows the group it
   belongs to (`main`, a dependency group, or `extra:<name>`) and its version constraint.
-- **Environment** lists what is installed in the project's environment. That is `.venv` at
-  the project root, or the path in `UV_PROJECT_ENVIRONMENT`, not whichever virtualenv is
-  activated. If the environment does not exist yet, run `uv sync` once.
+- **Environment** lists what is installed in the environment `uv sync` uses for the project,
+  not whichever virtualenv is activated. That is `.venv`, or the path in
+  `UV_PROJECT_ENVIRONMENT`, at the project root, or at the workspace root for a member of a uv
+  workspace. If the environment does not exist yet, run `uv sync` once.
 
 Until a table has loaded, it says so, and if it cannot load, it says why.
 

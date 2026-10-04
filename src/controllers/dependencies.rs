@@ -1,3 +1,4 @@
+use crate::controllers::project::project_environment;
 use crate::domain::{EnvDependency, Membership, PyprojectDependency};
 use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
@@ -107,14 +108,16 @@ pub async fn remove_dep_from_pyproject(
     Ok(())
 }
 
-/// The environment `uv pip` must act on: the project's, as `uv sync` resolves it. Left
-/// implicit, `uv pip` follows an activated virtualenv or conda env instead.
+/// The environment `uv pip` must act on: the one `uv sync` uses for the project, which main.rs
+/// made the working directory. Left implicit, `uv pip` follows an activated virtualenv or conda
+/// env instead.
 fn project_env() -> String {
-    std::env::var("UV_PROJECT_ENVIRONMENT")
-        .ok()
-        // Empty means unset to `uv sync`, but `--python ""` would mean no `--python` at all.
-        .filter(|env| !env.is_empty())
-        .unwrap_or_else(|| ".venv".to_string())
+    // An unreadable working directory leaves the path relative to it, as it always was.
+    let project = std::env::current_dir().unwrap_or_default();
+    let configured = std::env::var("UV_PROJECT_ENVIRONMENT").ok();
+    project_environment(&project, configured.as_deref())
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Uninstalls `name` from the project environment only; pyproject.toml and uv.lock are
