@@ -5,12 +5,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use tokio_util::sync::CancellationToken;
 use uview::controllers::dependencies::{
     add_dep, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
 use uview::domain::Membership;
 use uview::message::{Command, Event, JobId};
-use uview::runtime::jobs::{JobRunner, JobsState};
+use uview::runtime::jobs::{JobRunner, JobsState, LOG_LINES, LogLine};
 use uview::uv::args::{membership_args, pin_requirement, uninstall_args};
 use uview::uv::{RealUvClient, UvClient, UvError};
 
@@ -22,8 +23,10 @@ struct FakeUvClient {
     results: Mutex<VecDeque<Result<String, UvError>>>,
     calls: Mutex<Vec<Vec<String>>>,
     hang: Option<&'static str>,
-    /// Hanging calls dropped unfinished: the default `run_cancellable` drops a cancelled call.
+    /// Hanging calls dropped unfinished, as `run_streaming` drops a cancelled call.
     dropped: AtomicUsize,
+    /// What every streamed call writes to stderr before it returns.
+    stderr: Vec<&'static str>,
 }
 
 impl FakeUvClient {
@@ -64,6 +67,22 @@ impl UvClient for FakeUvClient {
             .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
             .unwrap_or_else(|| Ok(String::new()))
+    }
+
+    async fn run_streaming(
+        &self,
+        args: &[&str],
+        cancel: &CancellationToken,
+        on_line: &(dyn Fn(&str) + Sync),
+    ) -> Result<String, UvError> {
+        for line in &self.stderr {
+            on_line(line);
+        }
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => Err(UvError::Cancelled),
+            result = self.run(args) => result,
+        }
     }
 }
 
@@ -163,11 +182,12 @@ async fn successful_uv_call_returns_stdout() {
     }
 }
 
-/// `uv add` writes pyproject.toml before it resolves. Cancelled, it must be stopped the way
-/// Ctrl+C stops it, which puts the file back, and the call must return only once it has.
+/// `uv add` reports its progress on stderr as it runs, and writes pyproject.toml before it
+/// resolves. Cancelled, it must be stopped the way Ctrl+C stops it, which puts the file back, and
+/// the call must return only once it has.
 #[cfg(unix)]
 #[tokio::test]
-async fn a_cancelled_uv_add_has_put_pyproject_back_when_it_returns() -> Result<(), Box<dyn Error>> {
+async fn uv_add_streams_its_lines_and_a_cancel_puts_pyproject_back() -> Result<(), Box<dyn Error>> {
     // An index that takes connections and never answers, so the resolve hangs.
     let index = std::net::TcpListener::bind("127.0.0.1:0")?;
     let url = format!("http://{}/simple", index.local_addr()?);
@@ -193,10 +213,22 @@ async fn a_cancelled_uv_add_has_put_pyproject_back_when_it_returns() -> Result<(
         "--default-index",
         &url,
     ];
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let mut add = Box::pin(RealUvClient.run_cancellable(&args, &cancel));
+    let lines = Mutex::new(Vec::new());
+    let on_line = |line: &str| {
+        let mut lines = lines.lock().unwrap_or_else(PoisonError::into_inner);
+        lines.push(line.to_owned());
+    };
+    let streamed = || {
+        !lines
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty()
+    };
+    let cancel = CancellationToken::new();
+    let mut add = Box::pin(RealUvClient.run_streaming(&args, &cancel, &on_line));
     let mut waited = 0;
-    while !lists_requests()? {
+    // Both while uv still runs, since it hangs until cancelled.
+    while !(lists_requests()? && streamed()) {
         // Finished already: no `uv` or no Python here, so nothing to cancel.
         if tokio::time::timeout(Duration::from_millis(50), &mut add)
             .await
@@ -206,7 +238,7 @@ async fn a_cancelled_uv_add_has_put_pyproject_back_when_it_returns() -> Result<(
         }
         waited += 1;
         if waited > 200 {
-            return Err("uv never wrote pyproject.toml".into());
+            return Err("uv wrote neither pyproject.toml nor a line".into());
         }
     }
     // uv sets its Ctrl+C handler only just after it writes the file. No user is that quick, but
@@ -355,6 +387,71 @@ async fn cancel_stops_the_running_job_and_drops_the_waiting() -> Result<(), Box<
     let events = events_until(&mut received, finished(3)).await?;
     assert!(events.iter().any(notice("Updated six")));
     Ok(())
+}
+
+#[tokio::test]
+async fn a_jobs_uv_lines_arrive_in_order_as_its_output() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient {
+        stderr: vec!["Resolved 1 package in 2ms", "+ six==1.17.0"],
+        ..FakeUvClient::default()
+    });
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Upgrade { name: "six".into() });
+    let events = events_until(&mut received, finished(1)).await?;
+    let output: Vec<&str> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::JobOutput(JobId(1), line) => Some(line.as_str()),
+            _ => None,
+        })
+        .collect();
+    // The update's own call; the reload after it adds nothing.
+    assert_eq!(output, ["Resolved 1 package in 2ms", "+ six==1.17.0"]);
+    Ok(())
+}
+
+#[test]
+fn the_log_heads_each_jobs_lines_with_its_label() {
+    let mut jobs = JobsState::default();
+    let queued = |id, label: &str| Event::JobQueued {
+        id: JobId(id),
+        label: label.into(),
+    };
+    let line = |id, text: &str| Event::JobOutput(JobId(id), text.into());
+    jobs.apply(&queued(1, "Loading dependencies"));
+    jobs.apply(&Event::JobStarted(JobId(1)));
+    jobs.apply(&queued(2, "Updating six"));
+    jobs.apply(&Event::JobStarted(JobId(2)));
+    jobs.apply(&line(2, "Resolved 2 packages"));
+    jobs.apply(&line(2, "Audited 1 package"));
+    jobs.apply(&line(1, "Late line"));
+    let log: Vec<String> = jobs
+        .log()
+        .iter()
+        .map(|line| match line {
+            LogLine::Job(label) => format!("# {label}"),
+            LogLine::Output(text) => text.clone(),
+        })
+        .collect();
+    // Every job is headed as it starts, and headed again when its lines resume after another's.
+    assert_eq!(
+        log,
+        [
+            "# Loading dependencies",
+            "# Updating six",
+            "Resolved 2 packages",
+            "Audited 1 package",
+            "# Loading dependencies",
+            "Late line",
+        ]
+    );
+    for n in 0..LOG_LINES {
+        jobs.apply(&line(2, &n.to_string()));
+    }
+    assert_eq!(jobs.log().len(), LOG_LINES);
+    let last = (LOG_LINES - 1).to_string();
+    assert!(matches!(jobs.log().back(), Some(LogLine::Output(text)) if *text == last));
 }
 
 #[test]

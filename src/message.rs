@@ -89,6 +89,8 @@ pub enum Event {
         label: String,
     },
     JobStarted(JobId),
+    /// A line the job's `uv` wrote to stderr, where it reports its progress.
+    JobOutput(JobId, String),
     /// The job is over: done, failed or cancelled.
     JobFinished(JobId),
 }

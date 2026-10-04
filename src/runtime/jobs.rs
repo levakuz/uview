@@ -1,6 +1,7 @@
 //! Runs commands as jobs (ADR-0003). `uv` locks the project, so of two mutations at once one
 //! fails: they run one at a time, in the order accepted. Reads take no lock and start at once.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -106,11 +107,13 @@ async fn run_job(job: Job, uv: &impl UvClient, events: &UnboundedSender<Event>) 
     }
     send(Event::JobStarted(job.id));
     let mutates = mutates(&job.command);
-    let cancellable = Cancellable {
+    let job_uv = JobUv {
         uv,
+        id: job.id,
         cancel: &job.cancel,
+        events,
     };
-    super::run(job.command, &cancellable, events).await;
+    super::run(job.command, &job_uv, events).await;
     if job.cancel.is_cancelled() {
         send(Event::Notice(format!("Cancelled: {}", job.label)));
     }
@@ -124,24 +127,45 @@ async fn run_job(job: Job, uv: &impl UvClient, events: &UnboundedSender<Event>) 
     send(Event::JobFinished(job.id));
 }
 
-/// The `uv` of one job: each call ends with `UvError::Cancelled` once the job is cancelled.
-struct Cancellable<'a, U> {
+/// The `uv` of one job: what each call writes to stderr becomes the job's output, and each call
+/// ends with `UvError::Cancelled` once the job is cancelled.
+struct JobUv<'a, U> {
     uv: &'a U,
+    id: JobId,
     cancel: &'a CancellationToken,
+    events: &'a UnboundedSender<Event>,
 }
 
-impl<U: UvClient> UvClient for Cancellable<'_, U> {
+impl<U: UvClient> UvClient for JobUv<'_, U> {
     async fn run(&self, args: &[&str]) -> Result<String, UvError> {
-        self.uv.run_cancellable(args, self.cancel).await
+        let on_line = |line: &str| {
+            let _ = self.events.send(Event::JobOutput(self.id, line.to_owned()));
+        };
+        self.uv.run_streaming(args, self.cancel, &on_line).await
     }
 }
 
-/// The jobs in flight, as the runner's events report them: what the progress indicator shows.
-/// The app holds it until `AppState` does (#43).
+/// How many lines the uv log keeps.
+pub const LOG_LINES: usize = 500;
+
+/// A line of the uv log.
+pub enum LogLine {
+    /// The label of the job whose lines follow.
+    Job(String),
+    /// A line its `uv` wrote.
+    Output(String),
+}
+
+/// The jobs, as the runner's events report them: those in flight, which the progress indicator
+/// shows, and the log of what their `uv` wrote. The app holds it until `AppState` does (#43).
 #[derive(Default)]
 pub struct JobsState {
     /// In the order accepted.
     jobs: Vec<Tracked>,
+    /// Oldest first, at most `LOG_LINES`.
+    log: VecDeque<LogLine>,
+    /// The job named by the log's last header.
+    logging: Option<JobId>,
 }
 
 struct Tracked {
@@ -162,10 +186,38 @@ impl JobsState {
                 for job in self.jobs.iter_mut().filter(|job| job.id == *id) {
                     job.started = true;
                 }
+                self.head_log(*id);
+            }
+            Event::JobOutput(id, line) => {
+                // Headed again if another job's header or line came between.
+                if self.logging != Some(*id) {
+                    self.head_log(*id);
+                }
+                self.push_log(LogLine::Output(line.clone()));
             }
             Event::JobFinished(id) => self.jobs.retain(|job| job.id != *id),
             _ => {}
         }
+    }
+
+    /// Starts a part of the log for job `id`, under its label.
+    fn head_log(&mut self, id: JobId) {
+        if let Some(job) = self.jobs.iter().find(|job| job.id == id) {
+            let label = job.label.clone();
+            self.push_log(LogLine::Job(label));
+        }
+        self.logging = Some(id);
+    }
+
+    fn push_log(&mut self, line: LogLine) {
+        if self.log.len() == LOG_LINES {
+            self.log.pop_front();
+        }
+        self.log.push_back(line);
+    }
+
+    pub fn log(&self) -> &VecDeque<LogLine> {
+        &self.log
     }
 
     pub fn is_idle(&self) -> bool {

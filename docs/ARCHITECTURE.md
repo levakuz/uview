@@ -43,7 +43,7 @@ There are four layers, plus a thin application shell.
 
 | Layer | Location | Responsibility | Must not |
 |---|---|---|---|
-| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel, the active page and the job runner; hands commands to the runner and shows what it runs | Contain feature logic |
+| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel, the active page and the job runner; lays the page out beside the project tile and the uv log; hands commands to the runner and shows what it runs | Contain feature logic |
 | **UI** | `src/ui/` | Render frames, turn input into actions and actions into commands, hold view state | Spawn tasks, call controllers, read the filesystem |
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
 | **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml` | Render, hold UI state, know about ratatui, start a process |
@@ -100,11 +100,13 @@ The concrete path for a key press, using "pin a version" as the example:
 6. `App::dispatch` hands the command to `JobRunner::execute`, which reports it as
    `Event::JobQueued` and queues it behind any mutation still running. When its turn comes,
    the job reports `Event::JobStarted` and runs `controllers::dependencies::pin_dep_version`.
+   Each line `uv add` and `uv sync` write to stderr comes through as `Event::JobOutput` while
+   they run.
 7. The job sends `Event::Notice`. The runner then reloads both tables, sending
    `Event::PyprojectLoaded` and `Event::EnvLoaded`, and reports `Event::JobFinished`.
 8. Each loop iteration drains the channel: `App` keeps the job events in `JobsState`, which
-   the spinner on the status line reads, shows the notice, and hands the loaded rows to
-   `DependenciesPage::apply`.
+   the spinner on the status line and the uv log read, shows the notice, and hands the
+   loaded rows to `DependenciesPage::apply`.
 9. The following `terminal.draw` renders the new state.
 
 ## 4. Messages and dispatch
@@ -117,7 +119,8 @@ Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 - **`Command`** — an effect a component asks for: `Reload`, `Add`, `RemoveFromProject`,
   `Uninstall`, `Upgrade`, `Pin`.
 - **`Event`** — what a command produced: the loaded rows, `Notice(String)` and
-  `Error(String)`, and the course of its job: `JobQueued`, `JobStarted` and `JobFinished`.
+  `Error(String)`, and the course of its job: `JobQueued`, `JobStarted`, `JobOutput` for each
+  line its `uv` writes, and `JobFinished`.
 
 The page's keymap, `DependenciesPage::action_for`, turns an `Input` into an `Action`. Ctrl+C
 becomes `Action::Cancel` wherever the focus is. While an input is open, every other key but
@@ -137,9 +140,10 @@ turns that into a command.
 
 The runtime sends `Event`s through one `mpsc::UnboundedSender<Event>`. `App` drains the
 receiver once per loop iteration. `Notice` and `Error` set the one-line status message it
-renders below the page, beside the project root. The job events go to `JobsState`, whose
-summary, the oldest job and how many wait behind it, is drawn after a spinner at the left of
-that line. Every other event goes to
+renders below the page. The job events go to `JobsState`. Its summary, the oldest job and how
+many wait behind it, is drawn after a spinner at the left of that line, and its log, each
+job's label and then what its `uv` wrote, fills the uv tile at the bottom right. Above that
+tile, the project tile shows the project root. Every other event goes to
 `DependenciesPage::apply`, which puts the rows into the tables whatever has focus: until
 `AppState` exists (#43), the tables are where the data lives.
 
@@ -149,7 +153,7 @@ that line. Every other event goes to
 src/
 ├── main.rs                 # tokio entry point; finds the project root and makes it the cwd
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
-├── app.rs                  # App: event loop, event channel, dispatch, status line, active page
+├── app.rs                  # App: event loop, event channel, dispatch, screen layout, status line
 ├── message.rs              # Input / Action / Command / Event
 ├── domain.rs               # PyprojectDependency, EnvDependency, Membership
 ├── runtime/
@@ -165,17 +169,19 @@ src/
 └── ui/
     ├── mod.rs              # Component trait
     ├── pages/
-    │   └── dependencies.rs # DependenciesPage — keymap and top-level layout
+    │   └── dependencies.rs # DependenciesPage — keymap; drawn in the left half
     └── components/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>
         │   ├── input.rs    #   UviewInput (wraps tui-input)
         │   ├── popup.rs    #   Popup — centering and Clear only
-        │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice, project root
+        │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
-        │   └── package_control_popup.rs   # the actions list
+        │   ├── package_control_popup.rs   # the actions list
+        │   ├── project_tile.rs            # top right: the project root
+        │   └── uv_log.rs                  # bottom right: what uv wrote, job by job
         └── widgets/
             └── dependencies_tables_tabs.rs # composes tables + popups, turns their results into commands
 ```
@@ -273,8 +279,10 @@ therefore deduplicates by name and accumulates the groups.
 Every `uv` invocation goes through `UvClient::run`, which returns stdout or a
 `UvError` — `Spawn` (could not start `uv`), `Failed` (non-zero exit, with the command and
 stderr), `Parse` (output unreadable) or `Cancelled`. Inside a job, `run` is the client's
-`run_cancellable` with the job's token (§9). The runtime formats the error into
-`Event::Error`, except `Cancelled`, which the runner reports as a notice.
+`run_streaming` with the job's token, its stderr lines becoming the job's output (§9). The
+runtime formats the error into `Event::Error`, except `Cancelled`, which the runner reports
+as a notice. `RealUvClient` runs `uv --color never`: `FORCE_COLOR` would otherwise put escape
+codes into a pipe.
 `RealUvClient` is the only implementation in `src/` and the only code that starts a
 process (ADR-0002). `uv` runs in the working directory, which `main.rs` has made the project root, without
 `UV_PROJECT`, which that root already accounts for.
@@ -299,6 +307,11 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   sequence that stopped part-way may already have changed `pyproject.toml`. The reload runs
   in the mutation's turn, so the next mutation cannot change things under it. A read can
   still overlap a mutation, which is #11's race.
+- **Output.** `RealUvClient` reads stdout whole, as the result, and stderr line by line. With
+  stderr a pipe, `uv` draws no progress bars; it reports in lines instead, such as
+  `Resolved 9 packages in 361ms`, `Downloading numpy (5.2MiB)` and `+ numpy==2.5.3`. Each
+  line reaches the app as `Event::JobOutput` while `uv` runs, and the uv log shows it under
+  the label of the job it came from.
 - **Cancellation.** Ctrl+C cancels every job accepted so far (ADR-0006). A queued job never
   starts. A running one ends at its current `uv` call: `RealUvClient` sends `uv` SIGINT, on
   which `uv add` puts `pyproject.toml` back, waits up to two seconds for it to exit, and
@@ -331,8 +344,9 @@ execution.** Argument construction (`uv::args`) and output parsing (`uv::parse`,
 The fake returns canned stdout and records the argv it receives, and a test asserts on
 exactly what would have run. It lives in `tests/` rather than `src/` because tests are
 integration tests. Three tests still run the real `uv` through `RealUvClient`, as ADR-0002
-asks, because a fake can drift from real behaviour. One of them cancels a `uv add` and checks
-that it put `pyproject.toml` back.
+asks, because a fake can drift from real behaviour. One of them checks that a hanging
+`uv add` streams its lines while it runs, then cancels it and checks that it put
+`pyproject.toml` back.
 
 **Architecture fitness tests.** `tests/architecture.rs` turns the structural rules of
 this document into a failing test, using only the standard library:
@@ -508,11 +522,15 @@ only module that spawns tasks. Everything above it is synchronous and testable.
 ```rust
 pub trait UvClient: Send + Sync {
     fn run(&self, args: &[&str]) -> impl Future<Output = Result<String, UvError>> + Send;
-    // Ends with UvError::Cancelled once `cancel` fires; by default the call is dropped.
-    fn run_cancellable(&self, args: &[&str], cancel: &CancellationToken)
-        -> impl Future<Output = Result<String, UvError>> + Send;
+    // Hands each stderr line to `on_line` as it arrives, and ends with UvError::Cancelled once
+    // `cancel` fires. By default there are no lines, and a cancelled call is dropped.
+    fn run_streaming(&self, args: &[&str], cancel: &CancellationToken,
+        on_line: &(dyn Fn(&str) + Sync)) -> impl Future<Output = Result<String, UvError>> + Send;
 }
 ```
+
+ADR-0006 added the second method as `run_cancellable`. #65 renamed it `run_streaming` when it
+began to hand over stderr as well.
 
 The seam sits at the narrowest point there is: argv in, stdout or a `UvError` out.
 `RealUvClient` spawns the binary. `FakeUvClient` returns canned stdout and records the argv
@@ -715,7 +733,7 @@ an issue.
 | 4 | Introduce `UvClient` + `FakeUvClient` | The whole uv layer becomes testable | **#41** |
 | 5 | `Command`/`Event` split; components stop spawning | Removes the widget-owns-the-sender deviation | **#42** |
 | 6 | `runtime/` + job queue + cancellation | Progress, interruption, safe mutation | #13, #10 |
-| 7 | Streamed child output | Build and sync become usable | #30, #10 |
+| 7 | Streamed child output | Build and sync become usable | **#65** |
 | 8 | `AppState` extracted from widgets | Coherent data across pages | **#43** |
 | 9 | Page stack + `keymap.rs` | Multi-page app; modal input stops sprawling | #26, #14 |
 | 10 | `domain::Requirement` | Extras, sources, groups | #18, #19, #17 |
@@ -724,12 +742,12 @@ an issue.
 Steps 1–4 are Sprint 0 work and should land in that order; nothing after step 4 is worth
 starting before the seam exists.
 
-Steps 7, 9, 10 and 11 have no issue of their own: they are acceptance criteria inside the
-feature issues that need them (#30 requires streaming to be usable, #26 requires the page
-stack, #18 requires a real requirement type, #32 requires dirty-flag rendering). That is
-deliberate — they are not separable pieces of work. Steps 4, 5 and 8 do have their own
-issues, because each is a refactor no single feature justifies on its own yet every later
-feature depends on.
+Steps 9, 10 and 11 have no issue of their own: they are acceptance criteria inside the
+feature issues that need them (#26 requires the page stack, #18 requires a real requirement
+type, #32 requires dirty-flag rendering). That is deliberate — they are not separable pieces
+of work. Steps 4, 5 and 8 do have their own issues, because each is a refactor no single
+feature justifies on its own yet every later feature depends on. Step 7 has one too, #65,
+split out of #13 so that #13 stayed reviewable.
 
 ## 16. Trade-offs
 

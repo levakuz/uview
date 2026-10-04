@@ -123,6 +123,7 @@ impl DependenciesTablesTabs {
             | Event::Error(_)
             | Event::JobQueued { .. }
             | Event::JobStarted(_)
+            | Event::JobOutput(..)
             | Event::JobFinished(_) => {}
         }
     }

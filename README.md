@@ -59,8 +59,10 @@ It prints why and exits instead of starting when:
   the project root, or the path in `UV_PROJECT_ENVIRONMENT`, not whichever virtualenv is
   activated. If the environment does not exist yet, run `uv sync` once.
 
-**The bottom line** shows the latest error or notice on the left and the project root on
-the right.
+**The right column** shows the project root at the top and, below it, the uv log: each
+operation's name, then the lines uv printed while it ran.
+
+**The bottom line** shows what is running and the latest error or notice.
 
 ### Actions
 
@@ -79,8 +81,9 @@ press `Enter`. uview adds it to `[project.dependencies]` with `uv add` and syncs
 Syncs run `uv sync --inexact`, which keeps installed packages that are not in the lockfile.
 
 **Progress.** While an operation runs, the bottom line names it after a spinner, with how
-many wait behind it. uv locks the project, so uview runs one change at a time, in the order
-you asked for them. After each, both tables are read again.
+many wait behind it, and the uv log shows what uv prints as it goes. uv locks the project,
+so uview runs one change at a time, in the order you asked for them. After each, both
+tables are read again.
 
 **Cancelling.** `Ctrl+C` cancels the running operation and those waiting. On macOS and
 Linux, uview stops `uv` as Ctrl+C would in a shell: an add or a pin cancelled while `uv`
