@@ -124,3 +124,26 @@ fn each_load_state_shows_differently() -> Result<(), Box<dyn std::error::Error>>
     assert!(first_line(Loadable::Loaded(vec![six]))?.starts_with("six"));
     Ok(())
 }
+
+#[test]
+fn the_name_column_takes_the_room_the_others_leave() -> Result<(), Box<dyn std::error::Error>> {
+    let dep = |name: &str, constraint: &str| PyprojectDependency {
+        name: name.into(),
+        groups: vec![Membership::Project],
+        version_constraint: constraint.into(),
+    };
+    let mut deps = DepsState::default();
+    deps.pyproject = Loadable::Loaded(vec![
+        dep("typing-extensions", ">=4.16.0"),
+        dep("tomli", ">=2.0; python_version < '3.11'"),
+    ]);
+    let mut terminal = Terminal::new(TestBackend::new(48, 5))?;
+    terminal.draw(|frame| tabs().render(frame, frame.area(), &deps))?;
+    let buffer = terminal.backend().buffer();
+    let row = |y| (1..47).map(|x| buffer[(x, y)].symbol()).collect::<String>();
+    // Group fits "Group", and a long constraint stops at a third of the width.
+    assert_eq!(row(1), "Name                    Group Constraint      ");
+    assert_eq!(row(2), "typing-extensions       main  >=4.16.0        ");
+    assert_eq!(row(3), "tomli                   main  >=2.0; python_ve");
+    Ok(())
+}

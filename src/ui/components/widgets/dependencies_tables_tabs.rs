@@ -10,11 +10,11 @@ use crate::{
         shared::table::SharedTable,
     },
 };
-use ratatui::{Frame, symbols, widgets::Tabs};
 use ratatui::{
-    layout::{Margin, Rect},
-    style::{Style, Stylize},
-    text::Text,
+    Frame,
+    layout::Rect,
+    style::Stylize,
+    text::{Line, Text},
 };
 #[derive(PartialEq)]
 enum ActiveTable {
@@ -43,12 +43,11 @@ impl DependenciesTablesTabs {
         let package_control_popup = PackageControlPopup::new();
         let package_add_popup = InputPopup::new("Package (e.g. requests, httpx>=0.27)", 50);
         let pin_version_popup = InputPopup::new("Version (e.g. ==1.2.3, >=2.0, <3.0)", 50);
-        // Only the active table is drawn, so both are styled as focused. The unfocused style
-        // is for showing them side by side, which #16 may choose. The tabs on the top border
-        // name the tables, so they have no title of their own.
-        let mut pyproject_table = SharedTable::new("");
+        // Only the active table is drawn, so both are styled as focused. The tabs are the title
+        // of its border.
+        let mut pyproject_table = SharedTable::new();
         pyproject_table.set_focused(true);
-        let mut env_table = SharedTable::new("");
+        let mut env_table = SharedTable::new();
         env_table.set_focused(true);
 
         Self {
@@ -65,7 +64,6 @@ impl DependenciesTablesTabs {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, deps: &DepsState) {
         self.render_content(frame, area, deps);
-        self.render_tabs(frame, area);
         if self.show_package_control_popup {
             self.package_control_popup.render(frame, area);
         }
@@ -81,22 +79,27 @@ impl DependenciesTablesTabs {
         self.package_add_popup.is_editing() || self.pin_version_popup.is_editing()
     }
 
-    fn render_tabs(&mut self, frame: &mut Frame, area: Rect) {
-        let selected_tab = match self.active_table {
-            ActiveTable::Pyproject => 0,
-            ActiveTable::Environment => 1,
+    /// The tabs, as the active table's title: its name green and bold, the other white.
+    fn tabs(&self) -> Line<'static> {
+        let tab = |name: &'static str, active: bool| {
+            if active {
+                name.green().bold()
+            } else {
+                name.white()
+            }
         };
-        // `Tabs` paints its base style over the whole area it is given, border included, so the
-        // white goes on the titles and the divider themselves.
-        let tabs = Tabs::new(vec!["pyproject.toml".white(), "Environment".white()])
-            .highlight_style(Style::default().green().bold())
-            .select(selected_tab)
-            .divider(symbols::DOT.white())
-            .padding(" ", " ");
-        // On the table's top border, inside its corners, until #16 gives the tabs their own row.
-        frame.render_widget(tabs, area.inner(Margin::new(1, 0)));
+        let pyproject = self.active_table == ActiveTable::Pyproject;
+        Line::from(vec![
+            " ".into(),
+            tab("pyproject.toml", pyproject),
+            " • ".white(),
+            tab("Environment", !pyproject),
+            " ".into(),
+        ])
     }
+
     fn render_content(&mut self, frame: &mut Frame, area: Rect, deps: &DepsState) {
+        let tabs = self.tabs();
         match self.active_table {
             ActiveTable::Pyproject => {
                 let placeholder = placeholder(
@@ -105,6 +108,7 @@ impl DependenciesTablesTabs {
                     "Could not read pyproject.toml",
                 );
                 let rows = deps.pyproject.rows();
+                self.pyproject_table.set_title(tabs);
                 self.pyproject_table.render(frame, area, rows, placeholder);
             }
             ActiveTable::Environment => {
@@ -113,6 +117,7 @@ impl DependenciesTablesTabs {
                     "Nothing installed yet. Press s to sync.",
                     "Could not list the environment",
                 );
+                self.env_table.set_title(tabs);
                 self.env_table
                     .render(frame, area, deps.env.rows(), placeholder);
             }

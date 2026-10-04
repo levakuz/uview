@@ -3,7 +3,7 @@ use crate::ui::components::shared::table::TableRow;
 
 impl TableRow for PyprojectDependency {
     fn columns() -> Vec<&'static str> {
-        vec!["Name", "Group", "Version Constraint"]
+        vec!["Name", "Group", "Constraint"]
     }
 
     fn cells(&self) -> Vec<String> {

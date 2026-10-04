@@ -17,7 +17,8 @@ pub struct InputPopup {
 impl InputPopup {
     pub fn new(title: &str, width: u16) -> Self {
         Self {
-            popup: Popup::new(PopupSize { width, height: 10 }),
+            // One line to type on, inside a border.
+            popup: Popup::new(PopupSize { width, height: 3 }),
             input: UviewInput::default().with_title(title),
         }
     }
