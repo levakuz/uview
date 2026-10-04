@@ -1,7 +1,7 @@
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    events::Action,
+    message::NavAction,
     ui::components::shared::{
         input::UviewInput,
         popup::{Popup, PopupSize},
@@ -35,20 +35,34 @@ impl PinVersionPopup {
         self.input.is_editing()
     }
 
-    pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
-        if let Action::ConfirmInput = action {
-            if self.input.is_editing() {
+    /// Opens the input, empty.
+    pub fn open(&mut self) {
+        self.input.start_editing();
+    }
+
+    /// Handles a key while the input is open. Returns the version once Enter confirms one,
+    /// which also closes the input.
+    pub fn update(&mut self, nav: &NavAction) -> Option<String> {
+        match nav {
+            NavAction::Confirm => {
                 let constraint = self.input.take_value();
                 // Enter alone reaches an empty field from a table row; it must not run `uv add`.
                 if constraint.trim().is_empty() {
                     return None;
                 }
-                self.input.handle_event(&Action::StopEditing);
-                return Some(Action::PinVersion(constraint));
+                self.input.stop_editing();
+                Some(constraint)
             }
-            return None;
+            NavAction::Back => {
+                self.input.stop_editing();
+                None
+            }
+            NavAction::Type(key) => {
+                self.input.key(*key);
+                None
+            }
+            // While an input is open the keymap sends only Confirm, Back and Type.
+            _ => None,
         }
-        self.input.handle_event(action);
-        self.popup.handle_event(action)
     }
 }

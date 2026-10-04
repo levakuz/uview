@@ -1,106 +1,142 @@
-use crossterm::event::{KeyCode, KeyEvent};
-use tokio::sync::mpsc;
-use uview::events::{Action, Membership, PyprojectDependency};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{Terminal, backend::TestBackend};
+use uview::domain::{Membership, PyprojectDependency};
+use uview::message::{Command, Event, Input};
 use uview::ui::Component;
 use uview::ui::pages::dependencies::DependenciesPage;
 
-fn page() -> DependenciesPage {
-    DependenciesPage::new(mpsc::unbounded_channel().0)
-}
-
-/// A pyproject load with one package. The tests stop short of running an action on it:
-/// actions spawn uv onto tokio, and these tests have no runtime.
-fn one_package() -> Action {
-    Action::LoadedPyprojectDeps(vec![PyprojectDependency {
-        name: "six".into(),
+fn package(name: &str) -> PyprojectDependency {
+    PyprojectDependency {
+        name: name.into(),
         groups: vec![Membership::Project],
         version_constraint: String::new(),
-    }])
+    }
 }
 
-fn page_with_a_package() -> DependenciesPage {
-    let mut page = page();
-    page.handle_event(&one_package());
+/// A page whose pyproject table lists `names`.
+fn page_with(names: &[&str]) -> DependenciesPage {
+    let mut page = DependenciesPage::new();
+    page.apply(&Event::PyprojectLoaded(
+        names.iter().map(|name| package(name)).collect(),
+    ));
     page
 }
 
-/// Presses `code` and feeds each returned action back into the page, as `App::dispatch`
-/// does. Returns those actions in order.
-fn press(page: &mut DependenciesPage, code: KeyCode) -> Vec<Action> {
-    let mut emitted = Vec::new();
-    let mut next = page.handle_event(&Action::ButtonPressed(KeyEvent::from(code)));
-    while let Some(action) = next {
-        next = page.handle_event(&action);
-        emitted.push(action);
+/// Presses `code` as the app does: the page's keymap turns it into an action, and `update`
+/// returns the commands that asks for. Nothing runs them: no runtime, no `uv`.
+fn press(page: &mut DependenciesPage, code: KeyCode) -> Vec<Command> {
+    match page.action_for(&Input::Key(KeyEvent::from(code))) {
+        Some(action) => page.update(&action),
+        None => Vec::new(),
     }
-    emitted
 }
 
 #[test]
-fn enter_outside_an_input_does_what_space_does() {
+fn enter_and_space_open_the_actions_and_run_the_highlighted_one() {
     for key in [KeyCode::Char(' '), KeyCode::Enter] {
-        let mut page = page_with_a_package();
-        // On a row: open the actions list.
-        assert!(matches!(
-            press(&mut page, key).as_slice(),
-            [Action::SelectItem]
-        ));
-        // In the list: run the highlighted action, Pin to version.
-        assert!(matches!(
-            press(&mut page, key).as_slice(),
-            [Action::SelectItem, Action::OpenPinPopup]
-        ));
+        let mut page = page_with(&["six"]);
+        // On a row: open the actions list. In the list: run Pin to version, which opens the
+        // version input.
+        assert!(press(&mut page, key).is_empty());
+        assert!(press(&mut page, key).is_empty());
+        assert!(page.is_editing(), "{key:?}");
     }
+}
+
+#[test]
+fn a_typed_version_is_pinned() {
+    let mut page = page_with(&["six"]);
+    press(&mut page, KeyCode::Enter);
+    press(&mut page, KeyCode::Enter);
+    press(&mut page, KeyCode::Char('1'));
+    assert_eq!(
+        press(&mut page, KeyCode::Enter),
+        [Command::Pin {
+            name: "six".into(),
+            constraint: "1".into()
+        }]
+    );
+    assert!(!page.is_editing());
 }
 
 #[test]
 fn enter_alone_cannot_pin() {
-    let mut page = page_with_a_package();
-    press(&mut page, KeyCode::Enter);
-    press(&mut page, KeyCode::Enter);
-    // The version input is open and empty: a third Enter, as from a held key, runs nothing.
-    assert!(press(&mut page, KeyCode::Enter).is_empty());
+    let mut page = page_with(&["six"]);
+    // The version input opens empty: a third Enter, as from a held key, runs nothing.
+    for _ in 0..3 {
+        assert!(press(&mut page, KeyCode::Enter).is_empty());
+    }
     // A version abandoned with Esc does not come back for the next Enter, Enter, Enter.
     press(&mut page, KeyCode::Char('1'));
     press(&mut page, KeyCode::Esc);
-    press(&mut page, KeyCode::Enter);
-    press(&mut page, KeyCode::Enter);
-    assert!(press(&mut page, KeyCode::Enter).is_empty());
+    for _ in 0..3 {
+        assert!(press(&mut page, KeyCode::Enter).is_empty());
+    }
 }
 
 #[test]
-fn enter_in_the_version_input_confirms_the_version() {
-    // No package is loaded, so the pin is emitted but runs nothing.
-    let mut page = page();
-    page.handle_event(&Action::OpenPinPopup);
-    press(&mut page, KeyCode::Char('1'));
-    assert!(matches!(
-        press(&mut page, KeyCode::Enter).as_slice(),
-        [Action::PinVersion(version)] if version == "1"
-    ));
+fn a_table_without_rows_opens_no_actions() -> Result<(), Box<dyn std::error::Error>> {
+    let mut page = DependenciesPage::new();
+    press(&mut page, KeyCode::Enter);
+    let mut terminal = Terminal::new(TestBackend::new(80, 20))?;
+    terminal.draw(|frame| page.render(frame, frame.area()))?;
+    let screen: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(!screen.contains("Package Control"));
+    Ok(())
 }
 
 #[test]
-fn a_table_without_rows_opens_no_actions() {
-    let mut page = page();
+fn the_actions_act_on_the_row_they_were_opened_for() {
+    let mut page = page_with(&["anyio", "httpx", "requests"]);
+    press(&mut page, KeyCode::Down);
     press(&mut page, KeyCode::Enter);
-    // Had the list opened, this Enter would run Pin to version.
-    assert!(matches!(
-        press(&mut page, KeyCode::Enter).as_slice(),
-        [Action::SelectItem]
-    ));
+    // A reload lands while the list is open for httpx, and the selected row is now requests.
+    page.apply(&Event::PyprojectLoaded(vec![
+        package("httpx"),
+        package("requests"),
+    ]));
+    press(&mut page, KeyCode::Down);
+    press(&mut page, KeyCode::Down);
+    assert_eq!(
+        press(&mut page, KeyCode::Enter),
+        [Command::RemoveFromProject {
+            name: "httpx".into(),
+            groups: vec![Membership::Project]
+        }]
+    );
 }
 
 #[test]
 fn a_load_that_lands_while_typing_is_kept() {
-    let mut page = page();
-    page.handle_event(&Action::OpenPinPopup);
-    page.handle_event(&one_package());
-    press(&mut page, KeyCode::Esc);
-    // The row arrived while the input was open, so the actions list opens on it.
+    let mut page = page_with(&["six"]);
     press(&mut page, KeyCode::Enter);
-    assert!(matches!(
-        press(&mut page, KeyCode::Enter).as_slice(),
-        [Action::SelectItem, Action::OpenPinPopup]
-    ));
+    press(&mut page, KeyCode::Enter);
+    page.apply(&Event::PyprojectLoaded(vec![
+        package("six"),
+        package("idna"),
+    ]));
+    press(&mut page, KeyCode::Esc);
+    // idna arrived while the version input was open.
+    press(&mut page, KeyCode::Down);
+    press(&mut page, KeyCode::Enter);
+    press(&mut page, KeyCode::Down);
+    assert_eq!(
+        press(&mut page, KeyCode::Enter),
+        [Command::Upgrade {
+            name: "idna".into()
+        }]
+    );
+}
+
+#[test]
+fn alt_keys_do_nothing_outside_an_input() {
+    let page = page_with(&["six"]);
+    let alt_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
+    assert!(page.action_for(&Input::Key(alt_enter)).is_none());
 }

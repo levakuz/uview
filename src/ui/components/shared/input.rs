@@ -1,14 +1,12 @@
 use ratatui::{
     Frame,
-    crossterm::event::Event,
+    crossterm::event::{Event, KeyEvent},
     layout::Rect,
     style::{Color, Style},
     widgets::{Block, Paragraph},
 };
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
-
-use crate::events::Action;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum InputMode {
@@ -43,12 +41,20 @@ impl UviewInput {
         self
     }
 
-    fn start_editing(&mut self) {
+    pub fn start_editing(&mut self) {
         self.input_mode = InputMode::Editing
     }
 
-    fn stop_editing(&mut self) {
+    /// Leaves editing and drops the text: abandoned text must not come back the next time the
+    /// input opens.
+    pub fn stop_editing(&mut self) {
+        self.input.reset();
         self.input_mode = InputMode::Normal
+    }
+
+    /// Types `key` into the box.
+    pub fn key(&mut self, key: KeyEvent) {
+        self.input.handle_event(&Event::Key(key));
     }
 
     /// Takes the current input value, clearing the box.
@@ -62,35 +68,6 @@ impl UviewInput {
 
     pub fn is_editing(&self) -> bool {
         self.input_mode == InputMode::Editing
-    }
-
-    pub fn handle_event(&mut self, action: &Action) -> Option<Action> {
-        match self.input_mode {
-            InputMode::Normal => match action {
-                Action::Editing => {
-                    self.start_editing();
-                    None
-                }
-                _ => None,
-            },
-            InputMode::Editing => match action {
-                Action::ConfirmInput => {
-                    self.input.reset();
-                    None
-                }
-                Action::StopEditing => {
-                    // Abandoned text must not come back the next time the input opens.
-                    self.input.reset();
-                    self.stop_editing();
-                    None
-                }
-                Action::ButtonPressed(event) => {
-                    self.input.handle_event(&Event::Key(*event));
-                    None
-                }
-                _ => None,
-            },
-        }
     }
 
     fn render_input(&self, frame: &mut Frame, area: Rect) {

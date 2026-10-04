@@ -32,8 +32,20 @@ const RULES: &[Rule] = &[
     Rule {
         name: "uv-bottom-layer",
         scope: "src/uv",
-        forbidden: &["ratatui", "controllers", "crate::ui"],
+        forbidden: &[
+            "ratatui",
+            "controllers",
+            "crate::ui",
+            "crate::runtime",
+            "crate::message",
+        ],
         source: "ARCHITECTURE.md §2, ADR-0002",
+    },
+    Rule {
+        name: "runtime-no-ui",
+        scope: "src/runtime",
+        forbidden: &["ratatui", "crate::ui"],
+        source: "ARCHITECTURE.md §2, ADR-0001",
     },
     Rule {
         name: "shared-no-domain",
@@ -63,11 +75,7 @@ const RULES: &[Rule] = &[
 
 /// Known violations as `(file, rule, issue that removes it)`. The list can only shrink:
 /// an entry that no longer matches a violation fails the test until it is deleted.
-const ALLOWED: &[(&str, &str, &str)] = &[(
-    "src/ui/components/widgets/dependencies_tables_tabs.rs",
-    "ui-no-spawn",
-    "#42",
-)];
+const ALLOWED: &[(&str, &str, &str)] = &[];
 
 #[test]
 fn architecture_rules_hold() {

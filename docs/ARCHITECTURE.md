@@ -33,32 +33,28 @@ It owns no Python or packaging logic of its own. Every operation is delegated to
 `uv` binary as a subprocess, and `uview` is responsible only for presenting state and
 turning key presses into `uv` invocations.
 
-The design follows the Elm architecture (TEA): a single `Action` type describes
-everything that can happen, components translate input into actions, and controllers
-perform side effects and report back as further actions.
+The design follows the Elm architecture (TEA), with messages split by direction of travel
+(§4): a page's keymap turns input into actions, components turn actions into commands, and
+the runtime performs the commands and reports what came of them as events.
 
 ## 2. Layers
 
-There are three layers, plus a thin application shell.
+There are four layers, plus a thin application shell.
 
 | Layer | Location | Responsibility | Must not |
 |---|---|---|---|
-| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the action channel and the active page | Contain feature logic |
-| **UI** | `src/ui/` | Render frames, translate input into actions, hold view state | Spawn `uv`, read the filesystem |
+| **App shell** | `src/app.rs` | Owns the terminal, the event loop, the event channel and the active page; hands commands to the runtime | Contain feature logic |
+| **UI** | `src/ui/` | Render frames, turn input into actions and actions into commands, hold view state | Spawn tasks, call controllers, read the filesystem |
+| **Runtime** | `src/runtime/` | Run each command as a task through the controllers, report its outcome as events | Render, hold UI state, know about ratatui |
 | **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml` | Render, hold UI state, know about ratatui, start a process |
-| **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about controllers, the UI or ratatui |
+| **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
 
-The rule that matters: **controllers never import ratatui, UI code never invokes `uv`
-directly, and only `src/uv/` starts a process.** The one place the UI and the controllers
-meet is a component spawning a controller call onto tokio and forwarding the result over
-the action channel.
+The rule that matters: **controllers never import ratatui, UI code never invokes `uv` or a
+controller, and only `src/uv/` starts a process.** The UI and the controllers never meet: a
+component returns commands, and the runtime runs them. The runtime is the only code that
+spawns tasks.
 
-> **Current deviation.** `DependenciesTablesTabs` (a widget) spawns controller calls, owns
-> the sender and hands each call a `RealUvClient` of its own. That keeps `uv` invocation out of the render path but pushes
-> orchestration down into a widget. See §9.
-
-`tests/architecture.rs` enforces every part of the rule (§10). The deviation above is its
-only allowlisted exception, owned by #42.
+`tests/architecture.rs` enforces every part of the rule (§10), with no exceptions.
 
 ## 3. Data flow
 
@@ -69,79 +65,90 @@ only allowlisted exception, owned by #42.
    key press ──────▶│  crossterm::event::poll / read               │
                     │        │                                     │
                     │        ▼                                     │
-                    │  Action::ButtonPressed(KeyEvent)             │
+                    │  page.action_for(&Input)          keymap     │
                     │        │                                     │
                     │        ▼                                     │
-                    │  App::dispatch(action) ◀──────────┐          │
-                    │        │                          │          │
-                    │        ▼                          │ recursion│
-                    │  page.handle_event(&action)       │          │
-                    │        │                          │          │
-                    │        └── Option<Action> ────────┘          │
-                    │                                              │
-                    │  rx.try_recv()  ◀── mpsc ── spawned tasks    │
-                    │        │                          ▲          │
-                    │        ▼                          │          │
-                    │  App::dispatch(action)            │          │
-                    │                                   │          │
-                    │  terminal.draw(page.render)       │          │
-                    └───────────────────────────────────┼──────────┘
-                                                        │
+                    │  App::dispatch(action)                       │
+                    │        │                                     │
+                    │        ▼                                     │
+                    │  page.update(&action) ── Vec<Command> ──┐    │
+                    │                                         │    │
+                    │  events_rx.try_recv() ◀── Event ──┐     │    │
+                    │        │                          │     │    │
+                    │        ▼                          │     │    │
+                    │  status line, or page.apply       │     │    │
+                    │                                   │     │    │
+                    │  terminal.draw(page.render)       │     │    │
+                    └───────────────────────────────────┼─────┼────┘
+                                                        │     ▼
                     ┌───────────────────────────────────┴──────────┐
-                    │      controllers::*  (tokio::process)        │
-                    │      uv add / remove / lock / sync / …       │
+                    │  runtime::execute: one task per command      │
+                    │  controllers::* → uv add / remove / sync / … │
                     └──────────────────────────────────────────────┘
 ```
 
 The concrete path for a key press, using "pin a version" as the example:
 
-1. `App::run` polls crossterm and wraps the key as `Action::ButtonPressed(KeyEvent)`.
-2. `App::dispatch` forwards it to `DependenciesPage::handle_event`.
-3. The page maps `KeyCode` to a semantic action — inside an input, `Enter` becomes `Action::ConfirmInput`.
-4. The action reaches `DependenciesTablesTabs`, which routes it to whichever popup is
-   open and editing.
-5. `PinVersionPopup` takes the input value and returns `Action::PinVersion(String)`.
-6. That returned action is dispatched recursively (§4), lands back on the widget, which
-   spawns `controllers::dependencies::pin_dep_version` onto tokio.
-7. The spawned task sends `Action::UpdatedEnvDep(EnvDependency)` through the `mpsc`
-   sender it was given.
-8. The next loop iteration drains the receiver, dispatches that action, and the widget
-   updates the table row.
+1. `App::run` polls crossterm and wraps the key as `Input::Key(KeyEvent)`.
+2. `DependenciesPage::action_for`, the page's keymap, turns it into an action: inside an
+   input, `Enter` becomes `Action::Nav(NavAction::Confirm)`.
+3. `App::dispatch` hands the action to `DependenciesPage::update`, which passes it to
+   `DependenciesTablesTabs`.
+4. The widget sends it to the input that is open, `PinVersionPopup`, which returns the
+   version typed.
+5. The widget returns `Command::Pin` for the package the actions list was opened for.
+6. `App::dispatch` hands the command to `runtime::execute`, which spawns a task running
+   `controllers::dependencies::pin_dep_version`.
+7. The task sends `Event::Notice`, then reloads both tables and sends
+   `Event::PyprojectLoaded` and `Event::EnvLoaded` through the event channel.
+8. The next loop iteration drains the channel: `App` shows the notice and hands the loaded
+   rows to `DependenciesPage::apply`.
 9. The following `terminal.draw` renders the new state.
 
-## 4. Actions and dispatch
+## 4. Messages and dispatch
 
-`Action` (`src/events.rs`) is a single flat enum covering three distinct kinds of thing:
+Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 
-- **Raw input** — `ButtonPressed(KeyEvent)`
-- **Semantic intent** — `MoveUp`, `SwitchTable`, `OpenPopup`, `RemovePackage`, `PinVersion(String)`
-- **Results from controllers** — `LoadedPyprojectDeps(..)`, `LoadedEnvDeps(..)`, `UpdatedEnvDep(..)`, `Error(String)`, `Notice(String)`
+- **`Input`** — what the terminal sends: `Key(KeyEvent)`.
+- **`Action`** — what the user means, nested per domain: `Quit`, `Nav(NavAction)` for
+  moving, choosing and typing, and `Deps(DepsAction)` for the dependencies page.
+- **`Command`** — an effect a component asks for: `Reload`, `RemoveFromProject`,
+  `Uninstall`, `Upgrade`, `Pin`.
+- **`Event`** — what a command produced: the loaded rows, `Notice(String)` and
+  `Error(String)`.
 
-Actions enter the system through two doors, and both converge on `App::dispatch`:
+The page's keymap, `DependenciesPage::action_for`, turns an `Input` into an `Action`. While
+an input is open, every key but Enter and Esc becomes `NavAction::Type`. Outside an input,
+Alt+key means nothing, because Esc read together with the next key arrives as Alt+key.
 
-- **Synchronously**, from the crossterm poll.
-- **Asynchronously**, through an `mpsc::UnboundedSender<Action>` cloned into components
-  that need to report results.
+`App::dispatch` handles `Quit` itself and hands every other action to the page's `update`,
+which returns `Vec<Command>`. Each command goes to `runtime::execute`. Esc, as
+`NavAction::Back`, also dismisses the status message. Components return commands, never
+actions, so nothing comes back into `dispatch` and it cannot recurse. ADR-0001 planned an
+explicit work queue against that recursion; with no action coming back, there is nothing to
+queue.
 
-`App::dispatch` handles `Quit`, `Error` and `Notice` itself and passes everything else to
-the active page. `Error` and `Notice` set the one-line status message that `App` renders
-below the page, beside the project root; `StopEditing`, which Esc produces, clears it before reaching the page. If `handle_event` returns `Some(next)`, dispatch **calls itself** with that
-action. This is how a component escalates: `PinVersionPopup` returns `Action::PinVersion`
-and the widget above it receives it on the next pass.
+Inside the page, a popup reports to the widget that owns it with a plain return value: the
+actions list returns the option chosen, and the pin input the version typed. The widget
+turns that into a command.
 
-> **Hazard.** The recursion has no depth limit and no cycle detection. A component that
-> returns the same action it was handed will recurse until the stack overflows. Keep the
-> rule: `handle_event` returns an action that is *different in kind* from the one it
-> received, or returns `None`.
+The runtime sends `Event`s through one `mpsc::UnboundedSender<Event>`. `App` drains the
+receiver once per loop iteration. `Notice` and `Error` set the one-line status message it
+renders below the page, beside the project root. Every other event goes to
+`DependenciesPage::apply`, which puts the rows into the tables whatever has focus: until
+`AppState` exists (#43), the tables are where the data lives.
 
 ## 5. Module map
 
 ```
 src/
 ├── main.rs                 # tokio entry point; finds the project root and makes it the cwd
-├── lib.rs                  # public surface, so tests/ can reach controllers, ui and uv
-├── app.rs                  # App: event loop, channel, dispatch, active page
-├── events.rs               # Action enum + PyprojectDependency / EnvDependency
+├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
+├── app.rs                  # App: event loop, event channel, dispatch, status line, active page
+├── message.rs              # Input / Action / Command / Event
+├── domain.rs               # PyprojectDependency, EnvDependency, Membership
+├── runtime/
+│   └── mod.rs              # runs each command as a task and reports events; the only spawn
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, pin, update, remove, uninstall; reads pyproject.toml
 │   └── project.rs          # startup: the project root, or why uv would refuse it
@@ -165,7 +172,7 @@ src/
         │   ├── package_control_popup.rs
         │   └── pin_version_popup.rs
         └── widgets/
-            └── dependencies_tables_tabs.rs # composes tables + popups, owns the tx
+            └── dependencies_tables_tabs.rs # composes tables + popups, turns their results into commands
 ```
 
 **Planned, not yet written.** `controllers/python.rs`,
@@ -202,21 +209,23 @@ may name a domain type or a controller.
 ```rust
 pub trait Component {
     fn render(&mut self, frame: &mut Frame, area: Rect);
-    fn handle_event(&mut self, action: &Action) -> Option<Action>;
+    fn update(&mut self, action: &Action) -> Vec<Command>;
 }
 ```
 
 `&mut self` in `render` is required because ratatui's `TableState` and `ListState` are
-mutated during rendering.
+mutated during rendering. `update` takes no `&mut AppState` yet: `AppState` arrives with
+#43, which adds the parameter together with the data it holds.
 
-**Its real scope today is pages only.** `DependenciesPage` is the sole implementor.
-Every other component exposes inherent `render` / `handle_event` methods with the same
-shape but no trait, and in three cases the shape itself differs:
+**Its real scope today is pages only.** `DependenciesPage` is the sole implementor. The
+widget below it has an inherent `update` of the same shape. The pieces below the widget
+report to it with plain return values instead of commands (§4). In three cases the
+render shape itself differs:
 
 - `Popup::render` returns `Rect` — it clears and centres an area, then hands it back for
   the caller to draw into. It cannot satisfy the trait as written.
 - `UviewInput::render` takes `&self`, not `&mut self`.
-- `SharedTable` has no `handle_event` at all; navigation is driven by the owning widget
+- `SharedTable` has no `update` at all; navigation is driven by the owning widget
   calling `next()` / `previous()`.
 
 This was a real design question, not an oversight to be silently fixed. `App` only ever
@@ -236,7 +245,7 @@ A controller function:
   returns `Result<T, E>`;
 - runs `uv` only through that client, with argv from `uv::args` and output read by
   `uv::parse`, or reads `pyproject.toml` directly;
-- returns the types in `events.rs`;
+- returns the types in `domain.rs`;
 - **never** renders, holds UI state, or imports ratatui.
 
 `project.rs` is the exception. `main.rs` calls it once, synchronously, before the terminal
@@ -260,7 +269,7 @@ therefore deduplicates by name and accumulates the groups.
 
 Every `uv` invocation goes through `UvClient::run`, which returns stdout or a
 `UvError` — `Spawn` (could not start `uv`), `Failed` (non-zero exit, with the command and
-stderr) or `Parse` (output unreadable). Callers format the error into `Action::Error`.
+stderr) or `Parse` (output unreadable). The runtime formats the error into `Event::Error`.
 `RealUvClient` is the only implementation in `src/` and the only code that starts a
 process (ADR-0002). `uv` runs in the working directory, which `main.rs` has made the project root, without
 `UV_PROJECT`, which that root already accounts for.
@@ -268,25 +277,27 @@ process (ADR-0002). `uv` runs in the working directory, which `main.rs` has made
 
 ## 9. Concurrency
 
-There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::UnboundedChannel<Action>`.
+There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::UnboundedChannel<Event>`.
 
 - The **event loop is synchronous** and blocking. `App::run` is `async` but never awaits
   inside the loop; `event::poll(50ms)` blocks the thread.
-- **Controller calls are spawned**, never awaited in the loop, so a slow `uv` invocation
-  cannot freeze rendering.
-- Two loads are spawned at startup, before the loop begins: `load_pyproject_deps` and
-  `load_env_deps`, each sending its result or an `Action::Error`.
-- Later calls are spawned from `DependenciesTablesTabs`, which holds a cloned sender for
-  exactly this purpose.
+- **Only the runtime spawns.** `runtime::execute` runs each command in a task of its own,
+  never awaited in the loop, so a slow `uv` invocation cannot freeze rendering. The task
+  reports through a clone of the event sender.
+- At startup, before the loop begins, `App` hands the runtime `Command::Reload`, which
+  reads `pyproject.toml` and then lists the environment, sending each result or an
+  `Event::Error`.
+- After a mutation the runtime reloads both tables itself, after a failure too, since a
+  failed sequence may already have changed `pyproject.toml`. Update only refreshes its row.
 
 **The redraw is unconditional.** Every iteration calls `terminal.draw` whether or not
 anything changed, giving a floor of roughly 20 fps of wasted work when idle. The draw
 also happens *before* input is processed, so a key press is reflected one iteration
 later. Both are acceptable at the current scale and are addressed by issue #32.
 
-**Spawned handles are dropped.** Several call sites do `let _ = handle.spawn(async { ... })`,
-so a task that fails reports nothing — clippy flags this as `let_underscore_future`.
-Anything spawned should report its outcome through the channel, including failure.
+**Spawned handles are dropped.** `runtime::execute` keeps no handle to the task it spawns,
+so a task that panics reports nothing. Every outcome a task returns goes through the
+channel, failures included.
 
 ## 10. Testing
 
@@ -298,8 +309,8 @@ Per repository convention:
 
 The consequence for design: **logic worth testing must be separable from process
 execution.** Argument construction (`uv::args`) and output parsing (`uv::parse`,
-`parse_dep_string`) are pure and tested directly. Operations take a `&impl UvClient`, so
-`tests/dependencies.rs` runs them against `FakeUvClient`. The fake returns canned stdout
+`parse_dep_string`) are pure and tested directly. Operations take a `&impl UvClient`, and
+so does `runtime::run`, so `tests/dependencies.rs` runs them against `FakeUvClient`. The fake returns canned stdout
 and records the argv it receives, and a test asserts on exactly what would have run. It
 lives in `tests/` rather than `src/` because tests are integration tests. Two tests still
 run the real `uv` through `RealUvClient`, as ADR-0002 asks, because a fake can drift from
@@ -312,21 +323,23 @@ this document into a failing test, using only the standard library:
 |---|---|
 | `controllers-no-ratatui` | nothing under `src/controllers/` references ratatui (§2) |
 | `controllers-no-process` | nothing under `src/controllers/` starts a process (ADR-0002) |
-| `uv-bottom-layer` | nothing under `src/uv/` references ratatui, a controller or the UI (§2, ADR-0002) |
+| `uv-bottom-layer` | nothing under `src/uv/` references ratatui, a controller, the runtime, the messages or the UI (§2, ADR-0002) |
+| `runtime-no-ui` | nothing under `src/runtime/` references ratatui or the UI (§2, ADR-0001) |
 | `shared-no-domain` | nothing under `src/ui/components/shared/` names a domain type or a controller (§6) |
 | `ui-no-spawn` | nothing under `src/ui/` spawns a task or a process, calls a controller or names the uv layer (§2, ADR-0001, ADR-0002) |
 | `no-tests-in-src` | no `#[test]` or `#[cfg(test)]` under `src/` (this section) |
 
-Known violations sit in an allowlist, each with the issue that removes it. The list is a
-ratchet: the test fails on any new violation, and also when an allowlisted file stops
+Known violations sit in an allowlist, each with the issue that removes it; it is empty
+today. The list is a ratchet: the test fails on any new violation, and also when an allowlisted file stops
 violating, so the entry must be deleted. Each rule's directory must exist, so moving a
 module — `controllers/` becoming `runtime/` in the migration path — fails the
 test until its rules are updated in the same PR. The matching is textual, and its limits
 are noted in the file.
 
 Unit coverage beyond that is still thin: parsing, argument and requirement construction,
-`RealUvClient` in both directions, and two operations against the fake. Issue #25 covers
-expanding it.
+`RealUvClient` in both directions, two operations and one runtime command against the fake,
+and the dependencies page driven key by key. The page's `update` returns commands, so those
+tests run no runtime and no subprocess. Issue #25 covers expanding it.
 
 ## 11. Known deviations and open questions
 
@@ -336,7 +349,7 @@ expanding it.
 | 2 | `Component` is implemented by pages only; three components have incompatible signatures | §13.2, during #26 |
 | 3 | ~~Controllers `panic!` instead of returning errors~~ Resolved: `UvError` + clippy lints | #1 |
 | 4 | ~~`Action::Error` is not shown while the app runs~~ Resolved: a status line at the bottom, dismissed with Esc | #2 |
-| 5 | A widget owns controller orchestration and the channel sender — allowlisted in `tests/architecture.rs` | #42 |
+| 5 | ~~A widget owns controller orchestration and the channel sender~~ Resolved: components return commands, and the runtime spawns | #42 |
 | 6 | Unconditional redraw; input processed one frame behind the draw | #32 |
 | 7 | Spawned task handles are dropped, so failures vanish | #6 |
 | 8 | ~~`uv pip show` output is parsed by line prefix~~ Resolved: filtered from `uv pip list --format json` | #1 |
@@ -660,7 +673,7 @@ src/
 Two things worth naming. `controllers/` becomes `uv/` plus `runtime/`, because the old
 name described a layer that did two unrelated jobs: talking to `uv`, and deciding when.
 And `domain/` appears because `Requirement` — name, extras, constraint, source — is a real
-type that `events.rs` currently flattens into two `String`s, which is why extras (#18)
+type that `domain.rs` currently flattens into two `String`s, which is why extras (#18)
 cannot be represented today.
 
 The fake `UvClient` is missing from the tree on purpose. Tests are integration tests, so

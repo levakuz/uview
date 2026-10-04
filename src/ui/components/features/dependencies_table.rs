@@ -1,4 +1,4 @@
-use crate::events::{EnvDependency, PyprojectDependency};
+use crate::domain::{EnvDependency, PyprojectDependency};
 use crate::ui::components::shared::table::TableRow;
 
 impl TableRow for PyprojectDependency {

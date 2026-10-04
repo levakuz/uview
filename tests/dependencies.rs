@@ -4,7 +4,9 @@ use std::sync::{Mutex, PoisonError};
 use uview::controllers::dependencies::{
     get_env_package_info, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
-use uview::events::Membership;
+use uview::domain::Membership;
+use uview::message::{Command, Event};
+use uview::runtime;
 use uview::uv::args::{membership_args, pin_requirement, uninstall_args};
 use uview::uv::{RealUvClient, UvClient, UvError};
 
@@ -161,4 +163,18 @@ async fn env_lookup_reads_pip_list_json_by_normalized_name() -> Result<(), UvErr
     assert_eq!(found.map(|dep| dep.version), Some("3.1.1".to_string()));
     assert_eq!(uv.calls()[0][..4], ["pip", "list", "--format", "json"]);
     Ok(())
+}
+
+#[tokio::test]
+async fn the_runtime_reports_an_upgrade_and_the_upgraded_row() {
+    let pip_list = r#"[{"name": "six", "version": "1.17.0"}]"#;
+    let uv = FakeUvClient::returning([Ok(String::new()), Ok(pip_list.to_string())]);
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    runtime::run(Command::Upgrade { name: "six".into() }, &uv, &events).await;
+    assert_eq!(
+        uv.calls()[0],
+        ["sync", "--inexact", "--upgrade-package", "six"]
+    );
+    assert!(matches!(received.try_recv(), Ok(Event::Notice(m)) if m == "Updated six"));
+    assert!(matches!(received.try_recv(), Ok(Event::EnvUpdated(dep)) if dep.version == "1.17.0"));
 }

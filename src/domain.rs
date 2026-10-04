@@ -1,31 +1,6 @@
 use std::fmt;
 
-use crossterm::event::KeyEvent;
 use serde::Deserialize;
-
-#[derive(Clone, Debug)]
-pub enum Action {
-    Quit,
-    MoveUp,
-    MoveDown,
-    SwitchTable,
-    SelectItem,
-    OpenPopup,
-    ClosePopup,
-    LoadedPyprojectDeps(Vec<PyprojectDependency>),
-    LoadedEnvDeps(Vec<EnvDependency>),
-    RemovePackage,
-    UpgradeEnvDep,
-    UpdatedEnvDep(EnvDependency),
-    OpenPinPopup,
-    PinVersion(String),
-    Editing,
-    ConfirmInput,
-    StopEditing,
-    ButtonPressed(KeyEvent),
-    Error(String),
-    Notice(String),
-}
 
 /// Where a dependency is declared in pyproject.toml.
 #[derive(Clone, Debug, PartialEq)]

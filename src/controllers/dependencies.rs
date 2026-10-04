@@ -1,4 +1,4 @@
-use crate::events::{EnvDependency, Membership, PyprojectDependency};
+use crate::domain::{EnvDependency, Membership, PyprojectDependency};
 use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
 
