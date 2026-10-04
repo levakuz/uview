@@ -42,6 +42,7 @@ pub enum DepsAction {
     SwitchTable,
     OpenAdd,
     Sync,
+    Refresh,
 }
 
 /// An effect a component asks for. Components return these and never perform them; the
@@ -82,10 +83,19 @@ pub struct JobId(pub u64);
 /// page.
 #[derive(Debug)]
 pub enum Event {
-    /// The pyproject table's rows, or why they could not be read.
-    PyprojectLoaded(Result<Vec<PyprojectDependency>, String>),
-    /// The Environment table's rows, or why they could not be listed.
-    EnvLoaded(Result<Vec<EnvDependency>, String>),
+    /// The pyproject table's rows, or why they could not be read, from a reload that started at
+    /// `generation`.
+    PyprojectLoaded {
+        generation: u64,
+        loaded: Result<Vec<PyprojectDependency>, String>,
+    },
+    /// The Environment table's rows, or why they could not be listed, likewise.
+    EnvLoaded {
+        generation: u64,
+        loaded: Result<Vec<EnvDependency>, String>,
+    },
+    /// A mutation has ended, however it did: what the views show of the project may be stale.
+    ProjectMutated,
     Notice(String),
     Error(String),
     /// A command became a job, named by `label`. It may wait behind a running mutation.

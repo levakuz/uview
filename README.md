@@ -103,13 +103,14 @@ there. Quitting cancels the same way.
 
 | Key | Action |
 |---|---|
-| `↑` / `k`, `↓` / `j` | Move the selection. Table selections wrap around at the ends. |
+| `↑` / `k`, `↓` / `j` | Move the selection. Table selections wrap around at the ends, and stay on their package when the tables are read again. |
 | `Tab`, `[`, `]` | Switch between the pyproject.toml and Environment tables. |
 | `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
 | `p` | Add a package. |
 | `s` | Sync the environment with `uv sync`. |
+| `r` | Read both tables again, for changes made outside uview. |
 | `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. |
 | `q` | Quit, cancelling whatever is running first. |
 

@@ -207,3 +207,35 @@ fn a_selection_past_the_rows_falls_back_to_the_last() {
         }]
     );
 }
+
+#[test]
+fn r_refreshes_outside_an_input() {
+    let mut screen = Screen::with(&["six"]);
+    assert_eq!(screen.press(KeyCode::Char('r')), [Command::Reload]);
+    // In an input, it is typed.
+    screen.press(KeyCode::Char('p'));
+    assert!(screen.press(KeyCode::Char('r')).is_empty());
+}
+
+#[test]
+fn the_selection_stays_on_its_package_across_a_reload() {
+    let mut screen = Screen::with(&["anyio", "httpx", "requests"]);
+    screen.press(KeyCode::Down);
+    // A reload adds a package above the selected httpx.
+    screen.state.deps.pyproject = Loadable::Loaded(vec![
+        package("aiohttp"),
+        package("anyio"),
+        package("httpx"),
+        package("requests"),
+    ]);
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::RemoveFromProject {
+            name: "httpx".into(),
+            groups: vec![Membership::Project]
+        }]
+    );
+}

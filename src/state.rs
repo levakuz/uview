@@ -29,6 +29,27 @@ pub struct ProjectState {
 pub struct DepsState {
     pub pyproject: Loadable<Vec<PyprojectDependency>>,
     pub env: Loadable<Vec<EnvDependency>>,
+    /// The generation of the newest load shown: how many mutations had ended as it started.
+    generation: u64,
+}
+
+impl DepsState {
+    /// Takes in a table's load, unless what is shown comes from a newer one. Reloads run beside
+    /// mutations, so one that started before a mutation ended can land after the reload that
+    /// followed it, with rows the mutation has since changed.
+    pub fn apply(&mut self, event: Event) {
+        match event {
+            Event::PyprojectLoaded { generation, loaded } if generation >= self.generation => {
+                self.generation = generation;
+                self.pyproject = loaded.into();
+            }
+            Event::EnvLoaded { generation, loaded } if generation >= self.generation => {
+                self.generation = generation;
+                self.env = loaded.into();
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Data loaded in the background, and how far its load has got. As a bare list, one not yet

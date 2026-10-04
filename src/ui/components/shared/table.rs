@@ -9,12 +9,16 @@ use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, TableState, Wrap};
 pub trait TableRow {
     fn columns() -> Vec<&'static str>;
     fn cells(&self) -> Vec<String>;
+    /// What identifies the row from one load of the rows to the next, such as a package name.
+    fn key(&self) -> &str;
 }
 
 /// A table of `T` rows it does not own: each call is handed the rows as they are now. It keeps
 /// only the view: the selection and the scroll offset.
 pub struct SharedTable<T: TableRow> {
     state: TableState,
+    /// The key of the selected row, which the selection follows when the rows change.
+    selected_key: Option<String>,
     title: String,
     focused: bool,
     rows: PhantomData<fn(&T)>,
@@ -24,6 +28,7 @@ impl<T: TableRow> SharedTable<T> {
     pub fn new(title: &str) -> Self {
         Self {
             state: TableState::default(),
+            selected_key: None,
             title: title.to_string(),
             focused: false,
             rows: PhantomData,
@@ -32,36 +37,50 @@ impl<T: TableRow> SharedTable<T> {
 
     /// The selected row among `rows`.
     pub fn selected<'a>(&self, rows: &'a [T]) -> Option<&'a T> {
-        rows.get(self.index(rows.len())?)
+        rows.get(self.index(rows)?)
     }
 
-    /// Where the selection is among `len` rows: the first until one is chosen, and the last when
-    /// the rows have shrunk below it.
-    fn index(&self, len: usize) -> Option<usize> {
-        let last = len.checked_sub(1)?;
-        Some(self.state.selected().unwrap_or(0).min(last))
+    /// Where the selection is among `rows`: on the row it was on, wherever that is now. Failing
+    /// that, in the same place, the first row until one is chosen, and the last when the rows
+    /// have shrunk below it.
+    fn index(&self, rows: &[T]) -> Option<usize> {
+        let last = rows.len().checked_sub(1)?;
+        let key = self.selected_key.as_deref();
+        let same_row = key.and_then(|key| rows.iter().position(|row| row.key() == key));
+        Some(same_row.unwrap_or_else(|| self.state.selected().unwrap_or(0).min(last)))
+    }
+
+    fn select(&mut self, rows: &[T], index: usize) {
+        self.state.select(Some(index));
+        self.selected_key = rows.get(index).map(|row| row.key().to_string());
     }
 
     pub fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
     }
 
-    /// Selects the next of `len` rows, wrapping around after the last.
-    pub fn next(&mut self, len: usize) {
-        if let Some(i) = self.index(len) {
-            self.state.select(Some((i + 1) % len));
+    /// Selects the next of `rows`, wrapping around after the last.
+    pub fn next(&mut self, rows: &[T]) {
+        if let Some(i) = self.index(rows) {
+            self.select(rows, (i + 1) % rows.len());
         }
     }
 
-    /// Selects the previous of `len` rows, wrapping around before the first.
-    pub fn previous(&mut self, len: usize) {
-        if let Some(i) = self.index(len) {
-            self.state.select(Some(i.checked_sub(1).unwrap_or(len - 1)));
+    /// Selects the previous of `rows`, wrapping around before the first.
+    pub fn previous(&mut self, rows: &[T]) {
+        if let Some(i) = self.index(rows) {
+            self.select(rows, i.checked_sub(1).unwrap_or(rows.len() - 1));
         }
     }
 
     /// Draws `rows` under the header, or `placeholder` when there are none.
     pub fn render(&mut self, frame: &mut Frame, area: Rect, rows: &[T], placeholder: Text) {
+        // The highlight follows the selection as `selected` sees it, and from now on, so does its
+        // row's key.
+        match self.index(rows) {
+            Some(i) => self.select(rows, i),
+            None => self.state.select(None),
+        }
         let header_cells = T::columns();
         let num_cols = header_cells.len() as u16;
         let header = Row::new(header_cells).style(Style::new().bold());
@@ -95,8 +114,6 @@ impl<T: TableRow> SharedTable<T> {
             .block(block)
             .row_highlight_style(highlight_style);
 
-        // The highlight follows the selection as `selected` sees it.
-        self.state.select(self.index(rows.len()));
         frame.render_stateful_widget(table, area, &mut self.state);
         if rows.is_empty() {
             let placeholder = Paragraph::new(placeholder).wrap(Wrap { trim: false });

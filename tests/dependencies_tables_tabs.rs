@@ -60,19 +60,17 @@ fn tabs_cut_short_keep_the_right_corner() -> Result<(), Box<dyn std::error::Erro
 
 #[test]
 fn the_first_row_is_highlighted_before_any_key() -> Result<(), Box<dyn std::error::Error>> {
-    let deps = DepsState {
-        env: Loadable::Loaded(vec![
-            EnvDependency {
-                name: "six".into(),
-                version: "1.17.0".into(),
-            },
-            EnvDependency {
-                name: "idna".into(),
-                version: "3.10".into(),
-            },
-        ]),
-        ..DepsState::default()
-    };
+    let mut deps = DepsState::default();
+    deps.env = Loadable::Loaded(vec![
+        EnvDependency {
+            name: "six".into(),
+            version: "1.17.0".into(),
+        },
+        EnvDependency {
+            name: "idna".into(),
+            version: "3.10".into(),
+        },
+    ]);
     let mut tabs = tabs();
     tabs.update(&Action::Deps(DepsAction::SwitchTable), &deps);
     let mut terminal = Terminal::new(TestBackend::new(30, 5))?;
@@ -88,10 +86,8 @@ fn the_first_row_is_highlighted_before_any_key() -> Result<(), Box<dyn std::erro
 fn first_line(
     pyproject: Loadable<Vec<PyprojectDependency>>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let deps = DepsState {
-        pyproject,
-        ..DepsState::default()
-    };
+    let mut deps = DepsState::default();
+    deps.pyproject = pyproject;
     let mut terminal = Terminal::new(TestBackend::new(60, 5))?;
     terminal.draw(|frame| tabs().render(frame, frame.area(), &deps))?;
     let buffer = terminal.backend().buffer();

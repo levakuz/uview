@@ -19,6 +19,10 @@ impl TableRow for PyprojectDependency {
             self.version_constraint.clone(),
         ]
     }
+
+    fn key(&self) -> &str {
+        &self.name
+    }
 }
 
 fn format_groups(groups: &[String]) -> String {
@@ -49,5 +53,9 @@ impl TableRow for EnvDependency {
 
     fn cells(&self) -> Vec<String> {
         vec![self.name.clone(), self.version.clone()]
+    }
+
+    fn key(&self) -> &str {
+        &self.name
     }
 }

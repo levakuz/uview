@@ -104,11 +104,11 @@ The concrete path for a key press, using "pin a version" as the example:
    the job reports `Event::JobStarted` and runs `controllers::dependencies::pin_dep_version`.
    Each line `uv add` writes to stderr, its sync's included, comes through as
    `Event::JobOutput` while it runs.
-7. The job sends `Event::Notice`. The runner then reloads both tables, sending
-   `Event::PyprojectLoaded` and `Event::EnvLoaded`, and reports `Event::JobFinished`.
+7. The job sends `Event::Notice`, then `Event::ProjectMutated` and `Event::JobFinished`.
 8. Each loop iteration drains the channel, and `App::receive` puts each event into the
-   `AppState`: the loaded rows into `state.deps`, the job events into `state.jobs`, the
-   notice into `state.message`.
+   `AppState`: the job events into `state.jobs`, the notice into `state.message`. It answers
+   `ProjectMutated` with `Command::Reload`, a read job, whose `PyprojectLoaded` and
+   `EnvLoaded` put the new rows into `state.deps`.
 9. The following `terminal.draw` renders the new state.
 
 ## 4. Messages and dispatch
@@ -144,10 +144,13 @@ The runtime sends `Event`s through one `mpsc::UnboundedSender<Event>`. `App` dra
 receiver once per loop iteration, and `App::receive` puts each event into the `AppState`
 (`src/state.rs`, ADR-0004), which every view reads when it is drawn:
 
-- `PyprojectLoaded` and `EnvLoaded` carry a table's rows, or why they could not be loaded.
-  Each replaces its table in `state.deps`, whatever has focus, as a `Loadable`: `Loaded` or
-  `Failed`. A table with no rows shows in their place how its load is going, that it loaded
+- `PyprojectLoaded` and `EnvLoaded` carry a table's rows, or why they could not be loaded,
+  and the generation the reload started at. `DepsState::apply` replaces the table, whatever
+  has focus, as a `Loadable`: `Loaded` or `Failed`. It discards a load older than the one
+  shown (§9). A table with no rows shows in their place how its load is going, that it loaded
   nothing, or why it failed.
+- `ProjectMutated` says a mutation has ended, so what the tables show may be stale: `App`
+  starts a `Command::Reload`, unless it is quitting.
 - `Notice` and `Error` set `state.message`, the one-line message below the page.
 - The job events go to `state.jobs`, a `JobsState`. Its summary, the oldest job and how many
   wait behind it, is drawn after a spinner at the left of the status line, and its log, each
@@ -216,7 +219,8 @@ Four kinds of UI code, in descending order of generality:
   `PyprojectDependency`, about pinning versions, about package groups.
 - **`components/shared/`** — generic and reusable. `SharedTable<T>` renders the rows it is
   handed, of any `T: TableRow`, or the placeholder it is handed when there are none, and keeps
-  only the selection, with wrap-around; the feature layer supplies the `TableRow` impl that
+  only the selection, with wrap-around. The selection follows its row's `key`, the package
+  name, when the rows change. The feature layer supplies the `TableRow` impl that
   formats the domain type. `Popup` and `UviewInput` are
   similarly domain-free.
 
@@ -314,10 +318,13 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   `Command::Reload`, which reads `pyproject.toml` and then lists the environment. It sends
   each table's rows, or why they failed, which also goes to the status line as an
   `Event::Error`. A reload after a mutation leaves the rows in view until the new ones land.
-- After every mutation, done, failed or cancelled, the runner reloads both tables: a
-  sequence that stopped part-way may already have changed `pyproject.toml`. The reload runs
-  in the mutation's turn, so the next mutation cannot change things under it. A read can
-  still overlap a mutation, which is #11's race.
+- After every mutation, done, failed or cancelled, the runner counts it in its generation
+  and reports `Event::ProjectMutated`: a sequence that stopped part-way may already have
+  changed `pyproject.toml`. `App` answers with `Command::Reload`, a read like any other
+  (ADR-0003). Reads run beside mutations, so a reload can read the project while a mutation
+  changes it, and land after the reload that follows that mutation. Each reload therefore
+  reports the generation it started at, and `DepsState` discards a load older than the one
+  it shows.
 - **Output.** `RealUvClient` reads stdout whole, as the result, and stderr line by line. With
   stderr a pipe, `uv` draws no progress bars; it reports in lines instead, such as
   `Resolved 9 packages in 361ms`, `Downloading numpy (5.2MiB)` and `+ numpy==2.5.3`. Each
@@ -382,8 +389,9 @@ are noted in the file.
 
 Unit coverage beyond that is still thin: parsing, argument and requirement construction,
 `RealUvClient` in both directions, two operations against the fake, the job runner against
-the fake (mutations in turn, reads beside them, cancellation, the reload after every
-mutation), and the dependencies page driven key by key. Those tests build the `AppState` the
+the fake (mutations in turn, reads beside them, cancellation, `ProjectMutated` after every
+mutation, generations), the discarding of a stale reload, and the dependencies page driven
+key by key. Those tests build the `AppState` the
 page reads, and its `update` returns commands, so they run no runtime and no subprocess.
 Issue #25 covers expanding it.
 
@@ -635,7 +643,7 @@ identical empty table. #44 made it explicit:
 pub enum Loadable<T> {
     NotLoaded,
     Loading { since: Instant },
-    Loaded(T),        // gains its generation with #11
+    Loaded(T),
     Failed(String),   // why, as both loaders can say it: one reads a file, one runs uv
 }
 ```
@@ -643,10 +651,12 @@ pub enum Loadable<T> {
 `Failed` holds the reason as text because the two loaders fail differently:
 `load_pyproject_deps` with an I/O or TOML error, `load_env_deps` with a `UvError`.
 
-`generation` is not decoration. Reloads are spawned, so they can return out of order: a
+A generation is not decoration. Reloads are spawned, so they can return out of order: a
 reload issued before a mutation can land *after* one issued in response to it, overwriting
 fresh data with stale. One cache instead of five does not fix that race. Discard any
-result whose generation is older than the current one.
+result whose generation is older than the current one. #11 keeps the generation beside the
+tables, in `DepsState`, rather than in `Loaded`: one reload fills both tables, and a stale
+`Failed` must be discarded as well.
 
 **Keep it behaviour-free.** `AppState` is a data holder; it gets no `impl` block carrying
 business logic. Guard the god-object failure mode with per-domain sub-structs that own

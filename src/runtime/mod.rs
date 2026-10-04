@@ -12,11 +12,17 @@ use crate::controllers::dependencies::{
 use crate::message::{Command, Event};
 use crate::uv::{UvClient, UvError};
 
-/// Runs `command` against `uv` and reports how it went. The tables are reloaded after a
-/// mutation by the job runner, not here.
-async fn run(command: Command, uv: &impl UvClient, events: &UnboundedSender<Event>) {
+/// Runs `command` against `uv` and reports how it went. `generation` is the project's as the job
+/// starts, which a reload reports its rows with. A mutation does not reload the tables: the app
+/// does, when the job runner reports that the project changed.
+async fn run(
+    command: Command,
+    uv: &impl UvClient,
+    events: &UnboundedSender<Event>,
+    generation: u64,
+) {
     let outcome = match command {
-        Command::Reload => return reload(uv, events).await,
+        Command::Reload => return reload(uv, events, generation).await,
         Command::Sync => sync_exact(uv)
             .await
             .map(|()| "Synced the environment".to_string()),
@@ -42,18 +48,20 @@ async fn run(command: Command, uv: &impl UvClient, events: &UnboundedSender<Even
         Err(UvError::Cancelled) => return,
         Err(e) => Event::Error(e.to_string()),
     };
-    // Sent before the reload, so an error from the reload replaces it.
     let _ = events.send(event);
 }
 
 /// Reads both tables again, as at startup. A table that cannot load shows why, and the status
 /// line says so too.
-async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>) {
+async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>, generation: u64) {
     let pyproject = load_pyproject_deps().await.map_err(|e| e.to_string());
     if let Err(reason) = &pyproject {
         let _ = events.send(Event::Error(format!("pyproject.toml: {reason}")));
     }
-    let _ = events.send(Event::PyprojectLoaded(pyproject));
+    let _ = events.send(Event::PyprojectLoaded {
+        generation,
+        loaded: pyproject,
+    });
     let env = load_env_deps(uv).await;
     // A cancel is the runner's to report.
     if let Err(e) = &env
@@ -61,5 +69,8 @@ async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>) {
     {
         let _ = events.send(Event::Error(e.to_string()));
     }
-    let _ = events.send(Event::EnvLoaded(env.map_err(|e| e.to_string())));
+    let _ = events.send(Event::EnvLoaded {
+        generation,
+        loaded: env.map_err(|e| e.to_string()),
+    });
 }
