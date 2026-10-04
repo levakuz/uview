@@ -1,4 +1,5 @@
 pub mod dependencies_table;
+pub mod help;
 pub mod input_popup;
 pub mod package_control_popup;
 pub mod project_tile;

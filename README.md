@@ -66,7 +66,9 @@ reports them, in the tile's border, and its root. If uv cannot read the version,
 one for instance, the tile shows what uv said instead. Below it is the uv log: each
 operation's name, then the lines uv printed while it ran.
 
-**The bottom line** shows what is running and the latest error or notice.
+**The bottom lines.** The first shows what is running and the latest error or notice. The
+last lists the keys that work where you are: in a table, in the actions list or in an input.
+Press `?` for every key, by where it works.
 
 ### Actions
 
@@ -113,8 +115,9 @@ there. Quitting cancels the same way.
 | `p` | Add a package. |
 | `s` | Sync the environment with `uv sync`. |
 | `r` | Read both tables again, for changes made outside uview. |
+| `?` | Show every key, by where it works. `Esc`, `?` or `q` closes the list. |
 | `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. |
 | `q` | Quit, cancelling whatever is running first. |
 
 While you type into an input, every key except `Enter`, `Esc` and `Ctrl+C` goes into the
-field.
+field. While the actions list is open, only its keys work, with `?`, `q` and `Ctrl+C`.

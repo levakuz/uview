@@ -9,6 +9,7 @@ use crate::{
         },
         shared::table::SharedTable,
     },
+    ui::keymap::Mode,
 };
 use ratatui::{
     Frame,
@@ -75,8 +76,15 @@ impl DependenciesTablesTabs {
         }
     }
 
-    pub fn is_editing(&self) -> bool {
-        self.package_add_popup.is_editing() || self.pin_version_popup.is_editing()
+    /// Where the focus is: an input, the actions list, or the table.
+    pub fn mode(&self) -> Mode {
+        if self.package_add_popup.is_editing() || self.pin_version_popup.is_editing() {
+            Mode::Input
+        } else if self.show_package_control_popup {
+            Mode::Actions
+        } else {
+            Mode::Table
+        }
     }
 
     /// The tabs, as the active table's title: its name green and bold, the other white.
@@ -205,10 +213,12 @@ impl DependenciesTablesTabs {
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
             Action::Deps(DepsAction::Sync) => return vec![Command::Sync],
             Action::Deps(DepsAction::Refresh) => return vec![Command::Reload],
-            // Confirm and Type only mean something in an input; Quit and Cancel belong to the app.
+            // Confirm and Type only mean something in an input; Quit, Cancel and Help belong to
+            // the app.
             Action::Nav(NavAction::Confirm | NavAction::Type(_))
             | Action::Quit
-            | Action::Cancel => {}
+            | Action::Cancel
+            | Action::Help => {}
         }
         Vec::new()
     }
