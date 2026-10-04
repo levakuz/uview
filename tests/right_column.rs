@@ -2,7 +2,7 @@ use std::error::Error;
 
 use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Color};
 use uview::message::{Event, JobId};
-use uview::runtime::jobs::JobsState;
+use uview::state::JobsState;
 use uview::ui::components::features::project_tile::render_project_tile;
 use uview::ui::components::features::uv_log::render_uv_log;
 

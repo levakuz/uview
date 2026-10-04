@@ -2,7 +2,8 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
-use crate::message::{Action, Command, DepsAction, Event, Input, NavAction};
+use crate::message::{Action, Command, DepsAction, Input, NavAction};
+use crate::state::AppState;
 use crate::ui::Component;
 use crate::ui::components::widgets::dependencies_tables_tabs::DependenciesTablesTabs;
 
@@ -56,19 +57,14 @@ impl DependenciesPage {
             _ => return None,
         })
     }
-
-    /// Hands what a command produced to the tables.
-    pub fn apply(&mut self, event: &Event) {
-        self.dependencies_tabs.apply(event);
-    }
 }
 
 impl Component for DependenciesPage {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        self.dependencies_tabs.render(frame, area);
+    fn render(&mut self, frame: &mut Frame, area: Rect, state: &AppState) {
+        self.dependencies_tabs.render(frame, area, &state.deps);
     }
 
-    fn update(&mut self, action: &Action) -> Vec<Command> {
-        self.dependencies_tabs.update(action)
+    fn update(&mut self, action: &Action, state: &AppState) -> Vec<Command> {
+        self.dependencies_tabs.update(action, &state.deps)
     }
 }

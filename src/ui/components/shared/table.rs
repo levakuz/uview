@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::Style;
@@ -8,83 +10,61 @@ pub trait TableRow {
     fn cells(&self) -> Vec<String>;
 }
 
+/// A table of `T` rows it does not own: each call is handed the rows as they are now. It keeps
+/// only the view: the selection and the scroll offset.
 pub struct SharedTable<T: TableRow> {
-    items: Vec<T>,
     state: TableState,
     title: String,
     focused: bool,
+    rows: PhantomData<fn(&T)>,
 }
 
 impl<T: TableRow> SharedTable<T> {
     pub fn new(title: &str) -> Self {
         Self {
-            items: Vec::new(),
             state: TableState::default(),
             title: title.to_string(),
             focused: false,
+            rows: PhantomData,
         }
     }
 
-    pub fn selected(&self) -> Option<&T> {
-        self.items.get(self.state.selected()?)
+    /// The selected row among `rows`.
+    pub fn selected<'a>(&self, rows: &'a [T]) -> Option<&'a T> {
+        rows.get(self.index(rows.len())?)
     }
 
-    /// Replaces the rows, keeping the selected index where it still exists.
-    pub fn set_items(&mut self, items: Vec<T>) {
-        self.items = items;
-        let selected = match self.items.len() {
-            0 => None,
-            len => Some(self.state.selected().unwrap_or(0).min(len - 1)),
-        };
-        self.state.select(selected);
-    }
-
-    pub fn find<F: Fn(&T) -> bool>(&self, pred: F) -> Option<&T> {
-        self.items.iter().find(|item| pred(item))
+    /// Where the selection is among `len` rows: the first until one is chosen, and the last when
+    /// the rows have shrunk below it.
+    fn index(&self, len: usize) -> Option<usize> {
+        let last = len.checked_sub(1)?;
+        Some(self.state.selected().unwrap_or(0).min(last))
     }
 
     pub fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
     }
 
-    pub fn next(&mut self) {
-        if self.items.is_empty() {
-            return;
+    /// Selects the next of `len` rows, wrapping around after the last.
+    pub fn next(&mut self, len: usize) {
+        if let Some(i) = self.index(len) {
+            self.state.select(Some((i + 1) % len));
         }
-        let i = match self.state.selected() {
-            Some(i) => (i + 1) % self.items.len(),
-            None => 0,
-        };
-        self.state.select(Some(i));
     }
 
-    pub fn previous(&mut self) {
-        if self.items.is_empty() {
-            return;
+    /// Selects the previous of `len` rows, wrapping around before the first.
+    pub fn previous(&mut self, len: usize) {
+        if let Some(i) = self.index(len) {
+            self.state.select(Some(i.checked_sub(1).unwrap_or(len - 1)));
         }
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.items.len() - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, rows: &[T]) {
         let header_cells = T::columns();
         let num_cols = header_cells.len() as u16;
         let header = Row::new(header_cells).style(Style::new().bold());
 
-        let rows: Vec<Row> = self
-            .items
-            .iter()
-            .map(|item| Row::new(item.cells()))
-            .collect();
+        let table_rows: Vec<Row> = rows.iter().map(|row| Row::new(row.cells())).collect();
 
         let widths: Vec<Constraint> = (0..num_cols)
             .map(|_| Constraint::Percentage(100 / num_cols))
@@ -102,7 +82,7 @@ impl<T: TableRow> SharedTable<T> {
             Style::new()
         };
 
-        let table = Table::new(rows, &widths)
+        let table = Table::new(table_rows, &widths)
             .header(header)
             .block(
                 Block::default()
@@ -112,6 +92,8 @@ impl<T: TableRow> SharedTable<T> {
             )
             .row_highlight_style(highlight_style);
 
+        // The highlight follows the selection as `selected` sees it.
+        self.state.select(self.index(rows.len()));
         frame.render_stateful_widget(table, area, &mut self.state);
     }
 }

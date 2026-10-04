@@ -1,6 +1,7 @@
 use crate::{
     domain::{EnvDependency, PyprojectDependency},
-    message::{Action, Command, DepsAction, Event, NavAction},
+    message::{Action, Command, DepsAction, NavAction},
+    state::DepsState,
     ui::components::{
         features::{
             input_popup::InputPopup,
@@ -20,6 +21,8 @@ enum ActiveTable {
     Environment,
 }
 
+/// The two dependency tables behind tabs, and the popups acting on them. It reads the rows from
+/// `DepsState` and keeps only which tab, row and popup are showing.
 pub struct DependenciesTablesTabs {
     pyproject_table: SharedTable<PyprojectDependency>,
     env_table: SharedTable<EnvDependency>,
@@ -59,8 +62,8 @@ impl DependenciesTablesTabs {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        self.render_content(frame, area);
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, deps: &DepsState) {
+        self.render_content(frame, area, deps);
         self.render_tabs(frame, area);
         if self.show_package_control_popup {
             self.package_control_popup.render(frame, area);
@@ -92,17 +95,20 @@ impl DependenciesTablesTabs {
         // On the table's top border, inside its corners, until #16 gives the tabs their own row.
         frame.render_widget(tabs, area.inner(Margin::new(1, 0)));
     }
-    fn render_content(&mut self, frame: &mut Frame, area: Rect) {
+    fn render_content(&mut self, frame: &mut Frame, area: Rect, deps: &DepsState) {
         match self.active_table {
-            ActiveTable::Pyproject => self.pyproject_table.render(frame, area),
-            ActiveTable::Environment => self.env_table.render(frame, area),
+            ActiveTable::Pyproject => self.pyproject_table.render(frame, area, &deps.pyproject),
+            ActiveTable::Environment => self.env_table.render(frame, area, &deps.env),
         }
     }
 
-    fn selected_name(&self) -> Option<String> {
+    fn selected_name(&self, deps: &DepsState) -> Option<String> {
         match self.active_table {
-            ActiveTable::Pyproject => self.pyproject_table.selected().map(|d| d.name.clone()),
-            ActiveTable::Environment => self.env_table.selected().map(|d| d.name.clone()),
+            ActiveTable::Pyproject => self
+                .pyproject_table
+                .selected(&deps.pyproject)
+                .map(|d| d.name.clone()),
+            ActiveTable::Environment => self.env_table.selected(&deps.env).map(|d| d.name.clone()),
         }
     }
 
@@ -113,22 +119,7 @@ impl DependenciesTablesTabs {
         };
     }
 
-    /// Puts what a command produced into the tables, whatever has focus.
-    pub fn apply(&mut self, event: &Event) {
-        match event {
-            Event::PyprojectLoaded(deps) => self.pyproject_table.set_items(deps.clone()),
-            Event::EnvLoaded(deps) => self.env_table.set_items(deps.clone()),
-            // The app shows these.
-            Event::Notice(_)
-            | Event::Error(_)
-            | Event::JobQueued { .. }
-            | Event::JobStarted(_)
-            | Event::JobOutput(..)
-            | Event::JobFinished(_) => {}
-        }
-    }
-
-    pub fn update(&mut self, action: &Action) -> Vec<Command> {
+    pub fn update(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
         // An open input takes every key.
         if self.package_add_popup.is_editing() {
             if let Action::Nav(nav) = action
@@ -152,26 +143,26 @@ impl DependenciesTablesTabs {
                 if self.show_package_control_popup {
                     self.package_control_popup.up();
                 } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.previous();
+                    self.pyproject_table.previous(deps.pyproject.len());
                 } else {
-                    self.env_table.previous();
+                    self.env_table.previous(deps.env.len());
                 }
             }
             Action::Nav(NavAction::Down) => {
                 if self.show_package_control_popup {
                     self.package_control_popup.down();
                 } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.next();
+                    self.pyproject_table.next(deps.pyproject.len());
                 } else {
-                    self.env_table.next();
+                    self.env_table.next(deps.env.len());
                 }
             }
             Action::Nav(NavAction::Select) => {
                 if self.show_package_control_popup {
-                    return self.choose();
+                    return self.choose(deps);
                 }
                 // Without a row the actions would have nothing to act on.
-                let Some(name) = self.selected_name() else {
+                let Some(name) = self.selected_name(deps) else {
                     return Vec::new();
                 };
                 self.target = Some(name);
@@ -197,7 +188,7 @@ impl DependenciesTablesTabs {
     }
 
     /// Runs the option highlighted in the actions list on the package it was opened for.
-    fn choose(&mut self) -> Vec<Command> {
+    fn choose(&mut self, deps: &DepsState) -> Vec<Command> {
         self.show_package_control_popup = false;
         let Some(name) = self.target.clone() else {
             return Vec::new();
@@ -208,16 +199,17 @@ impl DependenciesTablesTabs {
                 Vec::new()
             }
             Some(PackageControlOption::Update) => vec![Command::Upgrade { name }],
-            Some(PackageControlOption::Remove) => self.remove(&name).into_iter().collect(),
+            Some(PackageControlOption::Remove) => self.remove(&name, deps).into_iter().collect(),
             Some(PackageControlOption::Cancel) | None => Vec::new(),
         }
     }
 
     /// Removes `name` from wherever the active table lists it, if it still does.
-    fn remove(&self, name: &str) -> Option<Command> {
+    fn remove(&self, name: &str, deps: &DepsState) -> Option<Command> {
         match self.active_table {
             ActiveTable::Pyproject => {
-                self.pyproject_table
+                deps.pyproject
+                    .iter()
                     .find(|d| d.name == name)
                     .map(|d| Command::RemoveFromProject {
                         name: d.name.clone(),
@@ -227,7 +219,8 @@ impl DependenciesTablesTabs {
             // Environment only: pyproject.toml is left alone. Confirmation and its warnings
             // come with #12.
             ActiveTable::Environment => {
-                self.env_table
+                deps.env
+                    .iter()
                     .find(|d| d.name == name)
                     .map(|d| Command::Uninstall {
                         name: d.name.clone(),
