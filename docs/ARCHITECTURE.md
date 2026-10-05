@@ -244,7 +244,8 @@ Four kinds of UI code, in descending order of generality:
   handed, of any `T: TableRow`, or the placeholder it is handed when there are none, and keeps
   only the selection, with wrap-around. The selection follows its row's `key`, the package
   name, when the rows change. Its first column takes the width the others leave, and the others
-  are as wide as their widest cell, up to a third of the table each. Its border's title is any
+  are as wide as their widest cell, or as `TableRow::fixed_width` says (the Group column), up
+  to a third of the table each. Its border's title is any
   styled `Line`: the tables widget puts its tabs there. The feature layer supplies the `TableRow` impl that
   formats the domain type. `Popup` and `UviewInput` are
   similarly domain-free.
