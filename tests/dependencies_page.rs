@@ -11,6 +11,7 @@ fn package(name: &str) -> PyprojectDependency {
     PyprojectDependency {
         name: name.into(),
         groups: vec![Membership::Project],
+        extras: Vec::new(),
         version_constraint: String::new(),
     }
 }

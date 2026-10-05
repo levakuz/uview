@@ -42,7 +42,7 @@ pub struct DependenciesTablesTabs {
 impl DependenciesTablesTabs {
     pub fn new() -> Self {
         let package_control_popup = PackageControlPopup::new();
-        let package_add_popup = InputPopup::new("Package (e.g. requests, httpx>=0.27)", 50);
+        let package_add_popup = InputPopup::new("Package (e.g. requests, flask[dotenv]>=3.0)", 50);
         let pin_version_popup = InputPopup::new("Version (e.g. ==1.2.3, >=2.0, <3.0)", 50);
         // Only the active table is drawn, so both are styled as focused. The tabs are the title
         // of its border.
