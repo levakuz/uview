@@ -27,11 +27,13 @@ async fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
-    // pyproject.toml, the `.venv` handed to `uv pip`, and every `uv` subprocess resolve
+    // pyproject.toml and every `uv` subprocess resolve
     // against the working directory, so make that the project root.
     // ponytail: process-wide; the root moves into UvClient (#41) if one run ever spans projects.
     std::env::set_current_dir(&root)?;
-    let mut app = app::App::new(root.display().to_string());
+    let configured = std::env::var("UV_PROJECT_ENVIRONMENT").ok();
+    let env = controllers::project::project_environment(&root, configured.as_deref());
+    let mut app = app::App::new(root.display().to_string(), env);
     app.run().await
 }
 

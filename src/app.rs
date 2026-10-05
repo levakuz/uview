@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -33,7 +34,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(project: String) -> Self {
+    pub fn new(project: String, env: PathBuf) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded_channel();
         Self {
             page: DependenciesPage::new(),
@@ -46,7 +47,7 @@ impl App {
                 },
                 ..AppState::default()
             },
-            runner: JobRunner::new(Arc::new(RealUvClient), events_tx),
+            runner: JobRunner::new(Arc::new(RealUvClient), env, events_tx),
             events_rx,
         }
     }
