@@ -27,6 +27,8 @@ impl fmt::Display for Membership {
 pub struct PyprojectDependency {
     pub name: String,
     pub groups: Vec<Membership>,
+    /// The extras the declaration asks for, as in `flask[dotenv]`.
+    pub extras: Vec<String>,
     pub version_constraint: String,
 }
 

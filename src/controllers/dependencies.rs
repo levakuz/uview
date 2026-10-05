@@ -11,7 +11,8 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     let mut deps: Vec<PyprojectDependency> = Vec::new();
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
-    let mut add = |name: String, group: Membership, version_constraint: String| {
+    let mut add = |(name, extras, version_constraint): (String, Vec<String>, String),
+                   group: Membership| {
         if let Some(&i) = index.get(&name) {
             // A package listed twice in one section (e.g. per-Python markers) is still one
             // membership: a second `uv remove` for it would fail after the first.
@@ -23,6 +24,7 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
             deps.push(PyprojectDependency {
                 name,
                 groups: vec![group],
+                extras,
                 version_constraint,
             });
         }
@@ -36,8 +38,7 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
     {
         for dep in project_deps {
             if let Some(s) = dep.as_str() {
-                let (name, constraint) = parse_dep_string(s);
-                add(name, Membership::Project, constraint);
+                add(parse_dep_string(s), Membership::Project);
             }
         }
     }
@@ -48,8 +49,7 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
             if let Some(arr) = group_deps.as_array() {
                 for dep in arr {
                     if let Some(s) = dep.as_str() {
-                        let (name, constraint) = parse_dep_string(s);
-                        add(name, Membership::Group(group_name.clone()), constraint);
+                        add(parse_dep_string(s), Membership::Group(group_name.clone()));
                     }
                 }
             }
@@ -66,8 +66,7 @@ pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
             if let Some(arr) = group_deps.as_array() {
                 for dep in arr {
                     if let Some(s) = dep.as_str() {
-                        let (name, constraint) = parse_dep_string(s);
-                        add(name, Membership::Extra(group_name.clone()), constraint);
+                        add(parse_dep_string(s), Membership::Extra(group_name.clone()));
                     }
                 }
             }
@@ -157,7 +156,8 @@ pub async fn pin_dep_version(
         .as_ref()
         .and_then(|d| d.version_constraint.split_once(';'))
         .map(|(_, marker)| marker.trim());
-    let requirement = args::pin_requirement(name, constraint, marker);
+    let extras = declared.as_ref().map_or(&[][..], |d| &d.extras);
+    let requirement = args::pin_requirement(name, extras, constraint, marker);
     let memberships = declared.map_or_else(|| vec![Membership::Project], |d| d.groups);
     for membership in &memberships {
         uv.run(&args::membership_args("add", &requirement, membership))
@@ -175,19 +175,30 @@ pub async fn load_env_deps(uv: &impl UvClient, env: &Path) -> Result<Vec<EnvDepe
     parse::pip_list(&uv.run(&args::pip_list_args(&env.to_string_lossy())).await?)
 }
 
-/// Splits a PEP 508 dependency string into (name, version_constraint).
-/// e.g. "httpx>=0.28.1"                   → ("httpx", ">=0.28.1")
-///      "requests"                        → ("requests", "")
-///      "tomli; python_version < '3.11'"  → ("tomli", "; python_version < '3.11'")
-/// A marker (`;`) or a direct reference (`@`) ends the name, so operators inside a
-/// marker are never mistaken for a version.
-pub fn parse_dep_string(s: &str) -> (String, String) {
+/// Splits a PEP 508 dependency string into (name, extras, version_constraint).
+/// e.g. "httpx>=0.28.1"                   → ("httpx", [], ">=0.28.1")
+///      "flask[dotenv, async]>=3.0"       → ("flask", ["dotenv", "async"], ">=3.0")
+///      "tomli; python_version < '3.11'"  → ("tomli", [], "; python_version < '3.11'")
+/// Extras (`[`), a marker (`;`) or a direct reference (`@`) end the name, so operators
+/// inside a marker are never mistaken for a version.
+pub fn parse_dep_string(s: &str) -> (String, Vec<String>, String) {
     let s = s.trim();
-    if let Some(pos) = s.find([';', '@', '>', '<', '=', '!', '~']) {
-        let name = s[..pos].trim_end().to_string();
-        let constraint = s[pos..].trim_start().to_string();
-        (name, constraint)
-    } else {
-        (s.to_string(), String::new())
-    }
+    let end = s
+        .find(['[', ';', '@', '>', '<', '=', '!', '~'])
+        .unwrap_or(s.len());
+    let name = s[..end].trim_end().to_string();
+    let (extras, rest) = match s[end..].strip_prefix('[') {
+        Some(inner) => {
+            let (list, rest) = inner.split_once(']').unwrap_or((inner, ""));
+            let extras = list
+                .split(',')
+                .map(str::trim)
+                .filter(|e| !e.is_empty())
+                .map(String::from)
+                .collect();
+            (extras, rest)
+        }
+        None => (Vec::new(), &s[end..]),
+    };
+    (name, extras, rest.trim_start().to_string())
 }

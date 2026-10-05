@@ -57,12 +57,22 @@ pub fn uninstall_args<'a>(name: &'a str, env: &'a str) -> [&'a str; 5] {
     ["pip", "uninstall", "--python", env, name]
 }
 
-/// The requirement that pins `name` to a version constraint, e.g. "==1.2.3", ">=2.0",
+/// The requirement that pins `name`, with its `extras`, to a version constraint, e.g. "==1.2.3", ">=2.0",
 /// "<3.0". A bare version number (no operator) is treated as an exact pin, and an
 /// empty constraint falls back to the latest resolvable version. The declared entry's
 /// marker is kept: uv rewrites an entry in place only when the marker matches, and
 /// otherwise adds a second, unconditional one.
-pub fn pin_requirement(name: &str, constraint: &str, marker: Option<&str>) -> String {
+pub fn pin_requirement(
+    name: &str,
+    extras: &[String],
+    constraint: &str,
+    marker: Option<&str>,
+) -> String {
+    let name = if extras.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name}[{}]", extras.join(","))
+    };
     let constraint = constraint.trim();
     let requirement = if constraint.is_empty() {
         name.to_string()

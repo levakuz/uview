@@ -119,6 +119,7 @@ fn each_load_state_shows_differently() -> Result<(), Box<dyn std::error::Error>>
     let six = PyprojectDependency {
         name: "six".into(),
         groups: vec![Membership::Project],
+        extras: Vec::new(),
         version_constraint: ">=1.17".into(),
     };
     assert!(first_line(Loadable::Loaded(vec![six]))?.starts_with("six"));
@@ -130,6 +131,7 @@ fn columns_fit_their_cells_and_sit_on_the_left() -> Result<(), Box<dyn std::erro
     let dep = |name: &str, constraint: &str| PyprojectDependency {
         name: name.into(),
         groups: vec![Membership::Project],
+        extras: Vec::new(),
         version_constraint: constraint.into(),
     };
     let mut deps = DepsState::default();

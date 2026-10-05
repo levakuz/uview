@@ -135,38 +135,77 @@ fn notice(text: &str) -> impl Fn(&Event) -> bool {
 
 #[test]
 fn test_parse_dep_string() {
+    let parsed = |name: &str, extras: &[&str], constraint: &str| {
+        let extras = extras.iter().map(ToString::to_string).collect();
+        (name.to_string(), extras, constraint.to_string())
+    };
     assert_eq!(
         parse_dep_string("httpx>=0.28.1"),
-        ("httpx".into(), ">=0.28.1".into())
+        parsed("httpx", &[], ">=0.28.1")
     );
-    assert_eq!(parse_dep_string("requests"), ("requests".into(), "".into()));
+    assert_eq!(parse_dep_string("requests"), parsed("requests", &[], ""));
     assert_eq!(
         parse_dep_string("numpy==1.26.0"),
-        ("numpy".into(), "==1.26.0".into())
-    );
-    assert_eq!(
-        parse_dep_string("flask~=3.0"),
-        ("flask".into(), "~=3.0".into())
+        parsed("numpy", &[], "==1.26.0")
     );
     // Operators inside a marker or a URL are not the version's.
     assert_eq!(
         parse_dep_string("tomli; python_version < '3.11'"),
-        ("tomli".into(), "; python_version < '3.11'".into())
+        parsed("tomli", &[], "; python_version < '3.11'")
     );
     assert_eq!(
         parse_dep_string("pkg @ https://example.com/pkg-1.0.tar.gz"),
-        ("pkg".into(), "@ https://example.com/pkg-1.0.tar.gz".into())
+        parsed("pkg", &[], "@ https://example.com/pkg-1.0.tar.gz")
     );
+    // Extras are not part of the name, with or without spaces around them.
+    assert_eq!(
+        parse_dep_string("flask[dotenv]>=3.0"),
+        parsed("flask", &["dotenv"], ">=3.0")
+    );
+    assert_eq!(
+        parse_dep_string("uvicorn [standard, socks] ~= 0.30"),
+        parsed("uvicorn", &["standard", "socks"], "~= 0.30")
+    );
+    assert_eq!(
+        parse_dep_string("requests[socks]; sys_platform == 'win32'"),
+        parsed("requests", &["socks"], "; sys_platform == 'win32'")
+    );
+    assert_eq!(
+        parse_dep_string("pkg[cli] @ git+https://example.com/pkg"),
+        parsed("pkg", &["cli"], "@ git+https://example.com/pkg")
+    );
+}
+
+/// What pinning rebuilds from a parsed declaration is the declaration: extras and the marker
+/// survive, so `uv add` rewrites the entry in place instead of adding a second one.
+#[test]
+fn a_parsed_requirement_rebuilds_as_it_was() {
+    for requirement in [
+        "flask[dotenv]>=3.0",
+        "uvicorn[socks,standard]==0.30.1",
+        "tomli<2; python_version < '3.11'",
+        "requests[socks]>=2.31; sys_platform == 'win32'",
+    ] {
+        let (name, extras, constraint) = parse_dep_string(requirement);
+        let (version, marker) = match constraint.split_once(';') {
+            Some((version, marker)) => (version, Some(marker.trim())),
+            None => (constraint.as_str(), None),
+        };
+        assert_eq!(
+            pin_requirement(&name, &extras, version, marker),
+            requirement
+        );
+    }
 }
 
 #[test]
 fn pin_requirement_normalizes_constraints() {
-    assert_eq!(pin_requirement("httpx", "1.2.3", None), "httpx==1.2.3");
-    assert_eq!(pin_requirement("httpx", " >=2.0 ", None), "httpx>=2.0");
-    assert_eq!(pin_requirement("flask", "~=3.0", None), "flask~=3.0");
-    assert_eq!(pin_requirement("httpx", "", None), "httpx");
+    assert_eq!(pin_requirement("httpx", &[], "1.2.3", None), "httpx==1.2.3");
+    assert_eq!(pin_requirement("httpx", &[], " >=2.0 ", None), "httpx>=2.0");
+    assert_eq!(pin_requirement("flask", &[], "~=3.0", None), "flask~=3.0");
+    assert_eq!(pin_requirement("httpx", &[], "", None), "httpx");
     assert_eq!(
-        pin_requirement("tomli", "2.0.1", Some("python_version < '3.11'")),
+        pin_requirement("tomli", &[], "2.0.1", Some("python_version < '3.11'")),
         "tomli==2.0.1; python_version < '3.11'"
     );
 }
@@ -678,6 +717,7 @@ fn a_reload_from_before_a_mutation_is_discarded() {
     let six = |version: &str| PyprojectDependency {
         name: "six".into(),
         groups: vec![Membership::Project],
+        extras: Vec::new(),
         version_constraint: version.into(),
     };
     let loaded = |generation, version: &str| Event::PyprojectLoaded {
