@@ -113,6 +113,7 @@ impl<T: TableRow> SharedTable<T> {
         let table = Table::new(table_rows, &widths)
             .header(header)
             .block(block)
+            .column_spacing(3)
             .row_highlight_style(highlight_style);
 
         frame.render_stateful_widget(table, area, &mut self.state);
@@ -123,15 +124,13 @@ impl<T: TableRow> SharedTable<T> {
     }
 }
 
-/// The first column, the name, takes whatever the others leave. The others are as wide as their
-/// widest cell, header included, and no wider than a third of the table each.
+/// Every column is as wide as its widest cell, header included, so they sit together on the left
+/// and the spare width trails after the last. The first column, the name, gives way when the table
+/// is too narrow; the others are no wider than a third of the table each.
 fn column_widths(header: &[&str], cells: &[Vec<String>], table_width: u16) -> Vec<Constraint> {
     let most = table_width / 3;
     (0..header.len())
         .map(|column| {
-            if column == 0 {
-                return Constraint::Fill(1);
-            }
             let widest = cells
                 .iter()
                 .filter_map(|row| row.get(column))
@@ -139,7 +138,12 @@ fn column_widths(header: &[&str], cells: &[Vec<String>], table_width: u16) -> Ve
                 .chain([header[column].len()])
                 .max()
                 .unwrap_or(0);
-            Constraint::Length(u16::try_from(widest).unwrap_or(u16::MAX).min(most))
+            let widest = u16::try_from(widest).unwrap_or(u16::MAX);
+            if column == 0 {
+                Constraint::Max(widest)
+            } else {
+                Constraint::Length(widest.min(most))
+            }
         })
         .collect()
 }
