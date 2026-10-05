@@ -12,6 +12,7 @@ use crate::controllers::dependencies::{
     sync_exact, uninstall_from_env, upgrade_env_dep,
 };
 use crate::controllers::project::load_project_info;
+use crate::domain::Membership;
 use crate::message::{Command, Event};
 use crate::uv::{UvClient, UvError};
 
@@ -31,9 +32,12 @@ async fn run(
         Command::Sync => sync_exact(uv)
             .await
             .map(|()| "Synced the environment".to_string()),
-        Command::Add { requirement } => add_dep(uv, &requirement)
+        Command::Add {
+            requirement,
+            membership,
+        } => add_dep(uv, &requirement, &membership)
             .await
-            .map(|()| format!("Added {requirement}")),
+            .map(|()| format!("Added {requirement}{}", to(&membership))),
         Command::RemoveFromProject { name, groups } => remove_dep_from_pyproject(uv, &name, groups)
             .await
             .map(|()| format!("Removed {name} from pyproject.toml")),
@@ -85,4 +89,12 @@ async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>,
         e => e.to_string(),
     });
     let _ = events.send(Event::ProjectLoaded(info));
+}
+
+/// Where an add goes, as its notice and label say it: nothing for the main dependencies.
+fn to(membership: &Membership) -> String {
+    match membership {
+        Membership::Project => String::new(),
+        other => format!(" to {other}"),
+    }
 }

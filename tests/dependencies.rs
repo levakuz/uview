@@ -366,8 +366,33 @@ async fn remove_runs_uv_remove_per_membership() -> Result<(), UvError> {
 #[tokio::test]
 async fn add_runs_uv_add_alone() -> Result<(), UvError> {
     let uv = FakeUvClient::default();
-    add_dep(&uv, "httpx>=0.27").await?;
-    assert_eq!(uv.calls(), [vec!["add", "httpx>=0.27"],]);
+    add_dep(&uv, "httpx>=0.27", &Membership::Project).await?;
+    add_dep(&uv, "pytest", &Membership::Group("dev".into())).await?;
+    assert_eq!(
+        uv.calls(),
+        [
+            vec!["add", "httpx>=0.27"],
+            vec!["add", "pytest", "--group", "dev"]
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_add_to_a_group_says_which() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::default());
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Add {
+        requirement: "pytest".into(),
+        membership: Membership::Group("dev".into()),
+    });
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::JobQueued { label, .. } if label == "Adding pytest to dev"
+    )));
+    assert!(events.iter().any(notice("Added pytest to dev")));
     Ok(())
 }
 
@@ -383,6 +408,7 @@ async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<
     runner.execute(Command::Upgrade { name: "six".into() });
     runner.execute(Command::Add {
         requirement: "httpx".into(),
+        membership: Membership::Project,
     });
     let events = events_until(&mut received, finished(2)).await?;
     assert!(events.iter().any(notice("Updated six")));
@@ -562,6 +588,7 @@ async fn a_mutation_waits_for_the_one_running_and_a_read_does_not() -> Result<()
     let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
     runner.execute(Command::Add {
         requirement: "httpx".into(),
+        membership: Membership::Project,
     });
     events_until(&mut received, started(1)).await?;
     runner.execute(Command::Upgrade { name: "six".into() });
@@ -580,6 +607,7 @@ async fn cancel_stops_the_running_job_and_drops_the_waiting() -> Result<(), Box<
     let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
     runner.execute(Command::Add {
         requirement: "httpx".into(),
+        membership: Membership::Project,
     });
     runner.execute(Command::Upgrade { name: "six".into() });
     events_until(&mut received, started(1)).await?;

@@ -82,14 +82,14 @@ pub async fn sync_exact(uv: &impl UvClient) -> Result<(), UvError> {
     Ok(())
 }
 
-/// Adds `requirement` to `[project.dependencies]` with `uv add`, which also installs it.
-pub async fn add_dep(uv: &impl UvClient, requirement: &str) -> Result<(), UvError> {
-    uv.run(&args::membership_args(
-        "add",
-        requirement,
-        &Membership::Project,
-    ))
-    .await?;
+/// Adds `requirement` to `membership` with `uv add`, which also installs it.
+pub async fn add_dep(
+    uv: &impl UvClient,
+    requirement: &str,
+    membership: &Membership,
+) -> Result<(), UvError> {
+    uv.run(&args::membership_args("add", requirement, membership))
+        .await?;
     Ok(())
 }
 

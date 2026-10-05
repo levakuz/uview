@@ -55,9 +55,10 @@ pub enum Command {
     Reload,
     /// Bring the environment exactly in line with the lockfile: plain `uv sync`.
     Sync,
-    /// Add a requirement such as `httpx>=0.27` to the main dependencies with `uv add`.
+    /// Add a requirement such as `httpx>=0.27` to `membership` with `uv add`.
     Add {
         requirement: String,
+        membership: Membership,
     },
     /// Remove a package from every membership in pyproject.toml with `uv remove`.
     RemoveFromProject {
