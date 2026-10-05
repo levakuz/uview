@@ -42,6 +42,11 @@ pub struct DependenciesTablesTabs {
     pending: Option<Pending>,
     /// The groups `pending` can be done to; past them, a new group.
     group_popup: Option<(ListPopup, Vec<Membership>)>,
+    /// The groups a removal or move was sent from. Once a reload shows one empty, its deletion
+    /// is offered, once: a group that was empty before is never asked about.
+    emptied: Vec<String>,
+    /// Whether to delete the emptied group it names.
+    delete_question: Option<(ListPopup, String)>,
 }
 
 /// An action that runs once its group is chosen.
@@ -83,6 +88,8 @@ impl DependenciesTablesTabs {
             new_group_popup,
             pending: None,
             group_popup: None,
+            emptied: Vec::new(),
+            delete_question: None,
         }
     }
 
@@ -103,6 +110,50 @@ impl DependenciesTablesTabs {
         if self.new_group_popup.is_editing() {
             self.new_group_popup.render(frame, area);
         }
+        self.ask_to_delete(deps);
+        // Opened only over the bare table, and it takes every key while open.
+        if let Some((popup, _)) = &mut self.delete_question {
+            popup.render(frame, area);
+        }
+    }
+
+    /// Asks whether to delete a group a removal or move left empty, once nothing else is open.
+    fn ask_to_delete(&mut self, deps: &DepsState) {
+        if self.delete_question.is_some()
+            || self.mode() != Mode::Table
+            || self.show_package_control_popup
+        {
+            return;
+        }
+        let Some(i) = self
+            .emptied
+            .iter()
+            .position(|group| deps.empty_groups.contains(group))
+        else {
+            return;
+        };
+        let group = self.emptied.remove(i);
+        let options = vec![format!("Delete group {group}"), "Keep it".into()];
+        let title = format!("Group {group} is now empty");
+        self.delete_question = Some((ListPopup::new(&title, options), group));
+    }
+
+    /// Remembers the groups `commands` remove a package from.
+    fn watch(&mut self, commands: &[Command]) {
+        for command in commands {
+            let from = match command {
+                Command::RemoveFromProject { groups, .. } => groups.as_slice(),
+                Command::Move { from, .. } => std::slice::from_ref(from),
+                _ => &[],
+            };
+            for membership in from {
+                if let Membership::Group(name) = membership
+                    && !self.emptied.contains(name)
+                {
+                    self.emptied.push(name.clone());
+                }
+            }
+        }
     }
 
     /// Where the focus is: an input, the actions list, or the table.
@@ -112,7 +163,10 @@ impl DependenciesTablesTabs {
             || self.new_group_popup.is_editing()
         {
             Mode::Input
-        } else if self.show_package_control_popup || self.group_popup.is_some() {
+        } else if self.show_package_control_popup
+            || self.group_popup.is_some()
+            || self.delete_question.is_some()
+        {
             Mode::Actions
         } else {
             Mode::Table
@@ -185,6 +239,30 @@ impl DependenciesTablesTabs {
     }
 
     pub fn update(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
+        self.ask_to_delete(deps);
+        if let Some((popup, group)) = &mut self.delete_question {
+            match action {
+                Action::Nav(NavAction::Up) => popup.up(),
+                Action::Nav(NavAction::Down) => popup.down(),
+                Action::Nav(NavAction::Select) => {
+                    let delete = popup.selected() == Some(0);
+                    let name = group.clone();
+                    self.delete_question = None;
+                    if delete {
+                        return vec![Command::DeleteGroup { name }];
+                    }
+                }
+                Action::Nav(NavAction::Back) => self.delete_question = None,
+                _ => {}
+            }
+            return Vec::new();
+        }
+        let commands = self.respond(action, deps);
+        self.watch(&commands);
+        commands
+    }
+
+    fn respond(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
         // An open input takes every key.
         if self.package_add_popup.is_editing() {
             if let Action::Nav(nav) = action

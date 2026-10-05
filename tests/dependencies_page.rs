@@ -461,3 +461,39 @@ fn an_installed_package_has_no_group_actions() {
         [Command::Uninstall { name: "six".into() }]
     );
 }
+
+#[test]
+fn removing_a_groups_last_package_offers_to_delete_the_group() {
+    let mut screen = with_pytest_in(&["dev"]);
+    // A group already empty is not asked about.
+    screen.state.deps.empty_groups = vec!["lint".into()];
+    // pytest: Pin, Update, Move to group, Add to group, Remove.
+    assert_eq!(
+        screen.run_option(1, 4),
+        [Command::RemoveFromProject {
+            name: "pytest".into(),
+            groups: vec![Membership::Group("dev".into())],
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // The reload after it: dev is left empty.
+    screen.state.deps.pyproject = Loadable::Loaded(vec![package("six")]);
+    screen.state.deps.empty_groups = vec!["dev".into(), "lint".into()];
+    // The question takes the next key, here Enter on Delete group dev.
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::DeleteGroup { name: "dev".into() }]
+    );
+    // Asked once, and never about lint.
+    assert!(screen.press(KeyCode::Char('r')) == [Command::Reload]);
+}
+
+#[test]
+fn keep_it_leaves_the_empty_group() {
+    let mut screen = with_pytest_in(&["dev"]);
+    screen.run_option(1, 4);
+    screen.state.deps.empty_groups = vec!["dev".into()];
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Table);
+}

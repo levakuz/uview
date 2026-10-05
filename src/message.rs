@@ -67,6 +67,10 @@ pub enum Command {
         from: Membership,
         to: Membership,
     },
+    /// Delete the empty dependency group `name` from pyproject.toml, then `uv lock`.
+    DeleteGroup {
+        name: String,
+    },
     /// Remove a package from the given memberships in pyproject.toml with `uv remove`.
     RemoveFromProject {
         name: String,
@@ -98,6 +102,8 @@ pub enum Event {
     PyprojectLoaded {
         generation: u64,
         loaded: Result<Vec<PyprojectDependency>, String>,
+        /// The groups pyproject.toml declares empty that could be deleted.
+        empty_groups: Vec<String>,
     },
     /// The Environment table's rows, or why they could not be listed, likewise.
     EnvLoaded {

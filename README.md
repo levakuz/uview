@@ -9,7 +9,7 @@ uview shows two views of a project:
 
 From either view you can pin, update or remove a package without remembering uv's
 command-line syntax. uview has no packaging logic of its own: every action runs the `uv`
-binary.
+binary, except deleting a group a removal left empty, which uv has no command for.
 
 ![uview showing a project's pyproject.toml dependencies beside the uv log, just after pinning httpx](docs/screenshot.svg)
 

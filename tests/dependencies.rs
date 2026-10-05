@@ -804,6 +804,7 @@ fn a_reload_from_before_a_mutation_is_discarded() {
         version_constraint: version.into(),
     };
     let loaded = |generation, version: &str| Event::PyprojectLoaded {
+        empty_groups: Vec::new(),
         generation,
         loaded: Ok(vec![six(version)]),
     };
@@ -820,6 +821,7 @@ fn a_reload_from_before_a_mutation_is_discarded() {
     assert_eq!(shown, ["==1.16.0"]);
     // A stale failure is discarded too, and a load as new as what is shown is not.
     deps.apply(Event::PyprojectLoaded {
+        empty_groups: Vec::new(),
         generation: 0,
         loaded: Err("gone".into()),
     });

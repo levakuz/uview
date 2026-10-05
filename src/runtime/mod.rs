@@ -11,6 +11,7 @@ use crate::controllers::dependencies::{
     add_dep, load_env_deps, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
     sync_exact, uninstall_from_env, upgrade_env_dep,
 };
+use crate::controllers::groups::{PYPROJECT, deletable_empty_groups, delete_group};
 use crate::controllers::project::load_project_info;
 use crate::domain::Membership;
 use crate::message::{Command, Event};
@@ -44,6 +45,9 @@ async fn run(
                 .await
                 .map(|()| format!("Removed {name} from {}", from.join(", ")))
         }
+        Command::DeleteGroup { name } => delete_group(uv, Path::new(PYPROJECT), &name)
+            .await
+            .map(|()| format!("Deleted group {name}")),
         Command::Move {
             name,
             requirement,
@@ -96,6 +100,7 @@ async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>,
     let _ = events.send(Event::PyprojectLoaded {
         generation,
         loaded: pyproject,
+        empty_groups: deletable_empty_groups().await,
     });
     let env = load_env_deps(uv, env).await;
     // A cancel is the runner's to report.

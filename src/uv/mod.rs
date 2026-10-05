@@ -25,6 +25,8 @@ pub enum UvError {
     Parse(String),
     /// The job it ran for was cancelled, and `uv` has stopped.
     Cancelled,
+    /// uview's own edit of pyproject.toml, which uv has no command for, failed (ADR-0009).
+    Pyproject(String),
 }
 
 impl fmt::Display for UvError {
@@ -41,6 +43,7 @@ impl fmt::Display for UvError {
             } => write!(f, "`uv {command}` failed ({status}): {stderr}"),
             UvError::Parse(msg) => write!(f, "could not read `uv` output: {msg}"),
             UvError::Cancelled => write!(f, "cancelled"),
+            UvError::Pyproject(msg) => write!(f, "pyproject.toml: {msg}"),
         }
     }
 }

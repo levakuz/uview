@@ -5,6 +5,7 @@ use crate::domain::Membership;
 /// Brings the environment exactly in line with the lockfile: packages it does not list, such
 /// as `uv pip install`ed ones, are uninstalled.
 pub const SYNC: [&str; 1] = ["sync"];
+pub const LOCK: [&str; 1] = ["lock"];
 
 /// `uv remove` / `uv add` arguments acting on one membership. Each syncs the environment as it
 /// ends, as in a shell: `uv add` installs what it needs, and `uv remove` also uninstalls what
