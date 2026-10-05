@@ -1,5 +1,5 @@
 use crate::{
-    domain::{EnvDependency, PyprojectDependency},
+    domain::{EnvDependency, Membership, PyprojectDependency},
     message::{Action, Command, DepsAction, NavAction},
     state::{DepsState, Loadable},
     ui::components::{
@@ -7,7 +7,7 @@ use crate::{
             input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
         },
-        shared::table::SharedTable,
+        shared::{list_popup::ListPopup, table::SharedTable},
     },
     ui::keymap::Mode,
 };
@@ -37,6 +37,11 @@ pub struct DependenciesTablesTabs {
     /// The popups with an input are shown exactly while they are being typed into.
     package_add_popup: InputPopup,
     pin_version_popup: InputPopup,
+    new_group_popup: InputPopup,
+    /// The requirement typed into the add input, while its group is chosen.
+    adding: Option<String>,
+    /// The groups to add `adding` to: main, the project's groups, and a new one.
+    group_popup: Option<(ListPopup, Vec<Membership>)>,
 }
 
 impl DependenciesTablesTabs {
@@ -44,6 +49,7 @@ impl DependenciesTablesTabs {
         let package_control_popup = PackageControlPopup::new();
         let package_add_popup = InputPopup::new("Package (e.g. requests, httpx>=0.27)", 50);
         let pin_version_popup = InputPopup::new("Version (e.g. ==1.2.3, >=2.0, <3.0)", 50);
+        let new_group_popup = InputPopup::new("New group (e.g. dev, test)", 50);
         // Only the active table is drawn, so both are styled as focused. The tabs are the title
         // of its border.
         let mut pyproject_table = SharedTable::new();
@@ -60,6 +66,9 @@ impl DependenciesTablesTabs {
             target: None,
             package_add_popup,
             pin_version_popup,
+            new_group_popup,
+            adding: None,
+            group_popup: None,
         }
     }
 
@@ -74,13 +83,22 @@ impl DependenciesTablesTabs {
         if self.pin_version_popup.is_editing() {
             self.pin_version_popup.render(frame, area);
         }
+        if let Some((popup, _)) = &mut self.group_popup {
+            popup.render(frame, area);
+        }
+        if self.new_group_popup.is_editing() {
+            self.new_group_popup.render(frame, area);
+        }
     }
 
     /// Where the focus is: an input, the actions list, or the table.
     pub fn mode(&self) -> Mode {
-        if self.package_add_popup.is_editing() || self.pin_version_popup.is_editing() {
+        if self.package_add_popup.is_editing()
+            || self.pin_version_popup.is_editing()
+            || self.new_group_popup.is_editing()
+        {
             Mode::Input
-        } else if self.show_package_control_popup {
+        } else if self.show_package_control_popup || self.group_popup.is_some() {
             Mode::Actions
         } else {
             Mode::Table
@@ -158,7 +176,44 @@ impl DependenciesTablesTabs {
             if let Action::Nav(nav) = action
                 && let Some(requirement) = self.package_add_popup.update(nav)
             {
-                return vec![Command::Add { requirement }];
+                self.adding = Some(requirement);
+                self.group_popup = Some(group_choices(deps));
+            }
+            return Vec::new();
+        }
+        if self.new_group_popup.is_editing() {
+            if let Action::Nav(nav) = action
+                && let Some(group) = self.new_group_popup.update(nav)
+            {
+                return self.add_to(Membership::Group(group.trim().to_string()));
+            }
+            // Esc gives up on the add.
+            if !self.new_group_popup.is_editing() {
+                self.adding = None;
+            }
+            return Vec::new();
+        }
+        if let Some((popup, groups)) = &mut self.group_popup {
+            match action {
+                Action::Nav(NavAction::Up) => popup.up(),
+                Action::Nav(NavAction::Down) => popup.down(),
+                Action::Nav(NavAction::Select) => {
+                    let chosen = popup.selected().and_then(|i| groups.get(i).cloned());
+                    self.group_popup = None;
+                    // Past the project's groups is the new one, which is typed in.
+                    return match chosen {
+                        Some(membership) => self.add_to(membership),
+                        None => {
+                            self.new_group_popup.open();
+                            Vec::new()
+                        }
+                    };
+                }
+                Action::Nav(NavAction::Back) => {
+                    self.group_popup = None;
+                    self.adding = None;
+                }
+                _ => {}
             }
             return Vec::new();
         }
@@ -223,6 +278,18 @@ impl DependenciesTablesTabs {
         Vec::new()
     }
 
+    /// Adds the requirement typed into the add input to `membership`.
+    fn add_to(&mut self, membership: Membership) -> Vec<Command> {
+        self.adding
+            .take()
+            .map(|requirement| Command::Add {
+                requirement,
+                membership,
+            })
+            .into_iter()
+            .collect()
+    }
+
     /// Runs the option highlighted in the actions list on the package it was opened for.
     fn choose(&mut self, deps: &DepsState) -> Vec<Command> {
         self.show_package_control_popup = false;
@@ -266,6 +333,27 @@ impl DependenciesTablesTabs {
             }
         }
     }
+}
+
+/// The list a typed requirement's group is chosen from: main, then the dependency groups the
+/// project's rows are in, then a new group.
+// ponytail: a group pyproject.toml declares empty has no row and is not offered; it can be typed
+// as a new group.
+fn group_choices(deps: &DepsState) -> (ListPopup, Vec<Membership>) {
+    let mut groups: Vec<Membership> = deps
+        .pyproject
+        .rows()
+        .iter()
+        .flat_map(|d| &d.groups)
+        .filter(|m| matches!(m, Membership::Group(_)))
+        .cloned()
+        .collect();
+    groups.sort_by_key(ToString::to_string);
+    groups.dedup();
+    groups.insert(0, Membership::Project);
+    let mut labels: Vec<String> = groups.iter().map(ToString::to_string).collect();
+    labels.push("New group…".into());
+    (ListPopup::new("Add to group", labels), groups)
 }
 
 /// What a table shows in place of rows: how its load is going, that it loaded nothing, or why

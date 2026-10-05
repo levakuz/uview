@@ -75,8 +75,18 @@ fn a_typed_version_is_pinned() {
     assert_eq!(screen.page.mode(), Mode::Table);
 }
 
+impl Screen {
+    /// Opens the add input and types `requirement` into it.
+    fn type_requirement(&mut self, requirement: &str) {
+        self.press(KeyCode::Char('p'));
+        for c in requirement.chars() {
+            self.press(KeyCode::Char(c));
+        }
+    }
+}
+
 #[test]
-fn p_adds_the_typed_requirement() {
+fn p_adds_the_typed_requirement_to_main_by_default() {
     let mut screen = Screen::with(&["six"]);
     screen.press(KeyCode::Char('p'));
     // Enter on an empty field adds nothing and leaves the input open.
@@ -85,13 +95,87 @@ fn p_adds_the_typed_requirement() {
     for c in "httpx>=0.27".chars() {
         screen.press(KeyCode::Char(c));
     }
+    // Enter moves on to the group, main highlighted.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::Add {
-            requirement: "httpx>=0.27".into()
+            requirement: "httpx>=0.27".into(),
+            membership: Membership::Project,
         }]
     );
     assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn the_group_list_offers_the_projects_groups_then_a_new_one() {
+    let mut screen = Screen::with(&["six"]);
+    if let Loadable::Loaded(rows) = &mut screen.state.deps.pyproject {
+        rows.push(PyprojectDependency {
+            groups: vec![
+                Membership::Group("test".into()),
+                Membership::Group("dev".into()),
+            ],
+            ..package("pytest")
+        });
+    }
+    // main, dev, test: the second is dev.
+    screen.type_requirement("ruff");
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "ruff".into(),
+            membership: Membership::Group("dev".into()),
+        }]
+    );
+    // Past the last group: a new one, typed in.
+    screen.type_requirement("mypy");
+    screen.press(KeyCode::Enter);
+    for _ in 0..5 {
+        screen.press(KeyCode::Down);
+    }
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    for c in "lint".chars() {
+        screen.press(KeyCode::Char(c));
+    }
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "mypy".into(),
+            membership: Membership::Group("lint".into()),
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn esc_while_choosing_a_group_adds_nothing() {
+    let mut screen = Screen::with(&["six"]);
+    screen.type_requirement("httpx");
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // Nor from the new group's input.
+    screen.type_requirement("httpx");
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // The next add starts afresh.
+    screen.type_requirement("ruff");
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "ruff".into(),
+            membership: Membership::Project,
+        }]
+    );
 }
 
 #[test]

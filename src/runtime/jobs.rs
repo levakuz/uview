@@ -95,7 +95,10 @@ fn label(command: &Command) -> String {
     match command {
         Command::Reload => "Loading dependencies".into(),
         Command::Sync => "Syncing the environment".into(),
-        Command::Add { requirement } => format!("Adding {requirement}"),
+        Command::Add {
+            requirement,
+            membership,
+        } => format!("Adding {requirement}{}", super::to(membership)),
         Command::RemoveFromProject { name, .. } => format!("Removing {name}"),
         Command::Uninstall { name } => format!("Uninstalling {name}"),
         Command::Upgrade { name } => format!("Updating {name}"),

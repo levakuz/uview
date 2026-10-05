@@ -205,6 +205,7 @@ src/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>, over rows it is handed
         │   ├── input.rs    #   UviewInput (wraps tui-input)
+        │   ├── list_popup.rs #  ListPopup — a titled list of choices: the group to add to
         │   ├── popup.rs    #   Popup — centering and Clear only
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
