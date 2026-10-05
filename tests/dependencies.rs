@@ -382,7 +382,7 @@ async fn add_runs_uv_add_alone() -> Result<(), UvError> {
 async fn an_add_to_a_group_says_which() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
     runner.execute(Command::Add {
         requirement: "pytest".into(),
         membership: Membership::Group("dev".into()),
