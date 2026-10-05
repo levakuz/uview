@@ -9,8 +9,9 @@ pub enum PackageControlOption {
     PinToVersion,
     /// For a package in one group.
     MoveToGroup,
-    /// For a package in several groups, instead of moving it.
     AddToGroup,
+    /// For a package in several groups, which is not moved: leaving one group should not take
+    /// it out of the others.
     RemoveFromGroup,
     Remove,
     Cancel,
@@ -42,7 +43,7 @@ impl PackageControlPopup {
         use PackageControlOption::*;
         let group_actions: &[PackageControlOption] = match groups {
             0 => &[],
-            1 => &[MoveToGroup],
+            1 => &[MoveToGroup, AddToGroup],
             _ => &[AddToGroup, RemoveFromGroup],
         };
         let options: Vec<_> = [PinToVersion, Update]

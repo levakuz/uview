@@ -218,8 +218,8 @@ fn the_actions_act_on_the_row_they_were_opened_for() {
     screen.press(KeyCode::Enter);
     // A reload lands while the list is open for httpx, and the selected row is now requests.
     screen.state.deps.pyproject = Loadable::Loaded(vec![package("httpx"), package("requests")]);
-    // Pin, Update, Move to group, Remove.
-    for _ in 0..3 {
+    // Pin, Update, Move to group, Add to group, Remove.
+    for _ in 0..4 {
         screen.press(KeyCode::Down);
     }
     assert_eq!(
@@ -292,8 +292,8 @@ fn a_selection_past_the_rows_falls_back_to_the_last() {
     // A reload leaves fewer rows than the selection was down.
     screen.state.deps.pyproject = Loadable::Loaded(vec![package("anyio"), package("httpx")]);
     screen.press(KeyCode::Enter);
-    // Pin, Update, Move to group, Remove.
-    for _ in 0..3 {
+    // Pin, Update, Move to group, Add to group, Remove.
+    for _ in 0..4 {
         screen.press(KeyCode::Down);
     }
     assert_eq!(
@@ -326,8 +326,8 @@ fn the_selection_stays_on_its_package_across_a_reload() {
         package("requests"),
     ]);
     screen.press(KeyCode::Enter);
-    // Pin, Update, Move to group, Remove.
-    for _ in 0..3 {
+    // Pin, Update, Move to group, Add to group, Remove.
+    for _ in 0..4 {
         screen.press(KeyCode::Down);
     }
     assert_eq!(
@@ -405,6 +405,20 @@ fn a_package_in_one_group_moves_to_another() {
             requirement: "pytest>=8".into(),
             from: Membership::Group("dev".into()),
             to: Membership::Group("test".into()),
+        }]
+    );
+}
+
+#[test]
+fn a_package_in_one_group_can_be_added_to_another_too() {
+    // six is in main alone. Pin, Update, Move to group, Add to group; main is left out.
+    let mut screen = with_pytest_in(&["dev"]);
+    screen.run_option(0, 3);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "six".into(),
+            membership: Membership::Group("dev".into()),
         }]
     );
 }
