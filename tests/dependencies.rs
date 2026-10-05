@@ -396,6 +396,61 @@ async fn an_add_to_a_group_says_which() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn move_six() -> Command {
+    Command::Move {
+        name: "six".into(),
+        requirement: "six>=1.16".into(),
+        from: Membership::Project,
+        to: Membership::Group("dev".into()),
+    }
+}
+
+#[tokio::test]
+async fn a_move_adds_to_the_new_group_then_removes_from_the_old() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::default());
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    runner.execute(move_six());
+    let events = events_until(&mut received, finished(1)).await?;
+    assert_eq!(
+        uv.calls(),
+        [
+            vec!["add", "six>=1.16", "--group", "dev"],
+            vec!["remove", "six"]
+        ]
+    );
+    assert!(events.iter().any(notice("Moved six from main to dev")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_move_whose_add_fails_removes_nothing() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::returning([Err(UvError::Parse("no".into()))]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    runner.execute(move_six());
+    events_until(&mut received, finished(1)).await?;
+    assert_eq!(uv.calls().len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_move_whose_remove_fails_says_where_the_package_is() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::returning([
+        Ok(String::new()),
+        Err(UvError::Parse("no".into())),
+    ]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    runner.execute(move_six());
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Error(r) if r.starts_with("six was added to dev but is still in main:")
+    )));
+    Ok(())
+}
+
 #[tokio::test]
 async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<(), Box<dyn Error>>
 {
@@ -749,6 +804,8 @@ fn a_reload_from_before_a_mutation_is_discarded() {
         version_constraint: version.into(),
     };
     let loaded = |generation, version: &str| Event::PyprojectLoaded {
+        empty_groups: Vec::new(),
+        deletable_groups: Vec::new(),
         generation,
         loaded: Ok(vec![six(version)]),
     };
@@ -765,6 +822,8 @@ fn a_reload_from_before_a_mutation_is_discarded() {
     assert_eq!(shown, ["==1.16.0"]);
     // A stale failure is discarded too, and a load as new as what is shown is not.
     deps.apply(Event::PyprojectLoaded {
+        empty_groups: Vec::new(),
+        deletable_groups: Vec::new(),
         generation: 0,
         loaded: Err("gone".into()),
     });

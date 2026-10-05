@@ -140,15 +140,24 @@ fn columns_fit_their_cells_and_sit_on_the_left() -> Result<(), Box<dyn std::erro
         dep("typing-extensions", ">=4.16.0"),
         dep("tomli", ">=2.0; python_version < '3.11'"),
     ]);
-    let mut terminal = Terminal::new(TestBackend::new(48, 5))?;
+    let mut terminal = Terminal::new(TestBackend::new(68, 5))?;
     terminal.draw(|frame| tabs().render(frame, frame.area(), &deps))?;
     let buffer = terminal.backend().buffer();
-    let row = |y| (1..47).map(|x| buffer[(x, y)].symbol()).collect::<String>();
-    // Name fits the longest name, Group fits "Group", a long constraint stops at a third of the
-    // width, and the spare room trails on the right.
-    assert_eq!(row(1), "Name                Group   Constraint        ");
-    assert_eq!(row(2), "typing-extensions   main    >=4.16.0          ");
-    assert_eq!(row(3), "tomli               main    >=2.0; python_ve  ");
+    let row = |y| (1..67).map(|x| buffer[(x, y)].symbol()).collect::<String>();
+    // Name fits the longest name, Group is 20 wide whatever its cells, a long constraint stops at
+    // a third of the width, and the spare room trails on the right.
+    assert_eq!(
+        row(1),
+        "Name                Group                  Constraint             "
+    );
+    assert_eq!(
+        row(2),
+        "typing-extensions   main                   >=4.16.0               "
+    );
+    assert_eq!(
+        row(3),
+        "tomli               main                   >=2.0; python_version  "
+    );
     Ok(())
 }
 
@@ -166,4 +175,46 @@ fn extras_follow_the_name_and_a_long_list_is_cut_short() {
         dep(&["standard", "socks", "watchfiles", "httptools"]).cells()[0],
         "uvicorn[standard, socks, ...]"
     );
+}
+
+#[test]
+fn a_requirement_is_rebuilt_as_declared() {
+    let dep = |extras: &[&str], constraint: &str| PyprojectDependency {
+        name: "pkg".into(),
+        groups: vec![Membership::Project],
+        extras: extras.iter().map(ToString::to_string).collect(),
+        version_constraint: constraint.into(),
+    };
+    assert_eq!(dep(&[], "").requirement(), "pkg");
+    assert_eq!(dep(&["a", "b"], ">=1.0").requirement(), "pkg[a,b]>=1.0");
+    assert_eq!(
+        dep(&[], "<2; python_version < '3.11'").requirement(),
+        "pkg<2; python_version < '3.11'"
+    );
+    assert_eq!(
+        dep(&["cli"], "@ git+https://example.com/pkg").requirement(),
+        "pkg[cli] @ git+https://example.com/pkg"
+    );
+}
+
+#[test]
+fn the_group_column_shows_two_groups_then_dots() {
+    let dep = |groups: &[&str]| PyprojectDependency {
+        name: "pytest".into(),
+        groups: groups
+            .iter()
+            .map(|g| Membership::Group(g.to_string()))
+            .collect(),
+        extras: Vec::new(),
+        version_constraint: String::new(),
+    };
+    assert_eq!(dep(&["dev"]).cells()[1], "dev");
+    assert_eq!(dep(&["dev", "test"]).cells()[1], "dev, test");
+    assert_eq!(dep(&["dev", "test", "lint"]).cells()[1], "dev, test, ...");
+    // Too long for the column even so: cut to its 20 characters.
+    assert_eq!(
+        dep(&["integration", "performance"]).cells()[1],
+        "integration, perf..."
+    );
+    assert_eq!(PyprojectDependency::fixed_width(1), Some(20));
 }

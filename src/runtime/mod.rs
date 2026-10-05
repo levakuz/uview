@@ -11,6 +11,7 @@ use crate::controllers::dependencies::{
     add_dep, load_env_deps, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
     sync_exact, uninstall_from_env, upgrade_env_dep,
 };
+use crate::controllers::groups::{PYPROJECT, delete_group, empty_groups};
 use crate::controllers::project::load_project_info;
 use crate::domain::Membership;
 use crate::message::{Command, Event};
@@ -38,9 +39,38 @@ async fn run(
         } => add_dep(uv, &requirement, &membership)
             .await
             .map(|()| format!("Added {requirement}{}", to(&membership))),
-        Command::RemoveFromProject { name, groups } => remove_dep_from_pyproject(uv, &name, groups)
+        Command::RemoveFromProject { name, groups } => {
+            let from: Vec<String> = groups.iter().map(ToString::to_string).collect();
+            remove_dep_from_pyproject(uv, &name, groups)
+                .await
+                .map(|()| format!("Removed {name} from {}", from.join(", ")))
+        }
+        Command::DeleteGroup { name } => delete_group(uv, Path::new(PYPROJECT), &name)
             .await
-            .map(|()| format!("Removed {name} from pyproject.toml")),
+            .map(|()| format!("Deleted group {name}")),
+        Command::Move {
+            name,
+            requirement,
+            from,
+            to,
+        } => {
+            // Added first: a failed `uv add` changes nothing, while a failed remove after it
+            // leaves the package in both groups, still declared.
+            if let Err(e) = add_dep(uv, &requirement, &to).await {
+                Err(e)
+            } else {
+                match remove_dep_from_pyproject(uv, &name, vec![from.clone()]).await {
+                    Ok(()) => Ok(format!("Moved {name} from {from} to {to}")),
+                    Err(UvError::Cancelled) => Err(UvError::Cancelled),
+                    Err(e) => {
+                        let _ = events.send(Event::Error(format!(
+                            "{name} was added to {to} but is still in {from}: {e}"
+                        )));
+                        return;
+                    }
+                }
+            }
+        }
         Command::Uninstall { name } => uninstall_from_env(uv, &name, env)
             .await
             .map(|()| format!("Uninstalled {name} from the environment")),
@@ -67,9 +97,12 @@ async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>,
     if let Err(reason) = &pyproject {
         let _ = events.send(Event::Error(format!("pyproject.toml: {reason}")));
     }
+    let (empty_groups, deletable_groups) = empty_groups().await;
     let _ = events.send(Event::PyprojectLoaded {
         generation,
         loaded: pyproject,
+        empty_groups,
+        deletable_groups,
     });
     let env = load_env_deps(uv, env).await;
     // A cancel is the runner's to report.

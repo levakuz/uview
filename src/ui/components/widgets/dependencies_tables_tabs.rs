@@ -29,7 +29,7 @@ pub struct DependenciesTablesTabs {
     pyproject_table: SharedTable<PyprojectDependency>,
     env_table: SharedTable<EnvDependency>,
     active_table: ActiveTable,
-    package_control_popup: PackageControlPopup<'static>,
+    package_control_popup: PackageControlPopup,
     show_package_control_popup: bool,
     /// The package the actions list was opened for. Its actions use this, not the selection
     /// when they run, which a reload can move to another row.
@@ -38,15 +38,34 @@ pub struct DependenciesTablesTabs {
     package_add_popup: InputPopup,
     pin_version_popup: InputPopup,
     new_group_popup: InputPopup,
-    /// The requirement typed into the add input, while its group is chosen.
-    adding: Option<String>,
-    /// The groups to add `adding` to: main, the project's groups, and a new one.
+    /// What waits on a group to be chosen.
+    pending: Option<Pending>,
+    /// The groups `pending` can be done to; past them, a new group.
     group_popup: Option<(ListPopup, Vec<Membership>)>,
+    /// The groups a removal or move was sent from. Once a reload shows one empty, its deletion
+    /// is offered, once: a group that was empty before is never asked about.
+    emptied: Vec<String>,
+    /// Whether to delete the emptied group it names.
+    delete_question: Option<(ListPopup, String)>,
+}
+
+/// An action that runs once its group is chosen.
+enum Pending {
+    /// Add the requirement: typed into the add input, or a declared package's own.
+    Add(String),
+    /// Add the package's requirement to the chosen group, then remove it from `from`.
+    Move {
+        name: String,
+        requirement: String,
+        from: Membership,
+    },
+    /// Remove the package from the chosen group only.
+    RemoveFrom(String),
 }
 
 impl DependenciesTablesTabs {
     pub fn new() -> Self {
-        let package_control_popup = PackageControlPopup::new();
+        let package_control_popup = PackageControlPopup::new(0);
         let package_add_popup = InputPopup::new("Package (e.g. requests, flask[dotenv]>=3.0)", 50);
         let pin_version_popup = InputPopup::new("Version (e.g. ==1.2.3, >=2.0, <3.0)", 50);
         let new_group_popup = InputPopup::new("New group (e.g. dev, test)", 50);
@@ -67,8 +86,10 @@ impl DependenciesTablesTabs {
             package_add_popup,
             pin_version_popup,
             new_group_popup,
-            adding: None,
+            pending: None,
             group_popup: None,
+            emptied: Vec::new(),
+            delete_question: None,
         }
     }
 
@@ -89,6 +110,50 @@ impl DependenciesTablesTabs {
         if self.new_group_popup.is_editing() {
             self.new_group_popup.render(frame, area);
         }
+        self.ask_to_delete(deps);
+        // Opened only over the bare table, and it takes every key while open.
+        if let Some((popup, _)) = &mut self.delete_question {
+            popup.render(frame, area);
+        }
+    }
+
+    /// Asks whether to delete a group a removal or move left empty, once nothing else is open.
+    fn ask_to_delete(&mut self, deps: &DepsState) {
+        if self.delete_question.is_some()
+            || self.mode() != Mode::Table
+            || self.show_package_control_popup
+        {
+            return;
+        }
+        let Some(i) = self
+            .emptied
+            .iter()
+            .position(|group| deps.deletable_groups.contains(group))
+        else {
+            return;
+        };
+        let group = self.emptied.remove(i);
+        let options = vec![format!("Delete group {group}"), "Keep it".into()];
+        let title = format!("Group {group} is now empty");
+        self.delete_question = Some((ListPopup::new(&title, options), group));
+    }
+
+    /// Remembers the groups `commands` remove a package from.
+    fn watch(&mut self, commands: &[Command]) {
+        for command in commands {
+            let from = match command {
+                Command::RemoveFromProject { groups, .. } => groups.as_slice(),
+                Command::Move { from, .. } => std::slice::from_ref(from),
+                _ => &[],
+            };
+            for membership in from {
+                if let Membership::Group(name) = membership
+                    && !self.emptied.contains(name)
+                {
+                    self.emptied.push(name.clone());
+                }
+            }
+        }
     }
 
     /// Where the focus is: an input, the actions list, or the table.
@@ -98,7 +163,10 @@ impl DependenciesTablesTabs {
             || self.new_group_popup.is_editing()
         {
             Mode::Input
-        } else if self.show_package_control_popup || self.group_popup.is_some() {
+        } else if self.show_package_control_popup
+            || self.group_popup.is_some()
+            || self.delete_question.is_some()
+        {
             Mode::Actions
         } else {
             Mode::Table
@@ -171,13 +239,37 @@ impl DependenciesTablesTabs {
     }
 
     pub fn update(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
+        self.ask_to_delete(deps);
+        if let Some((popup, group)) = &mut self.delete_question {
+            match action {
+                Action::Nav(NavAction::Up) => popup.up(),
+                Action::Nav(NavAction::Down) => popup.down(),
+                Action::Nav(NavAction::Select) => {
+                    let delete = popup.selected() == Some(0);
+                    let name = group.clone();
+                    self.delete_question = None;
+                    if delete {
+                        return vec![Command::DeleteGroup { name }];
+                    }
+                }
+                Action::Nav(NavAction::Back) => self.delete_question = None,
+                _ => {}
+            }
+            return Vec::new();
+        }
+        let commands = self.respond(action, deps);
+        self.watch(&commands);
+        commands
+    }
+
+    fn respond(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
         // An open input takes every key.
         if self.package_add_popup.is_editing() {
             if let Action::Nav(nav) = action
                 && let Some(requirement) = self.package_add_popup.update(nav)
             {
-                self.adding = Some(requirement);
-                self.group_popup = Some(group_choices(deps));
+                self.pending = Some(Pending::Add(requirement));
+                self.group_popup = Some(group_choices(deps, &[], "Add to group"));
             }
             return Vec::new();
         }
@@ -185,11 +277,11 @@ impl DependenciesTablesTabs {
             if let Action::Nav(nav) = action
                 && let Some(group) = self.new_group_popup.update(nav)
             {
-                return self.add_to(Membership::Group(group.trim().to_string()));
+                return self.finish(Membership::Group(group.trim().to_string()));
             }
-            // Esc gives up on the add.
+            // Esc gives up on what was waiting.
             if !self.new_group_popup.is_editing() {
-                self.adding = None;
+                self.pending = None;
             }
             return Vec::new();
         }
@@ -202,7 +294,7 @@ impl DependenciesTablesTabs {
                     self.group_popup = None;
                     // Past the project's groups is the new one, which is typed in.
                     return match chosen {
-                        Some(membership) => self.add_to(membership),
+                        Some(membership) => self.finish(membership),
                         None => {
                             self.new_group_popup.open();
                             Vec::new()
@@ -211,7 +303,7 @@ impl DependenciesTablesTabs {
                 }
                 Action::Nav(NavAction::Back) => {
                     self.group_popup = None;
-                    self.adding = None;
+                    self.pending = None;
                 }
                 _ => {}
             }
@@ -253,9 +345,11 @@ impl DependenciesTablesTabs {
                 let Some(name) = self.selected_name(deps) else {
                     return Vec::new();
                 };
+                // A fresh popup, so it never opens with Remove still selected. Group actions are
+                // for a declared package.
+                let groups = self.declared(&name, deps).map_or(0, |d| d.groups.len());
                 self.target = Some(name);
-                // A fresh popup, so it never opens with Remove still selected.
-                self.package_control_popup = PackageControlPopup::new();
+                self.package_control_popup = PackageControlPopup::new(groups);
                 self.show_package_control_popup = true;
             }
             Action::Nav(NavAction::Back) => self.show_package_control_popup = false,
@@ -278,16 +372,74 @@ impl DependenciesTablesTabs {
         Vec::new()
     }
 
-    /// Adds the requirement typed into the add input to `membership`.
-    fn add_to(&mut self, membership: Membership) -> Vec<Command> {
-        self.adding
-            .take()
-            .map(|requirement| Command::Add {
+    /// Does what waited on a group to `membership`.
+    fn finish(&mut self, membership: Membership) -> Vec<Command> {
+        let command = match self.pending.take() {
+            Some(Pending::Add(requirement)) => Command::Add {
                 requirement,
                 membership,
-            })
-            .into_iter()
-            .collect()
+            },
+            Some(Pending::Move {
+                name,
+                requirement,
+                from,
+            }) => Command::Move {
+                name,
+                requirement,
+                from,
+                to: membership,
+            },
+            Some(Pending::RemoveFrom(name)) => Command::RemoveFromProject {
+                name,
+                groups: vec![membership],
+            },
+            None => return Vec::new(),
+        };
+        vec![command]
+    }
+
+    /// The pyproject row of `name`, when the pyproject table is the one showing.
+    fn declared<'a>(&self, name: &str, deps: &'a DepsState) -> Option<&'a PyprojectDependency> {
+        if self.active_table != ActiveTable::Pyproject {
+            return None;
+        }
+        deps.pyproject.rows().iter().find(|d| d.name == name)
+    }
+
+    /// Opens the group list for a group action on the declared package `name`.
+    fn choose_group(&mut self, option: PackageControlOption, name: String, deps: &DepsState) {
+        let Some(dep) = self.declared(&name, deps) else {
+            return;
+        };
+        let requirement = dep.requirement();
+        let (pending, list) = match option {
+            PackageControlOption::MoveToGroup => (
+                Pending::Move {
+                    name,
+                    requirement,
+                    // Offered for a package in exactly one group.
+                    from: dep.groups.first().cloned().unwrap_or(Membership::Project),
+                },
+                group_choices(deps, &dep.groups, "Move to group"),
+            ),
+            PackageControlOption::AddToGroup => (
+                Pending::Add(requirement),
+                group_choices(deps, &dep.groups, "Add to group"),
+            ),
+            PackageControlOption::RemoveFromGroup => {
+                let labels = dep.groups.iter().map(ToString::to_string).collect();
+                (
+                    Pending::RemoveFrom(name),
+                    (
+                        ListPopup::new("Remove from group", labels),
+                        dep.groups.clone(),
+                    ),
+                )
+            }
+            _ => return,
+        };
+        self.pending = Some(pending);
+        self.group_popup = Some(list);
     }
 
     /// Runs the option highlighted in the actions list on the package it was opened for.
@@ -303,6 +455,14 @@ impl DependenciesTablesTabs {
             }
             Some(PackageControlOption::Update) => vec![Command::Upgrade { name }],
             Some(PackageControlOption::Remove) => self.remove(&name, deps).into_iter().collect(),
+            Some(
+                option @ (PackageControlOption::MoveToGroup
+                | PackageControlOption::AddToGroup
+                | PackageControlOption::RemoveFromGroup),
+            ) => {
+                self.choose_group(option, name, deps);
+                Vec::new()
+            }
             Some(PackageControlOption::Cancel) | None => Vec::new(),
         }
     }
@@ -335,11 +495,13 @@ impl DependenciesTablesTabs {
     }
 }
 
-/// The list a typed requirement's group is chosen from: main, then the dependency groups the
-/// project's rows are in, then a new group.
-// ponytail: a group pyproject.toml declares empty has no row and is not offered; it can be typed
-// as a new group.
-fn group_choices(deps: &DepsState) -> (ListPopup, Vec<Membership>) {
+/// The list a group is chosen from: main, then the project's dependency groups, those with rows
+/// and the empty ones, leaving out those in `except`, then a new group.
+fn group_choices(
+    deps: &DepsState,
+    except: &[Membership],
+    title: &str,
+) -> (ListPopup, Vec<Membership>) {
     let mut groups: Vec<Membership> = deps
         .pyproject
         .rows()
@@ -347,13 +509,15 @@ fn group_choices(deps: &DepsState) -> (ListPopup, Vec<Membership>) {
         .flat_map(|d| &d.groups)
         .filter(|m| matches!(m, Membership::Group(_)))
         .cloned()
+        .chain(deps.empty_groups.iter().cloned().map(Membership::Group))
         .collect();
     groups.sort_by_key(ToString::to_string);
     groups.dedup();
     groups.insert(0, Membership::Project);
+    groups.retain(|m| !except.contains(m));
     let mut labels: Vec<String> = groups.iter().map(ToString::to_string).collect();
     labels.push("New group…".into());
-    (ListPopup::new("Add to group", labels), groups)
+    (ListPopup::new(title, labels), groups)
 }
 
 /// What a table shows in place of rows: how its load is going, that it loaded nothing, or why

@@ -32,6 +32,22 @@ pub struct PyprojectDependency {
     pub version_constraint: String,
 }
 
+impl PyprojectDependency {
+    /// The requirement as declared: name, extras, then version, marker or URL, as in
+    /// `flask[dotenv]>=3.0; python_version >= '3.9'`.
+    pub fn requirement(&self) -> String {
+        let mut requirement = self.name.clone();
+        if !self.extras.is_empty() {
+            requirement += &format!("[{}]", self.extras.join(","));
+        }
+        // A URL needs the space: `pkg @ https://…`.
+        if self.version_constraint.starts_with(['@', ';']) {
+            requirement.push(' ');
+        }
+        requirement + &self.version_constraint
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct EnvDependency {
     pub name: String,

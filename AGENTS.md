@@ -9,7 +9,8 @@ Claude Code reads this through the `@AGENTS.md` import in `CLAUDE.md`.
 
 `uview` is a terminal UI for [`uv`](https://github.com/astral-sh/uv), the Python package
 manager, written in Rust (edition 2024) on ratatui. It owns no packaging logic of its
-own — every operation is delegated to the `uv` binary as a subprocess.
+own — every operation is delegated to the `uv` binary as a subprocess. The one
+exception, deleting an emptied dependency group, is ADR-0009.
 
 Architecture decisions live in `docs/adr/`. Tasks and their status live in
 [GitHub issues](https://github.com/levakuz/uview/issues).

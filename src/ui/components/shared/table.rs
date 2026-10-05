@@ -11,6 +11,11 @@ pub trait TableRow {
     fn cells(&self) -> Vec<String>;
     /// What identifies the row from one load of the rows to the next, such as a package name.
     fn key(&self) -> &str;
+    /// The width of `column` whatever its cells, or `None` to fit them. Either way, no column
+    /// but the first is wider than a third of the table.
+    fn fixed_width(_column: usize) -> Option<u16> {
+        None
+    }
 }
 
 /// A table of `T` rows it does not own: each call is handed the rows as they are now. It keeps
@@ -88,7 +93,14 @@ impl<T: TableRow> SharedTable<T> {
         }
         let header_cells = T::columns();
         let cells: Vec<Vec<String>> = rows.iter().map(TableRow::cells).collect();
-        let widths = column_widths(&header_cells, &cells, area.width);
+        let widths = column_widths(&header_cells, &cells, area.width)
+            .into_iter()
+            .enumerate()
+            // A fixed width too gives way past a third of a narrow table, as the others do.
+            .map(|(column, fit)| {
+                T::fixed_width(column).map_or(fit, |w| Constraint::Length(w.min(area.width / 3)))
+            })
+            .collect::<Vec<_>>();
         let header = Row::new(header_cells).style(Style::new().bold());
         let table_rows: Vec<Row> = cells.into_iter().map(Row::new).collect();
 

@@ -31,7 +31,8 @@ with [tokio](https://tokio.rs) providing the async runtime.
 
 It owns no Python or packaging logic of its own. Every operation is delegated to the
 `uv` binary as a subprocess, and `uview` is responsible only for presenting state and
-turning key presses into `uv` invocations.
+turning key presses into `uv` invocations. The one exception is deleting an emptied
+dependency group, which uv has no command for (ADR-0009).
 
 The design follows the Elm architecture (TEA), with messages split by direction of travel
 (§4): the keymap turns input into actions, components turn actions into commands, and
@@ -47,7 +48,7 @@ There are four layers, plus a thin application shell and the state they share.
 | **State** | `src/state.rs` | Hold what the app knows, once: the project, the dependencies, the jobs and the latest message (ADR-0004) | Render, run anything, know about ratatui, the UI or the runtime |
 | **UI** | `src/ui/` | Render frames from the state, turn input into actions and actions into commands, hold view state | Write the state, spawn tasks, call controllers, read the filesystem |
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
-| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml` | Render, hold UI state, know about ratatui, start a process |
+| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it (ADR-0009) | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
 
 The rule that matters: **controllers never import ratatui, UI code never invokes `uv` or a
@@ -191,6 +192,7 @@ src/
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
+│   ├── groups.rs           # deleting an empty dependency group: the one write to pyproject.toml (ADR-0009)
 │   └── project.rs          # the project root, or why uv would refuse it; its workspace root and environment; its name and version
 ├── uv/
 │   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
@@ -205,7 +207,7 @@ src/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>, over rows it is handed
         │   ├── input.rs    #   UviewInput (wraps tui-input)
-        │   ├── list_popup.rs #  ListPopup — a titled list of choices: the group to add to
+        │   ├── list_popup.rs #  ListPopup — a titled list of choices: the actions list, the group lists
         │   ├── popup.rs    #   Popup — centering and Clear only
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
@@ -242,7 +244,8 @@ Four kinds of UI code, in descending order of generality:
   handed, of any `T: TableRow`, or the placeholder it is handed when there are none, and keeps
   only the selection, with wrap-around. The selection follows its row's `key`, the package
   name, when the rows change. Its first column takes the width the others leave, and the others
-  are as wide as their widest cell, up to a third of the table each. Its border's title is any
+  are as wide as their widest cell, or as `TableRow::fixed_width` says (the Group column), up
+  to a third of the table each. Its border's title is any
   styled `Line`: the tables widget puts its tabs there. The feature layer supplies the `TableRow` impl that
   formats the domain type. `Popup` and `UviewInput` are
   similarly domain-free.
