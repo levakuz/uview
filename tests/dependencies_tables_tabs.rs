@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use uview::domain::{EnvDependency, Membership, PyprojectDependency};
 use uview::message::{Action, DepsAction};
 use uview::state::{DepsState, Loadable};
+use uview::ui::components::shared::table::TableRow;
 use uview::ui::components::widgets::dependencies_tables_tabs::DependenciesTablesTabs;
 
 fn tabs() -> DependenciesTablesTabs {
@@ -149,4 +150,20 @@ fn columns_fit_their_cells_and_sit_on_the_left() -> Result<(), Box<dyn std::erro
     assert_eq!(row(2), "typing-extensions   main    >=4.16.0          ");
     assert_eq!(row(3), "tomli               main    >=2.0; python_ve  ");
     Ok(())
+}
+
+#[test]
+fn extras_follow_the_name_and_a_long_list_is_cut_short() {
+    let dep = |extras: &[&str]| PyprojectDependency {
+        name: "uvicorn".into(),
+        groups: vec![Membership::Project],
+        extras: extras.iter().map(ToString::to_string).collect(),
+        version_constraint: String::new(),
+    };
+    assert_eq!(dep(&[]).cells()[0], "uvicorn");
+    assert_eq!(dep(&["standard"]).cells()[0], "uvicorn[standard]");
+    assert_eq!(
+        dep(&["standard", "socks", "watchfiles", "httptools"]).cells()[0],
+        "uvicorn[standard, socks, ...]"
+    );
 }

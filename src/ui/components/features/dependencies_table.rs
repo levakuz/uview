@@ -7,9 +7,15 @@ impl TableRow for PyprojectDependency {
     }
 
     fn cells(&self) -> Vec<String> {
+        // Extras follow the name as they would in the requirement, e.g. `flask[dotenv]`.
+        let name = if self.extras.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}[{}]", self.name, shorten(&self.extras))
+        };
         vec![
-            self.name.clone(),
-            format_groups(
+            name,
+            shorten(
                 &self
                     .groups
                     .iter()
@@ -25,10 +31,11 @@ impl TableRow for PyprojectDependency {
     }
 }
 
-fn format_groups(groups: &[String]) -> String {
+/// `items` joined by commas, cut short with `...` past 20 characters.
+fn shorten(items: &[String]) -> String {
     const MAX_LEN: usize = 20;
     let mut result = String::new();
-    for (i, g) in groups.iter().enumerate() {
+    for (i, g) in items.iter().enumerate() {
         let candidate = if i == 0 {
             g.clone()
         } else {
