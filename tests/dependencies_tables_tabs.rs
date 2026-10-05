@@ -167,3 +167,23 @@ fn extras_follow_the_name_and_a_long_list_is_cut_short() {
         "uvicorn[standard, socks, ...]"
     );
 }
+
+#[test]
+fn a_requirement_is_rebuilt_as_declared() {
+    let dep = |extras: &[&str], constraint: &str| PyprojectDependency {
+        name: "pkg".into(),
+        groups: vec![Membership::Project],
+        extras: extras.iter().map(ToString::to_string).collect(),
+        version_constraint: constraint.into(),
+    };
+    assert_eq!(dep(&[], "").requirement(), "pkg");
+    assert_eq!(dep(&["a", "b"], ">=1.0").requirement(), "pkg[a,b]>=1.0");
+    assert_eq!(
+        dep(&[], "<2; python_version < '3.11'").requirement(),
+        "pkg<2; python_version < '3.11'"
+    );
+    assert_eq!(
+        dep(&["cli"], "@ git+https://example.com/pkg").requirement(),
+        "pkg[cli] @ git+https://example.com/pkg"
+    );
+}

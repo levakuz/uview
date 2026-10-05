@@ -60,7 +60,14 @@ pub enum Command {
         requirement: String,
         membership: Membership,
     },
-    /// Remove a package from every membership in pyproject.toml with `uv remove`.
+    /// Add `requirement` to `to` with `uv add`, then remove `name` from `from` with `uv remove`.
+    Move {
+        name: String,
+        requirement: String,
+        from: Membership,
+        to: Membership,
+    },
+    /// Remove a package from the given memberships in pyproject.toml with `uv remove`.
     RemoveFromProject {
         name: String,
         groups: Vec<Membership>,

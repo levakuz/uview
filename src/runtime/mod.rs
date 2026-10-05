@@ -38,9 +38,35 @@ async fn run(
         } => add_dep(uv, &requirement, &membership)
             .await
             .map(|()| format!("Added {requirement}{}", to(&membership))),
-        Command::RemoveFromProject { name, groups } => remove_dep_from_pyproject(uv, &name, groups)
-            .await
-            .map(|()| format!("Removed {name} from pyproject.toml")),
+        Command::RemoveFromProject { name, groups } => {
+            let from: Vec<String> = groups.iter().map(ToString::to_string).collect();
+            remove_dep_from_pyproject(uv, &name, groups)
+                .await
+                .map(|()| format!("Removed {name} from {}", from.join(", ")))
+        }
+        Command::Move {
+            name,
+            requirement,
+            from,
+            to,
+        } => {
+            // Added first: a failed `uv add` changes nothing, while a failed remove after it
+            // leaves the package in both groups, still declared.
+            if let Err(e) = add_dep(uv, &requirement, &to).await {
+                Err(e)
+            } else {
+                match remove_dep_from_pyproject(uv, &name, vec![from.clone()]).await {
+                    Ok(()) => Ok(format!("Moved {name} from {from} to {to}")),
+                    Err(UvError::Cancelled) => Err(UvError::Cancelled),
+                    Err(e) => {
+                        let _ = events.send(Event::Error(format!(
+                            "{name} was added to {to} but is still in {from}: {e}"
+                        )));
+                        return;
+                    }
+                }
+            }
+        }
         Command::Uninstall { name } => uninstall_from_env(uv, &name, env)
             .await
             .map(|()| format!("Uninstalled {name} from the environment")),

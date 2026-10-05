@@ -218,8 +218,10 @@ fn the_actions_act_on_the_row_they_were_opened_for() {
     screen.press(KeyCode::Enter);
     // A reload lands while the list is open for httpx, and the selected row is now requests.
     screen.state.deps.pyproject = Loadable::Loaded(vec![package("httpx"), package("requests")]);
-    screen.press(KeyCode::Down);
-    screen.press(KeyCode::Down);
+    // Pin, Update, Move to group, Remove.
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::RemoveFromProject {
@@ -290,8 +292,10 @@ fn a_selection_past_the_rows_falls_back_to_the_last() {
     // A reload leaves fewer rows than the selection was down.
     screen.state.deps.pyproject = Loadable::Loaded(vec![package("anyio"), package("httpx")]);
     screen.press(KeyCode::Enter);
-    screen.press(KeyCode::Down);
-    screen.press(KeyCode::Down);
+    // Pin, Update, Move to group, Remove.
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::RemoveFromProject {
@@ -322,8 +326,10 @@ fn the_selection_stays_on_its_package_across_a_reload() {
         package("requests"),
     ]);
     screen.press(KeyCode::Enter);
-    screen.press(KeyCode::Down);
-    screen.press(KeyCode::Down);
+    // Pin, Update, Move to group, Remove.
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::RemoveFromProject {
@@ -345,4 +351,99 @@ fn the_actions_list_takes_only_its_own_keys() {
     }
     screen.press(KeyCode::Esc);
     assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+/// A screen whose pyproject table lists six in main, and pytest in `pytest_groups`.
+fn with_pytest_in(pytest_groups: &[&str]) -> Screen {
+    let mut screen = Screen::with(&["six"]);
+    if let Loadable::Loaded(rows) = &mut screen.state.deps.pyproject {
+        rows.push(PyprojectDependency {
+            groups: pytest_groups
+                .iter()
+                .map(|g| Membership::Group(g.to_string()))
+                .collect(),
+            version_constraint: ">=8".into(),
+            ..package("pytest")
+        });
+    }
+    screen
+}
+
+impl Screen {
+    /// Opens the actions list on the `row`th row and runs its `option`th option.
+    fn run_option(&mut self, row: usize, option: usize) -> Vec<Command> {
+        for _ in 0..row {
+            self.press(KeyCode::Down);
+        }
+        self.press(KeyCode::Enter);
+        for _ in 0..option {
+            self.press(KeyCode::Down);
+        }
+        self.press(KeyCode::Enter)
+    }
+}
+
+#[test]
+fn a_package_in_one_group_moves_to_another() {
+    // pytest in dev; the groups other than dev: main, test.
+    let mut screen = with_pytest_in(&["dev", "test"]);
+    if let Loadable::Loaded(rows) = &mut screen.state.deps.pyproject {
+        rows[1].groups = vec![Membership::Group("dev".into())];
+        rows.push(PyprojectDependency {
+            groups: vec![Membership::Group("test".into())],
+            ..package("coverage")
+        });
+    }
+    // Pin, Update, Move to group.
+    assert!(screen.run_option(1, 2).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Move {
+            name: "pytest".into(),
+            requirement: "pytest>=8".into(),
+            from: Membership::Group("dev".into()),
+            to: Membership::Group("test".into()),
+        }]
+    );
+}
+
+#[test]
+fn a_package_in_several_groups_is_added_to_or_removed_from_one() {
+    let mut screen = with_pytest_in(&["dev", "test"]);
+    // Pin, Update, Add to group: main is the one group it is not in.
+    screen.run_option(1, 2);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "pytest>=8".into(),
+            membership: Membership::Project,
+        }]
+    );
+    // Remove from group: the list is its groups.
+    screen.run_option(0, 3);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::RemoveFromProject {
+            name: "pytest".into(),
+            groups: vec![Membership::Group("test".into())],
+        }]
+    );
+}
+
+#[test]
+fn an_installed_package_has_no_group_actions() {
+    let mut screen = Screen::with(&["six"]);
+    screen.state.deps.env = Loadable::Loaded(vec![uview::domain::EnvDependency {
+        name: "six".into(),
+        version: "1.17.0".into(),
+    }]);
+    screen.press(KeyCode::Tab);
+    // Pin, Update, Remove: uninstall, as before.
+    assert_eq!(
+        screen.run_option(0, 2),
+        [Command::Uninstall { name: "six".into() }]
+    );
 }

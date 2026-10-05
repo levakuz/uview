@@ -1,86 +1,77 @@
-use ratatui::{
-    Frame,
-    layout::Rect,
-    widgets::{Block, List, ListState},
-};
+use ratatui::{Frame, layout::Rect};
 
-use crate::ui::components::shared::popup::{Popup, PopupSize};
+use crate::ui::components::shared::list_popup::ListPopup;
 
 /// What the actions list offers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PackageControlOption {
     Update,
     PinToVersion,
+    /// For a package in one group.
+    MoveToGroup,
+    /// For a package in several groups, instead of moving it.
+    AddToGroup,
+    RemoveFromGroup,
     Remove,
     Cancel,
 }
-
-/// The options in the order the list shows them.
-const OPTIONS: [PackageControlOption; 4] = [
-    PackageControlOption::PinToVersion,
-    PackageControlOption::Update,
-    PackageControlOption::Remove,
-    PackageControlOption::Cancel,
-];
 
 impl PackageControlOption {
     fn label(&self) -> &'static str {
         match self {
             PackageControlOption::Update => "Update",
             PackageControlOption::PinToVersion => "Pin to version",
+            PackageControlOption::MoveToGroup => "Move to group",
+            PackageControlOption::AddToGroup => "Add to group",
+            PackageControlOption::RemoveFromGroup => "Remove from group",
             PackageControlOption::Remove => "Remove",
             PackageControlOption::Cancel => "Cancel",
         }
     }
 }
 
-pub struct PackageControlPopup<'a> {
-    popup: Popup,
-    list: List<'a>,
-    list_state: ListState,
+pub struct PackageControlPopup {
+    list: ListPopup,
+    options: Vec<PackageControlOption>,
 }
 
-impl PackageControlPopup<'_> {
-    pub fn new() -> Self {
-        let block = Block::bordered().title("Package Control");
-        let list_state = ListState::default().with_selected(Some(0));
-        let list = List::new(OPTIONS.map(|option| option.label()))
-            .block(block)
-            .highlight_style(ratatui::style::Style::default().reversed());
-
+impl PackageControlPopup {
+    /// The actions for a package declared in `groups` memberships; none for one that is only
+    /// installed. The group actions sit between Pin and Update and Remove.
+    pub fn new(groups: usize) -> Self {
+        use PackageControlOption::*;
+        let group_actions: &[PackageControlOption] = match groups {
+            0 => &[],
+            1 => &[MoveToGroup],
+            _ => &[AddToGroup, RemoveFromGroup],
+        };
+        let options: Vec<_> = [PinToVersion, Update]
+            .iter()
+            .chain(group_actions)
+            .chain(&[Remove, Cancel])
+            .copied()
+            .collect();
+        let labels = options.iter().map(|o| o.label().to_string()).collect();
         Self {
-            // The four options inside a border.
-            popup: Popup::new(PopupSize {
-                width: 30,
-                height: OPTIONS.len() as u16 + 2,
-            }),
-            list,
-            list_state,
+            list: ListPopup::new("Package Control", labels),
+            options,
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let popup_area = self.popup.render(frame, area);
-        frame.render_stateful_widget(self.list.clone(), popup_area, &mut self.list_state);
+        self.list.render(frame, area);
     }
 
     pub fn up(&mut self) {
-        if let Some(selected) = self.list_state.selected()
-            && selected > 0
-        {
-            self.list_state.select(Some(selected - 1));
-        }
+        self.list.up();
     }
 
     pub fn down(&mut self) {
-        if let Some(selected) = self.list_state.selected() {
-            self.list_state
-                .select(Some((selected + 1).min(OPTIONS.len() - 1)));
-        }
+        self.list.down();
     }
 
     /// The highlighted option.
     pub fn selected(&self) -> Option<PackageControlOption> {
-        OPTIONS.get(self.list_state.selected()?).copied()
+        self.options.get(self.list.selected()?).copied()
     }
 }
