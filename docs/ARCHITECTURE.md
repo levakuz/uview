@@ -313,9 +313,10 @@ a terminal, `main.rs` says there is no project and exits, as before.
 belongs to, by uv's rules (ADR-0008). The project is its own root if it declares a workspace.
 Otherwise the nearest `pyproject.toml` above it decides: its directory is the root if its
 workspace's `members` match the project and its `exclude` does not. Failing both, the project
-stands alone. `project_environment` joins `.venv`, or `UV_PROJECT_ENVIRONMENT`, to that root,
-and `controllers::dependencies` hands the result to `uv pip` as `--python`. Both read the files
-again on each call, from the working directory, as uv does.
+stands alone. `project_environment` joins `.venv`, or `UV_PROJECT_ENVIRONMENT`, to that root.
+`main.rs` resolves it once at startup and the `JobRunner` hands it to every command, so
+`controllers::dependencies` passes it to `uv pip` as `--python`. An environment that does not
+exist yet, as in a project never synced, lists as empty without running `uv`.
 
 Output is read in machine-readable form: `uv pip list --format json` is deserialized
 with serde into `Vec<EnvDependency>`, and `uv version --output-format json` into

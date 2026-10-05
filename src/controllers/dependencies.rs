@@ -1,4 +1,5 @@
-use crate::controllers::project::project_environment;
+use std::path::Path;
+
 use crate::domain::{EnvDependency, Membership, PyprojectDependency};
 use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
@@ -108,23 +109,12 @@ pub async fn remove_dep_from_pyproject(
     Ok(())
 }
 
-/// The environment `uv pip` must act on: the one `uv sync` uses for the project, which main.rs
-/// made the working directory. Left implicit, `uv pip` follows an activated virtualenv or conda
-/// env instead.
-fn project_env() -> String {
-    // An unreadable working directory leaves the path relative to it, as it always was.
-    let project = std::env::current_dir().unwrap_or_default();
-    let configured = std::env::var("UV_PROJECT_ENVIRONMENT").ok();
-    project_environment(&project, configured.as_deref())
-        .to_string_lossy()
-        .into_owned()
-}
-
 /// Uninstalls `name` from the project environment only; pyproject.toml and uv.lock are
 /// untouched. `uv pip` rather than `uv run pip`: a uv environment has no pip of its own,
 /// so `uv run pip` would run whichever pip is first on PATH.
-pub async fn uninstall_from_env(uv: &impl UvClient, name: &str) -> Result<(), UvError> {
-    uv.run(&args::uninstall_args(name, &project_env())).await?;
+pub async fn uninstall_from_env(uv: &impl UvClient, name: &str, env: &Path) -> Result<(), UvError> {
+    uv.run(&args::uninstall_args(name, &env.to_string_lossy()))
+        .await?;
     Ok(())
 }
 
@@ -176,8 +166,13 @@ pub async fn pin_dep_version(
     Ok(requirement)
 }
 
-pub async fn load_env_deps(uv: &impl UvClient) -> Result<Vec<EnvDependency>, UvError> {
-    parse::pip_list(&uv.run(&args::pip_list_args(&project_env())).await?)
+/// The packages installed in `env`. A project never synced has no environment yet: that is
+/// nothing installed, not an error, and uv's advice to run `uv venv` would be the wrong step.
+pub async fn load_env_deps(uv: &impl UvClient, env: &Path) -> Result<Vec<EnvDependency>, UvError> {
+    if !env.exists() {
+        return Ok(Vec::new());
+    }
+    parse::pip_list(&uv.run(&args::pip_list_args(&env.to_string_lossy())).await?)
 }
 
 /// Splits a PEP 508 dependency string into (name, version_constraint).

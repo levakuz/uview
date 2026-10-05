@@ -3,6 +3,8 @@
 
 pub mod jobs;
 
+use std::path::Path;
+
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::controllers::dependencies::{
@@ -15,15 +17,17 @@ use crate::uv::{UvClient, UvError};
 
 /// Runs `command` against `uv` and reports how it went. `generation` is the project's as the job
 /// starts, which a reload reports its rows with. A mutation does not reload the tables: the app
-/// does, when the job runner reports that the project changed.
+/// does, when the job runner reports that the project changed. `env` is the project's
+/// environment, which `uv pip` must be told: left implicit, it follows an activated virtualenv.
 async fn run(
     command: Command,
     uv: &impl UvClient,
+    env: &Path,
     events: &UnboundedSender<Event>,
     generation: u64,
 ) {
     let outcome = match command {
-        Command::Reload => return reload(uv, events, generation).await,
+        Command::Reload => return reload(uv, env, events, generation).await,
         Command::Sync => sync_exact(uv)
             .await
             .map(|()| "Synced the environment".to_string()),
@@ -33,7 +37,7 @@ async fn run(
         Command::RemoveFromProject { name, groups } => remove_dep_from_pyproject(uv, &name, groups)
             .await
             .map(|()| format!("Removed {name} from pyproject.toml")),
-        Command::Uninstall { name } => uninstall_from_env(uv, &name)
+        Command::Uninstall { name } => uninstall_from_env(uv, &name, env)
             .await
             .map(|()| format!("Uninstalled {name} from the environment")),
         Command::Upgrade { name } => upgrade_env_dep(uv, &name)
@@ -54,7 +58,7 @@ async fn run(
 
 /// Reads both tables, and the project's name and version, again, as at startup. A table that
 /// cannot load shows why, and the status line says so too.
-async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>, generation: u64) {
+async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>, generation: u64) {
     let pyproject = load_pyproject_deps().await.map_err(|e| e.to_string());
     if let Err(reason) = &pyproject {
         let _ = events.send(Event::Error(format!("pyproject.toml: {reason}")));
@@ -63,7 +67,7 @@ async fn reload(uv: &impl UvClient, events: &UnboundedSender<Event>, generation:
         generation,
         loaded: pyproject,
     });
-    let env = load_env_deps(uv).await;
+    let env = load_env_deps(uv, env).await;
     // A cancel is the runner's to report.
     if let Err(e) = &env
         && !matches!(e, UvError::Cancelled)
