@@ -138,7 +138,7 @@ impl JobsState {
             }
             Event::JobOutput(id, line) => {
                 // A job's label heads its first line, and its lines again after another job's.
-                // A job that writes nothing, such as the load at startup, leaves no trace.
+                // A job that writes nothing, such as a reload, leaves no trace.
                 if self.logging != Some(*id) {
                     if let Some(job) = self.jobs.iter().find(|job| job.id == *id) {
                         let label = job.label.clone();

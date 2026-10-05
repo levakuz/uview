@@ -2,8 +2,10 @@ use std::fs;
 use std::path::Path;
 
 use uview::controllers::project::{
-    find_project_root, project_environment, refusal, workspace_root,
+    find_project_root, init_project, project_environment, refusal, workspace_root,
 };
+use uview::uv::RealUvClient;
+use uview::uv::args::init_args;
 
 #[test]
 fn finds_the_nearest_pyproject_toml_upwards() -> std::io::Result<()> {
@@ -145,5 +147,38 @@ fn the_environment_is_taken_from_the_workspace_root() -> std::io::Result<()> {
     assert_eq!(unset, base.join(".venv"));
     assert_eq!(relative, base.join("envs").join("dev"));
     assert_eq!(absolute, Path::new("/opt/env"));
+    Ok(())
+}
+
+#[test]
+fn init_names_the_project_only_when_asked_to() {
+    assert_eq!(
+        init_args("/home/jane/acme", None),
+        ["init", "/home/jane/acme"]
+    );
+    assert_eq!(
+        init_args("/home/jane/acme", Some("acme-api")),
+        ["init", "--name", "acme-api", "/home/jane/acme"]
+    );
+}
+
+#[tokio::test]
+async fn uv_init_makes_a_project_uview_opens() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = std::env::temp_dir().join(format!("uview-init-{}", std::process::id()));
+    fs::create_dir_all(&dir)?;
+    if find_project_root(&dir).is_some() {
+        eprintln!("skipped: {dir:?} is inside a project");
+        return Ok(fs::remove_dir_all(&dir)?);
+    }
+    let created = init_project(&RealUvClient, &dir, Some("acme-api")).await;
+    let root = find_project_root(&dir);
+    let refused = refusal(&dir);
+    let pyproject = fs::read_to_string(dir.join("pyproject.toml")).unwrap_or_default();
+    fs::remove_dir_all(&dir)?;
+
+    created?;
+    assert_eq!(root, Some(dir));
+    assert_eq!(refused, None);
+    assert!(pyproject.contains("name = \"acme-api\""), "{pyproject}");
     Ok(())
 }

@@ -125,6 +125,7 @@ async fn run_job(
         id: job.id,
         cancel: &job.cancel,
         events,
+        logged: mutates,
     };
     let as_it_starts = generation.load(Ordering::SeqCst);
     super::run(job.command, &job_uv, events, as_it_starts).await;
@@ -141,19 +142,24 @@ async fn run_job(
     send(Event::JobFinished(job.id));
 }
 
-/// The `uv` of one job: what each call writes to stderr becomes the job's output, and each call
-/// ends with `UvError::Cancelled` once the job is cancelled.
+/// The `uv` of one job: what each call of a mutation writes to stderr becomes the job's output,
+/// and each call ends with `UvError::Cancelled` once the job is cancelled.
 struct JobUv<'a, U> {
     uv: &'a U,
     id: JobId,
     cancel: &'a CancellationToken,
     events: &'a UnboundedSender<Event>,
+    /// Whether what `uv` writes goes to the log. A read writes only errors, which its table or
+    /// the project tile already shows, and a reload would repeat them after every mutation.
+    logged: bool,
 }
 
 impl<U: UvClient> UvClient for JobUv<'_, U> {
     async fn run(&self, args: &[&str]) -> Result<String, UvError> {
         let on_line = |line: &str| {
-            let _ = self.events.send(Event::JobOutput(self.id, line.to_owned()));
+            if self.logged {
+                let _ = self.events.send(Event::JobOutput(self.id, line.to_owned()));
+            }
         };
         self.uv.run_streaming(args, self.cancel, &on_line).await
     }
