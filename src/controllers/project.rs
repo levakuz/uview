@@ -108,3 +108,14 @@ fn matches_any(globs: &[String], root: &Path, path: &Path) -> bool {
 pub async fn load_project_info(uv: &impl UvClient) -> Result<ProjectInfo, UvError> {
     parse::version(&uv.run(&args::VERSION).await?)
 }
+
+/// Creates a project in `dir` with `uv init`, named `name`, or after `dir`.
+pub async fn init_project(
+    uv: &impl UvClient,
+    dir: &Path,
+    name: Option<&str>,
+) -> Result<(), UvError> {
+    let dir = dir.to_string_lossy();
+    uv.run(&args::init_args(&dir, name)).await?;
+    Ok(())
+}

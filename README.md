@@ -45,9 +45,19 @@ uview
 `pyproject.toml`, as uv does, and runs every uv command from that directory. When
 `UV_PROJECT` is set, it starts from there instead.
 
-It prints why and exits instead of starting when:
+**Outside a project**, with no `pyproject.toml` in the directory or any parent, uview offers
+to create one there with `uv init`. It asks first, then for the project's name, which defaults
+to the directory's, and shows what uv prints. It then opens the new project:
 
-- there is no `pyproject.toml` in the directory or any parent;
+```
+uview: no pyproject.toml in "/home/jane/acme" or any parent directory.
+Create a uv project in "/home/jane/acme"? [y/N] y
+Project name [acme]:
+Initialized project `acme` at `/home/jane/acme`
+```
+
+Without a terminal to ask on, it prints why and exits instead, as it does when:
+
 - the `pyproject.toml` has neither a `[project]` table nor `[tool.uv.workspace]`;
 - the `pyproject.toml` sets `[tool.uv] managed = false`.
 

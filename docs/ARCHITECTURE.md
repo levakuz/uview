@@ -124,7 +124,7 @@ Messages are split by direction of travel (`src/message.rs`, ADR-0001):
   `RemoveFromProject`, `Uninstall`, `Upgrade`, `Pin`.
 - **`Event`** — what a command produced: the loaded rows and the project's name and
   version, `Notice(String)` and `Error(String)`, and the course of its job: `JobQueued`,
-  `JobStarted`, `JobOutput` for each line its `uv` writes, and `JobFinished`.
+  `JobStarted`, `JobOutput` for each line a mutation's `uv` writes, and `JobFinished`.
 
 The keymap, `src/ui/keymap.rs`, turns an `Input` into an `Action` by the `Mode`, where the
 focus is: a table, the actions list, an input, or the help. `App` reports `Help` while the help
@@ -180,7 +180,7 @@ nothing of it: the failure would recur on every reload, and is no mistake of the
 
 ```
 src/
-├── main.rs                 # tokio entry point; finds the project root and makes it the cwd
+├── main.rs                 # tokio entry point; finds the project root, or offers uv init; makes it the cwd
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, the help
 ├── message.rs              # Input / Action / Command / Event
@@ -303,6 +303,12 @@ to the nearest `pyproject.toml`, as `uv` does; an I/O error while looking counts
 file", as it does for `uv`. `refusal` then rejects a project `uv` would refuse: no
 `[project]` table and no workspace, or `managed = false`.
 
+With no `pyproject.toml` found, and a terminal on stdin and stderr, `main.rs` offers to create
+a project with `uv init` before the terminal is taken over: it asks yes or no, then for a
+name, and runs `controllers::project::init_project` through a client that prints each line uv
+writes to stderr as it comes. The app then starts on the new project, as on any other. Without
+a terminal, `main.rs` says there is no project and exits, as before.
+
 `workspace_root`, also in `project.rs`, finds the root of the uv workspace the project
 belongs to, by uv's rules (ADR-0008). The project is its own root if it declares a workspace.
 Otherwise the nearest `pyproject.toml` above it decides: its directory is the root if its
@@ -361,8 +367,10 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
 - **Output.** `RealUvClient` reads stdout whole, as the result, and stderr line by line. With
   stderr a pipe, `uv` draws no progress bars; it reports in lines instead, such as
   `Resolved 9 packages in 361ms`, `Downloading numpy (5.2MiB)` and `+ numpy==2.5.3`. Each
-  line reaches the app as `Event::JobOutput` while `uv` runs, and the uv log shows it under
-  the label of the job it came from.
+  line of a mutation reaches the app as `Event::JobOutput` while `uv` runs, and the uv log
+  shows it under the label of the job it came from. A read's lines are dropped. A reload writes
+  nothing but errors, which its table or the project tile already shows, and they would come
+  back after every mutation.
 - **Cancellation.** Ctrl+C cancels every job accepted so far (ADR-0006). A queued job never
   starts. A running one ends at its current `uv` call: `RealUvClient` sends `uv` SIGINT, on
   which `uv add` puts `pyproject.toml` back, waits up to two seconds for it to exit, and

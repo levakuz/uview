@@ -272,8 +272,7 @@ fn membership_args_pick_the_flag_for_each_membership() {
 
 #[test]
 fn the_environment_is_listed_quietly() {
-    // A workspace member's environment is not the `.venv` beside it, and uv would say so on
-    // every reload.
+    // A workspace member's environment is not the `.venv` beside it, and uv would say so.
     assert_eq!(
         pip_list_args("/ws/.venv"),
         [
@@ -557,6 +556,26 @@ async fn a_jobs_uv_lines_arrive_in_order_as_its_output() -> Result<(), Box<dyn E
         .collect();
     // The update's own call.
     assert_eq!(output, ["Resolved 1 package in 2ms", "+ six==1.17.0"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_reload_writes_nothing_to_the_log() -> Result<(), Box<dyn Error>> {
+    // What a read writes is an error, shown where it reads into. A dynamic version's would come
+    // back after every mutation.
+    let uv = Arc::new(FakeUvClient {
+        stderr: vec!["error: We cannot get or set dynamic project versions in: pyproject.toml"],
+        ..FakeUvClient::default()
+    });
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), events);
+    runner.execute(Command::Reload);
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::JobOutput(..)))
+    );
     Ok(())
 }
 

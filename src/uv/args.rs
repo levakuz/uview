@@ -28,13 +28,24 @@ pub fn upgrade_args(name: &str) -> [&str; 3] {
     ["sync", "--upgrade-package", name]
 }
 
+/// `uv init` arguments that create a project in `dir`, named `name`, or after `dir` as uv names
+/// it.
+pub fn init_args<'a>(dir: &'a str, name: Option<&'a str>) -> Vec<&'a str> {
+    let mut args = vec!["init"];
+    if let Some(name) = name {
+        args.extend(["--name", name]);
+    }
+    args.push(dir);
+    args
+}
+
 /// Reads the project's name and version as JSON. Given no new version, `uv version` neither
 /// locks nor syncs.
 pub const VERSION: [&str; 3] = ["version", "--output-format", "json"];
 
-/// `uv pip list` arguments that read the packages installed in `env` as JSON. Quietly: when
-/// `env` is not the `.venv` in the working directory, as for a workspace member, uv names it
-/// on stderr, which would put a line in the uv log on every reload. Errors still come through.
+/// `uv pip list` arguments that read the packages installed in `env` as JSON. Quietly, so that
+/// uv writes nothing but errors: given an environment other than the `.venv` in the working
+/// directory, as for a workspace member, uv would also name it on stderr.
 pub fn pip_list_args(env: &str) -> [&str; 7] {
     [
         "pip", "list", "--quiet", "--format", "json", "--python", env,
