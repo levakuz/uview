@@ -31,8 +31,10 @@ pub struct ProjectState {
 pub struct DepsState {
     pub pyproject: Loadable<Vec<PyprojectDependency>>,
     pub env: Loadable<Vec<EnvDependency>>,
-    /// The groups pyproject.toml declares empty that could be deleted, as of the pyproject load.
+    /// The groups pyproject.toml declares empty, as of the pyproject load. They have no rows.
     pub empty_groups: Vec<String>,
+    /// Those of `empty_groups` that could be deleted.
+    pub deletable_groups: Vec<String>,
     /// The generation of the newest load shown: how many mutations had ended as it started.
     generation: u64,
 }
@@ -47,10 +49,12 @@ impl DepsState {
                 generation,
                 loaded,
                 empty_groups,
+                deletable_groups,
             } if generation >= self.generation => {
                 self.generation = generation;
                 self.pyproject = loaded.into();
                 self.empty_groups = empty_groups;
+                self.deletable_groups = deletable_groups;
             }
             Event::EnvLoaded { generation, loaded } if generation >= self.generation => {
                 self.generation = generation;

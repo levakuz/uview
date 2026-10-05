@@ -2,7 +2,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use uview::controllers::groups::{delete_group, without_empty_group};
+use uview::controllers::groups::{declared_empty, delete_group, without_empty_group};
 use uview::uv::{UvClient, UvError};
 
 const PYPROJECT: &str = r#"[project]
@@ -16,6 +16,12 @@ dev = [
 ]
 lint = []
 "#;
+
+#[test]
+fn the_empty_groups_are_found() {
+    assert_eq!(declared_empty(PYPROJECT), ["lint"]);
+    assert!(declared_empty("[project]\nname = \"demo\"\n").is_empty());
+}
 
 #[test]
 fn an_empty_group_is_deleted_and_the_rest_is_kept_as_written() {

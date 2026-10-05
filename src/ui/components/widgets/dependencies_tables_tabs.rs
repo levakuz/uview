@@ -128,7 +128,7 @@ impl DependenciesTablesTabs {
         let Some(i) = self
             .emptied
             .iter()
-            .position(|group| deps.empty_groups.contains(group))
+            .position(|group| deps.deletable_groups.contains(group))
         else {
             return;
         };
@@ -495,10 +495,8 @@ impl DependenciesTablesTabs {
     }
 }
 
-/// The list a group is chosen from: main, then the dependency groups the project's rows are in,
-/// leaving out those in `except`, then a new group.
-// ponytail: a group pyproject.toml declares empty has no row and is not offered; it can be typed
-// as a new group.
+/// The list a group is chosen from: main, then the project's dependency groups, those with rows
+/// and the empty ones, leaving out those in `except`, then a new group.
 fn group_choices(
     deps: &DepsState,
     except: &[Membership],
@@ -511,6 +509,7 @@ fn group_choices(
         .flat_map(|d| &d.groups)
         .filter(|m| matches!(m, Membership::Group(_)))
         .cloned()
+        .chain(deps.empty_groups.iter().cloned().map(Membership::Group))
         .collect();
     groups.sort_by_key(ToString::to_string);
     groups.dedup();

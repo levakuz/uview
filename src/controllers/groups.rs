@@ -47,11 +47,8 @@ pub fn without_empty_group(pyproject: &str, name: &str) -> Option<String> {
     Some(doc.to_string())
 }
 
-/// The groups pyproject.toml declares empty that could be deleted.
-pub async fn deletable_empty_groups() -> Vec<String> {
-    let Ok(pyproject) = tokio::fs::read_to_string(PYPROJECT).await else {
-        return Vec::new();
-    };
+/// The groups `pyproject` declares with no packages. They have no row in the pyproject table.
+pub fn declared_empty(pyproject: &str) -> Vec<String> {
     let Ok(doc) = pyproject.parse::<DocumentMut>() else {
         return Vec::new();
     };
@@ -60,9 +57,23 @@ pub async fn deletable_empty_groups() -> Vec<String> {
     };
     groups
         .iter()
+        .filter(|(_, deps)| deps.as_array().is_some_and(|deps| deps.is_empty()))
         .map(|(name, _)| name.to_string())
-        .filter(|name| without_empty_group(&pyproject, name).is_some())
         .collect()
+}
+
+/// The groups pyproject.toml declares empty, and those of them that could be deleted.
+pub async fn empty_groups() -> (Vec<String>, Vec<String>) {
+    let Ok(pyproject) = tokio::fs::read_to_string(PYPROJECT).await else {
+        return (Vec::new(), Vec::new());
+    };
+    let empty = declared_empty(&pyproject);
+    let deletable = empty
+        .iter()
+        .filter(|name| without_empty_group(&pyproject, name).is_some())
+        .cloned()
+        .collect();
+    (empty, deletable)
 }
 
 /// Deletes the empty group `name` from the `pyproject` file, then relocks, since uv.lock lists

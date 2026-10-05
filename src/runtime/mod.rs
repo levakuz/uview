@@ -11,7 +11,7 @@ use crate::controllers::dependencies::{
     add_dep, load_env_deps, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
     sync_exact, uninstall_from_env, upgrade_env_dep,
 };
-use crate::controllers::groups::{PYPROJECT, deletable_empty_groups, delete_group};
+use crate::controllers::groups::{PYPROJECT, delete_group, empty_groups};
 use crate::controllers::project::load_project_info;
 use crate::domain::Membership;
 use crate::message::{Command, Event};
@@ -97,10 +97,12 @@ async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>,
     if let Err(reason) = &pyproject {
         let _ = events.send(Event::Error(format!("pyproject.toml: {reason}")));
     }
+    let (empty_groups, deletable_groups) = empty_groups().await;
     let _ = events.send(Event::PyprojectLoaded {
         generation,
         loaded: pyproject,
-        empty_groups: deletable_empty_groups().await,
+        empty_groups,
+        deletable_groups,
     });
     let env = load_env_deps(uv, env).await;
     // A cancel is the runner's to report.

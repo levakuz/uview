@@ -102,8 +102,10 @@ pub enum Event {
     PyprojectLoaded {
         generation: u64,
         loaded: Result<Vec<PyprojectDependency>, String>,
-        /// The groups pyproject.toml declares empty that could be deleted.
+        /// The groups pyproject.toml declares empty, which have no rows.
         empty_groups: Vec<String>,
+        /// Those of `empty_groups` that could be deleted.
+        deletable_groups: Vec<String>,
     },
     /// The Environment table's rows, or why they could not be listed, likewise.
     EnvLoaded {
