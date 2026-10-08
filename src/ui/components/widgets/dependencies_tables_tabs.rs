@@ -1,9 +1,10 @@
 use crate::{
-    domain::{EnvDependency, Membership, PyprojectDependency},
+    domain::{EnvDependency, Membership, PyprojectDependency, Source},
     message::{Action, Command, DepsAction, NavAction},
     state::{DepsState, Loadable},
     ui::components::{
         features::{
+            add_from_source::AddFromSource,
             input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
         },
@@ -38,6 +39,8 @@ pub struct DependenciesTablesTabs {
     package_add_popup: InputPopup,
     pin_version_popup: InputPopup,
     new_group_popup: InputPopup,
+    /// The questions `P` asks before its group is chosen.
+    add_from_source: AddFromSource,
     /// What waits on a group to be chosen.
     pending: Option<Pending>,
     /// The groups `pending` can be done to; past them, a new group.
@@ -53,6 +56,8 @@ pub struct DependenciesTablesTabs {
 enum Pending {
     /// Add the requirement: typed into the add input, or a declared package's own.
     Add(String),
+    /// Add a package from somewhere other than the default index.
+    AddFrom(Source),
     /// Add the package's requirement to the chosen group, then remove it from `from`.
     Move {
         name: String,
@@ -86,6 +91,7 @@ impl DependenciesTablesTabs {
             package_add_popup,
             pin_version_popup,
             new_group_popup,
+            add_from_source: AddFromSource::default(),
             pending: None,
             group_popup: None,
             emptied: Vec::new(),
@@ -104,6 +110,7 @@ impl DependenciesTablesTabs {
         if self.pin_version_popup.is_editing() {
             self.pin_version_popup.render(frame, area);
         }
+        self.add_from_source.render(frame, area);
         if let Some((popup, _)) = &mut self.group_popup {
             popup.render(frame, area);
         }
@@ -158,7 +165,9 @@ impl DependenciesTablesTabs {
 
     /// Where the focus is: an input, the actions list, or the table.
     pub fn mode(&self) -> Mode {
-        if self.package_add_popup.is_editing()
+        if let Some(mode) = self.add_from_source.mode() {
+            mode
+        } else if self.package_add_popup.is_editing()
             || self.pin_version_popup.is_editing()
             || self.new_group_popup.is_editing()
         {
@@ -263,6 +272,13 @@ impl DependenciesTablesTabs {
     }
 
     fn respond(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
+        if self.add_from_source.mode().is_some() {
+            if let Some(source) = self.add_from_source.update(action) {
+                self.pending = Some(Pending::AddFrom(source));
+                self.group_popup = Some(group_choices(deps, &[], "Add to group"));
+            }
+            return Vec::new();
+        }
         // An open input takes every key.
         if self.package_add_popup.is_editing() {
             if let Action::Nav(nav) = action
@@ -360,6 +376,7 @@ impl DependenciesTablesTabs {
                 }
             }
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
+            Action::Deps(DepsAction::OpenAddFromSource) => self.add_from_source.open(),
             Action::Deps(DepsAction::Sync) => return vec![Command::Sync],
             Action::Deps(DepsAction::Refresh) => return vec![Command::Reload],
             // Confirm and Type only mean something in an input; Quit, Cancel and Help belong to
@@ -379,6 +396,7 @@ impl DependenciesTablesTabs {
                 requirement,
                 membership,
             },
+            Some(Pending::AddFrom(source)) => Command::AddFrom { source, membership },
             Some(Pending::Move {
                 name,
                 requirement,

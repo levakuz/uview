@@ -211,6 +211,7 @@ src/
         │   ├── popup.rs    #   Popup — centering and Clear only
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
+        │   ├── add_from_source.rs         # the questions P asks: an index, git or a path, and its fields
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── help.rs                    # the footer and the help overlay, from the keymap
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs

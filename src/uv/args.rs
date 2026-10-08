@@ -1,11 +1,38 @@
 //! `uv` argument lists, built without spawning or awaiting anything.
 
-use crate::domain::Membership;
+use crate::domain::{Membership, Source, index_name};
 
 /// Brings the environment exactly in line with the lockfile: packages it does not list, such
 /// as `uv pip install`ed ones, are uninstalled.
 pub const SYNC: [&str; 1] = ["sync"];
 pub const LOCK: [&str; 1] = ["lock"];
+
+/// `uv add` arguments adding from `source` to `membership`. An index is named, so that uv pins
+/// the package to it in `[tool.uv.sources]`; a bare `--index` would add it for every package.
+pub fn add_from_args(source: &Source, membership: &Membership) -> Vec<String> {
+    let mut args = vec!["add".to_string()];
+    match source {
+        Source::Index { package, url } => {
+            args.extend([package.trim().to_string(), "--index".into()]);
+            args.push(format!("{}={url}", index_name(url)));
+        }
+        // Without `git+`, uv takes an https URL for an archive.
+        Source::Git { url } if url.starts_with("git+") => args.push(url.clone()),
+        Source::Git { url } => args.push(format!("git+{url}")),
+        Source::Path { path, editable } => {
+            args.push(path.clone());
+            if *editable {
+                args.push("--editable".into());
+            }
+        }
+    }
+    match membership {
+        Membership::Project => {}
+        Membership::Group(name) => args.extend(["--group".into(), name.clone()]),
+        Membership::Extra(name) => args.extend(["--optional".into(), name.clone()]),
+    }
+    args
+}
 
 /// `uv remove` / `uv add` arguments acting on one membership. Each syncs the environment as it
 /// ends, as in a shell: `uv add` installs what it needs, and `uv remove` also uninstalls what

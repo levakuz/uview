@@ -8,8 +8,8 @@ use std::path::Path;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::controllers::dependencies::{
-    add_dep, load_env_deps, load_pyproject_deps, pin_dep_version, remove_dep_from_pyproject,
-    sync_exact, uninstall_from_env, upgrade_env_dep,
+    add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
+    remove_dep_from_pyproject, sync_exact, uninstall_from_env, upgrade_env_dep,
 };
 use crate::controllers::groups::{PYPROJECT, delete_group, empty_groups};
 use crate::controllers::project::load_project_info;
@@ -45,6 +45,9 @@ async fn run(
                 .await
                 .map(|()| format!("Removed {name} from {}", from.join(", ")))
         }
+        Command::AddFrom { source, membership } => add_from(uv, &source, &membership)
+            .await
+            .map(|()| format!("Added {}{}", source.label(), to(&membership))),
         Command::DeleteGroup { name } => delete_group(uv, Path::new(PYPROJECT), &name)
             .await
             .map(|()| format!("Deleted group {name}")),

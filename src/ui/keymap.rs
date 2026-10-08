@@ -148,7 +148,12 @@ const TABLE: &[Binding] = &[
     Binding {
         keys: &[(Key::char('p'), Action::Deps(DepsAction::OpenAdd))],
         hint: Some("add"),
-        help: "Add a package",
+        help: "Add a package from the default index",
+    },
+    Binding {
+        keys: &[(Key::char('P'), Action::Deps(DepsAction::OpenAddFromSource))],
+        hint: None,
+        help: "Add a package from an index, git or a path",
     },
     Binding {
         keys: &[(Key::char('s'), Action::Deps(DepsAction::Sync))],

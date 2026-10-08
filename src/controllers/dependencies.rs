@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::domain::{EnvDependency, Membership, PyprojectDependency};
+use crate::domain::{EnvDependency, Membership, PyprojectDependency, Source};
 use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
 
@@ -89,6 +89,18 @@ pub async fn add_dep(
     membership: &Membership,
 ) -> Result<(), UvError> {
     uv.run(&args::membership_args("add", requirement, membership))
+        .await?;
+    Ok(())
+}
+
+/// Adds a package from `source` to `membership` with `uv add`.
+pub async fn add_from(
+    uv: &impl UvClient,
+    source: &Source,
+    membership: &Membership,
+) -> Result<(), UvError> {
+    let args = args::add_from_args(source, membership);
+    uv.run(&args.iter().map(String::as_str).collect::<Vec<_>>())
         .await?;
     Ok(())
 }

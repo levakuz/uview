@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyEvent;
 
-use crate::domain::{EnvDependency, Membership, ProjectInfo, PyprojectDependency};
+use crate::domain::{EnvDependency, Membership, ProjectInfo, PyprojectDependency, Source};
 
 /// What the terminal sends.
 #[derive(Debug)]
@@ -43,6 +43,8 @@ pub enum NavAction {
 pub enum DepsAction {
     SwitchTable,
     OpenAdd,
+    /// Add a package from an index, git or a path, rather than the default index.
+    OpenAddFromSource,
     Sync,
     Refresh,
 }
@@ -66,6 +68,11 @@ pub enum Command {
         requirement: String,
         from: Membership,
         to: Membership,
+    },
+    /// Add a package from `source` to `membership` with `uv add`.
+    AddFrom {
+        source: Source,
+        membership: Membership,
     },
     /// Delete the empty dependency group `name` from pyproject.toml, then `uv lock`.
     DeleteGroup {

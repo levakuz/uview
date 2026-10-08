@@ -115,6 +115,9 @@ fn label(command: &Command) -> String {
         Command::RemoveFromProject { name, .. } => format!("Removing {name}"),
         Command::Move { name, to, .. } => format!("Moving {name} to {to}"),
         Command::DeleteGroup { name } => format!("Deleting group {name}"),
+        Command::AddFrom { source, membership } => {
+            format!("Adding {}{}", source.label(), super::to(membership))
+        }
         Command::Uninstall { name } => format!("Uninstalling {name}"),
         Command::Upgrade { name } => format!("Updating {name}"),
         Command::Pin { name, .. } => format!("Pinning {name}"),

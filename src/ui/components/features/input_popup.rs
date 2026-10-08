@@ -37,6 +37,13 @@ impl InputPopup {
         self.input.start_editing();
     }
 
+    /// Opens the input with `value` typed in, titled `title`: what was typed came back with a
+    /// problem, which the title says.
+    pub fn reopen(&mut self, title: &str, value: &str) {
+        self.input = UviewInput::default().with_title(title).with_value(value);
+        self.input.start_editing();
+    }
+
     /// Handles a key while the input is open. Returns the text once Enter confirms some,
     /// which also closes the input.
     pub fn update(&mut self, nav: &NavAction) -> Option<String> {
