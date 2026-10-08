@@ -611,3 +611,65 @@ fn esc_gives_up_on_a_source_at_any_step() {
     screen.press(KeyCode::Char('p'));
     assert_eq!(screen.page.mode(), Mode::Input);
 }
+
+#[test]
+fn u_and_d_update_and_remove_the_selected_row_in_one_key() {
+    let mut screen = with_pytest_in(&["dev", "test"]);
+    screen.press(KeyCode::Down);
+    // As Enter, then Update or Remove, would.
+    assert_eq!(
+        screen.press(KeyCode::Char('u')),
+        [Command::Upgrade {
+            name: "pytest".into()
+        }]
+    );
+    assert_eq!(
+        screen.press(KeyCode::Char('d')),
+        [Command::RemoveFromProject {
+            name: "pytest".into(),
+            groups: vec![
+                Membership::Group("dev".into()),
+                Membership::Group("test".into())
+            ],
+        }]
+    );
+    // In the Environment table, d uninstalls and leaves pyproject.toml alone.
+    screen.state.deps.env = Loadable::Loaded(vec![uview::domain::EnvDependency {
+        name: "six".into(),
+        version: "1.17.0".into(),
+    }]);
+    screen.press(KeyCode::Tab);
+    assert_eq!(
+        screen.press(KeyCode::Char('u')),
+        [Command::Upgrade { name: "six".into() }]
+    );
+    assert_eq!(
+        screen.press(KeyCode::Char('d')),
+        [Command::Uninstall { name: "six".into() }]
+    );
+}
+
+#[test]
+fn u_and_d_do_nothing_without_a_row_or_over_a_popup() {
+    let mut screen = Screen::with(&[]);
+    assert!(screen.press(KeyCode::Char('u')).is_empty());
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    // Over the actions list.
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Enter);
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Esc);
+    // In an input they are typed: "ud" is the requirement.
+    screen.press(KeyCode::Char('p'));
+    screen.press(KeyCode::Char('u'));
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "ud".into(),
+            membership: Membership::Project,
+        }]
+    );
+}

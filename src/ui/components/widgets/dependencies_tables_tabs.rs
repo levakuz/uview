@@ -377,6 +377,17 @@ impl DependenciesTablesTabs {
             }
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
             Action::Deps(DepsAction::OpenAddFromSource) => self.add_from_source.open(),
+            // The keys of the actions list's Update and Remove, on the selected row.
+            Action::Deps(DepsAction::Update) => {
+                if let Some(name) = self.selected_name(deps) {
+                    return vec![Command::Upgrade { name }];
+                }
+            }
+            Action::Deps(DepsAction::Remove) => {
+                if let Some(name) = self.selected_name(deps) {
+                    return self.remove(&name, deps).into_iter().collect();
+                }
+            }
             Action::Deps(DepsAction::Sync) => return vec![Command::Sync],
             Action::Deps(DepsAction::Refresh) => return vec![Command::Reload],
             // Confirm and Type only mean something in an input; Quit, Cancel and Help belong to
@@ -498,8 +509,7 @@ impl DependenciesTablesTabs {
                         groups: d.groups.clone(),
                     })
             }
-            // Environment only: pyproject.toml is left alone. Confirmation and its warnings
-            // come with #12.
+            // Environment only: pyproject.toml is left alone.
             ActiveTable::Environment => {
                 deps.env
                     .rows()

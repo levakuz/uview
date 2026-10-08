@@ -145,15 +145,24 @@ const TABLE: &[Binding] = &[
         hint: Some("switch"),
         help: "Switch between the pyproject.toml and Environment tables",
     },
+    // One row of the help, which fills 80x24.
     Binding {
-        keys: &[(Key::char('p'), Action::Deps(DepsAction::OpenAdd))],
+        keys: &[
+            (Key::char('p'), Action::Deps(DepsAction::OpenAdd)),
+            (Key::char('P'), Action::Deps(DepsAction::OpenAddFromSource)),
+        ],
         hint: Some("add"),
-        help: "Add a package from the default index",
+        help: "Add a package (p), or from an index, git or a path (P)",
     },
+    // One row of the help, which fills 80x24, and left out of the footer, which would no
+    // longer fit 80 columns.
     Binding {
-        keys: &[(Key::char('P'), Action::Deps(DepsAction::OpenAddFromSource))],
+        keys: &[
+            (Key::char('u'), Action::Deps(DepsAction::Update)),
+            (Key::char('d'), Action::Deps(DepsAction::Remove)),
+        ],
         hint: None,
-        help: "Add a package from an index, git or a path",
+        help: "Update (u) or remove (d) the selected package",
     },
     Binding {
         keys: &[(Key::char('s'), Action::Deps(DepsAction::Sync))],

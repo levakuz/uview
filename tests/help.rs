@@ -62,7 +62,7 @@ fn the_footer_lists_the_keys_that_work_where_the_focus_is() -> Result<(), Box<dy
     let table = footer(Mode::Table)?;
     assert_eq!(
         rows(&table)[0].trim_end(),
-        "↑↓ move  enter actions  tab switch  p add  s sync  r reload  ? help  q quit"
+        "↑↓ move  enter actions  tab switch  pP add  s sync  r reload  ? help  q quit"
     );
     // The keys stand out from what they do.
     let buffer = table.backend().buffer();
