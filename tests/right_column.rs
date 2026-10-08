@@ -10,7 +10,7 @@ use uview::domain::ProjectInfo;
 use uview::message::{Event, JobId};
 use uview::state::{JobsState, Loadable, ProjectState};
 use uview::ui::components::features::project_tile::render_project_tile;
-use uview::ui::components::features::uv_log::render_uv_log;
+use uview::ui::components::features::uv_log::{render_uv_log, wrap};
 
 fn rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
     let buffer = terminal.backend().buffer();
@@ -146,4 +146,65 @@ fn the_uv_log_keeps_its_newest_lines_in_view() -> Result<(), Box<dyn Error>> {
         ["│Downloading numpy     │", "│+ numpy==2.5.3        │"]
     );
     Ok(())
+}
+
+#[test]
+fn a_long_uv_line_wraps_under_its_own_indent() -> Result<(), Box<dyn Error>> {
+    let mut jobs = JobsState::default();
+    jobs.apply(&Event::JobQueued {
+        id: JobId(1),
+        label: "Adding nosuchpackage-zzz".into(),
+    });
+    for line in [
+        "  × No solution found when resolving dependencies:",
+        "  ╰─▶ Because nosuchpackage-zzz was not found in the package registry and",
+        "      your project depends on nosuchpackage-zzz, we can conclude that",
+    ] {
+        jobs.apply(&Event::JobOutput(JobId(1), line.into()));
+    }
+    // The log's width at 80 columns.
+    let mut terminal = Terminal::new(TestBackend::new(32, 15))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs))?;
+    assert_eq!(
+        rows(&terminal),
+        [
+            "┌uv────────────────────────────┐",
+            "│Adding nosuchpackage-zzz      │",
+            "│  × No solution found when    │",
+            "│  resolving dependencies:     │",
+            "│  ╰─▶ Because                 │",
+            "│  nosuchpackage-zzz was not   │",
+            "│  found in the package        │",
+            "│  registry and                │",
+            "│      your project depends on │",
+            "│      nosuchpackage-zzz, we   │",
+            "│      can conclude that       │",
+            "│                              │",
+            "│                              │",
+            "│                              │",
+            "└──────────────────────────────┘",
+        ]
+    );
+    // Short of rows, the newest are kept, wrapped as they are.
+    let mut terminal = Terminal::new(TestBackend::new(32, 4))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs))?;
+    assert_eq!(
+        rows(&terminal)[1..3],
+        [
+            "│      nosuchpackage-zzz, we   │",
+            "│      can conclude that       │"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_word_wider_than_the_log_is_broken_inside() {
+    assert_eq!(
+        wrap("see https://example.com/a/very/long/path", 12),
+        ["see", "https://exam", "ple.com/a/ve", "ry/long/path"]
+    );
+    // An indent that would take half the width is dropped.
+    assert_eq!(wrap("        a b", 10), ["a b"]);
+    assert_eq!(wrap("", 10), [""]);
 }
