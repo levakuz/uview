@@ -12,7 +12,7 @@ use crate::ui::keymap::{self, Mode};
 /// The bottom line: the keys that work in `mode`, each with a word on what it does.
 pub fn render_footer(frame: &mut Frame, area: Rect, mode: Mode) {
     let mut spans = Vec::new();
-    for (keys, hint) in keymap::bindings(mode).filter_map(keymap::Binding::hint) {
+    for (keys, hint) in keymap::bindings(mode).flat_map(keymap::Binding::hints) {
         if !spans.is_empty() {
             spans.push("  ".into());
         }
@@ -23,7 +23,8 @@ pub fn render_footer(frame: &mut Frame, area: Rect, mode: Mode) {
 }
 
 /// Every binding, by where it works, in a popup over `area`.
-/// ponytail: no scrolling. The bindings fit 80x24 with a row to spare; scroll when they do not.
+/// ponytail: no scrolling. The bindings fill 80x24 exactly; the next one needs scrolling, or
+/// they will not all show.
 pub fn render_help(frame: &mut Frame, area: Rect) {
     let groups = keymap::groups();
     let keys_width = groups

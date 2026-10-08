@@ -45,6 +45,10 @@ pub enum DepsAction {
     OpenAdd,
     /// Add a package from an index, git or a path, rather than the default index.
     OpenAddFromSource,
+    /// Update the selected package, as its actions list's Update does.
+    Update,
+    /// Remove the selected package, as its actions list's Remove does.
+    Remove,
     Sync,
     Refresh,
 }

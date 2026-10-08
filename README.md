@@ -78,8 +78,9 @@ one for instance, the tile shows what uv said instead. Below it is the uv log: e
 operation's name, then the lines uv printed while it ran.
 
 **The bottom lines.** The first shows what is running and the latest error or notice. The
-last lists the keys that work where you are: in a table, in the actions list or in an input.
-Press `?` for every key, by where it works.
+last lists the main keys that work where you are: in a table, in the actions list or in an
+input. The arrows, `P` and `q` are left out for room. Press `?` for every key, by where it
+works.
 
 ### Actions
 
@@ -123,7 +124,10 @@ there. Quitting cancels the same way.
 | `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
-| `p` | Add a package. |
+| `p` | Add a package from the default index, then choose its group. |
+| `P` | Add a package from another index (the package is pinned to it), a git repository (`URL@branch`, `@tag` or `@commit`) or a local path (editable unless you say otherwise), then choose its group. |
+| `u` | Update the selected package, as **Update** in its actions does. |
+| `d` | Remove the selected package at once, as **Remove** in its actions does. |
 | `s` | Sync the environment with `uv sync`. |
 | `r` | Read both tables again, for changes made outside uview. |
 | `?` | Show every key, by where it works. `Esc`, `?` or `q` closes the list. |

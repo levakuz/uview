@@ -62,17 +62,17 @@ fn the_footer_lists_the_keys_that_work_where_the_focus_is() -> Result<(), Box<dy
     let table = footer(Mode::Table)?;
     assert_eq!(
         rows(&table)[0].trim_end(),
-        "↑↓ move  enter actions  tab switch  p add  s sync  r reload  ? help  q quit"
+        "enter actions  tab switch  p add  u update  d remove  s sync  r reload  ? help"
     );
     // The keys stand out from what they do.
     let buffer = table.backend().buffer();
     assert_eq!(
-        (buffer[(0, 0)].fg, buffer[(3, 0)].fg),
+        (buffer[(0, 0)].fg, buffer[(6, 0)].fg),
         (Color::White, Color::DarkGray)
     );
     assert_eq!(
         rows(&footer(Mode::Actions)?)[0].trim_end(),
-        "↑↓ move  enter run  esc close  ? help  q quit"
+        "enter run  esc close  ? help"
     );
     assert_eq!(
         rows(&footer(Mode::Input)?)[0].trim_end(),

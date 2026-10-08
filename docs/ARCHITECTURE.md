@@ -130,7 +130,7 @@ Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 The keymap, `src/ui/keymap.rs`, turns an `Input` into an `Action` by the `Mode`, where the
 focus is: a table, the actions list, an input, or the help. `App` reports `Help` while the help
 is open, and the page's `mode()` otherwise. Each mode has its bindings: keys, the action each
-key means, a hint for the footer and a line for the help. The key handling, the footer below
+key means, the footer's hints (none, one, or one per action) and a line for the help. The key handling, the footer below
 the status line and the help overlay all read that one table, so they cannot disagree.
 
 - Ctrl+C becomes `Action::Cancel` in every mode.
