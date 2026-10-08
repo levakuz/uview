@@ -172,15 +172,19 @@ const TABLE: &[Binding] = &[
         hints: &["update", "remove"],
         help: "Update (u) or remove (d) the selected package",
     },
+    // One row of the help, which fills 80x24.
     Binding {
-        keys: &[(Key::char('s'), Action::Deps(DepsAction::Sync))],
-        hints: &["sync"],
-        help: "Sync the environment with uv sync",
+        keys: &[
+            (Key::char('s'), Action::Deps(DepsAction::Sync)),
+            (Key::char('r'), Action::Deps(DepsAction::Refresh)),
+        ],
+        hints: &["sync", "reload"],
+        help: "Sync with uv sync (s), or read both tables again (r)",
     },
     Binding {
-        keys: &[(Key::char('r'), Action::Deps(DepsAction::Refresh))],
-        hints: &["reload"],
-        help: "Read both tables again",
+        keys: &[(Key::char('i'), Action::Deps(DepsAction::OpenIndexes))],
+        hints: &[],
+        help: "Show the project's package indexes, to add or remove one",
     },
     Binding {
         keys: &[(Key::new(KeyCode::Esc), BACK)],
@@ -204,6 +208,11 @@ const ACTIONS: &[Binding] = &[
         keys: &[(Key::new(KeyCode::Esc), BACK)],
         hints: &["close"],
         help: "Close the list",
+    },
+    Binding {
+        keys: &[(Key::char('d'), Action::Deps(DepsAction::Remove))],
+        hints: &[],
+        help: "Remove the highlighted index, in the list of indexes",
     },
 ];
 
@@ -240,16 +249,24 @@ const ANYWHERE: &[Binding] = &[Binding {
     help: "Cancel what uv is running, and what waits behind it",
 }];
 
-/// The help itself, which `?` and `q` close rather than open or quit.
-const HELP: &[Binding] = &[Binding {
-    keys: &[
-        (Key::new(KeyCode::Esc), Action::Help),
-        (Key::char('?'), Action::Help),
-        (Key::char('q'), Action::Help),
-    ],
-    hints: &["close"],
-    help: "Close the help",
-}];
+/// The help itself, which `?` and `q` close rather than open or quit. Its title says when it
+/// scrolls.
+const HELP: &[Binding] = &[
+    Binding {
+        keys: &MOVE_KEYS,
+        hints: &[],
+        help: "Scroll the help",
+    },
+    Binding {
+        keys: &[
+            (Key::new(KeyCode::Esc), Action::Help),
+            (Key::char('?'), Action::Help),
+            (Key::char('q'), Action::Help),
+        ],
+        hints: &["close"],
+        help: "Close the help",
+    },
+];
 
 /// The bindings in force in `mode`, in the order the footer lists them. Where two bind a key,
 /// the first wins.

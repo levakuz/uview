@@ -11,8 +11,10 @@ use crate::controllers::dependencies::{
     add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
     remove_dep_from_pyproject, sync_exact, uninstall_from_env, upgrade_env_dep,
 };
-use crate::controllers::groups::{PYPROJECT, delete_group, empty_groups};
+use crate::controllers::groups::{delete_group, empty_groups};
+use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::load_project_info;
+use crate::controllers::pyproject::PYPROJECT;
 use crate::domain::Membership;
 use crate::message::{Command, Event};
 use crate::uv::{UvClient, UvError};
@@ -48,6 +50,14 @@ async fn run(
         Command::AddFrom { source, membership } => add_from(uv, &source, &membership)
             .await
             .map(|()| format!("Added {}{}", source.label(), to(&membership))),
+        Command::AddIndex { name, url, default } => {
+            add_index(uv, Path::new(PYPROJECT), &name, &url, default)
+                .await
+                .map(|()| format!("Added index {name}"))
+        }
+        Command::RemoveIndex(index) => remove_index(uv, Path::new(PYPROJECT), &index)
+            .await
+            .map(|()| format!("Removed index {}", index_label(&index))),
         Command::DeleteGroup { name } => delete_group(uv, Path::new(PYPROJECT), &name)
             .await
             .map(|()| format!("Deleted group {name}")),
@@ -106,6 +116,7 @@ async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>,
         loaded: pyproject,
         empty_groups,
         deletable_groups,
+        indexes: load_indexes().await,
     });
     let env = load_env_deps(uv, env).await;
     // A cancel is the runner's to report.
@@ -133,4 +144,9 @@ fn to(membership: &Membership) -> String {
         Membership::Project => String::new(),
         other => format!(" to {other}"),
     }
+}
+
+/// An index as notices name it: by its name, or its URL when it has none.
+fn index_label(index: &crate::domain::Index) -> &str {
+    index.name.as_deref().unwrap_or(&index.url)
 }

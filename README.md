@@ -79,7 +79,7 @@ operation's name, then the lines uv printed while it ran.
 
 **The bottom lines.** The first shows what is running and the latest error or notice. The
 last lists the main keys that work where you are: in a table, in the actions list or in an
-input. The arrows, `P` and `q` are left out for room. Press `?` for every key, by where it
+input. The arrows, `P`, `i` and `q` are left out for room. Press `?` for every key, by where it
 works.
 
 ### Actions
@@ -130,7 +130,8 @@ there. Quitting cancels the same way.
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |
 | `s` | Sync the environment with `uv sync`. |
 | `r` | Read both tables again, for changes made outside uview. |
-| `?` | Show every key, by where it works. `Esc`, `?` or `q` closes the list. |
+| `i` | Show the project's package indexes (`[[tool.uv.index]]`). Pick one, or press `d` on it, to remove it, or add one: a name, a URL, and whether it is an extra index searched alongside PyPI or the default that replaces it. uview edits pyproject.toml for this, since uv has no command for it, then runs `uv lock`. |
+| `?` | Show every key, by where it works; `↑` / `↓` scroll it when it does not fit. `Esc`, `?` or `q` closes the list. |
 | `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. |
 | `q` | Quit, cancelling whatever is running first. |
 

@@ -25,6 +25,8 @@ pub struct App {
     should_quit: bool,
     /// Whether the help is open, over every page.
     help: bool,
+    /// How far the help is scrolled down, in rows.
+    help_scroll: u16,
     /// What the app knows. Only `receive` and Esc change it.
     state: AppState,
     /// Runs the commands the page returns.
@@ -40,6 +42,7 @@ impl App {
             page: DependenciesPage::new(),
             should_quit: false,
             help: false,
+            help_scroll: 0,
             state: AppState {
                 project: ProjectState {
                     root: project,
@@ -97,7 +100,7 @@ impl App {
                 );
                 render_footer(frame, footer, mode);
                 if self.help {
-                    render_help(frame, screen);
+                    render_help(frame, screen, &mut self.help_scroll);
                 }
             })?;
 
@@ -141,7 +144,14 @@ impl App {
                 self.should_quit = true;
             }
             Action::Cancel => self.runner.cancel(),
-            Action::Help => self.help = !self.help,
+            Action::Help => {
+                self.help = !self.help;
+                self.help_scroll = 0;
+            }
+            Action::Nav(NavAction::Up) if self.help => {
+                self.help_scroll = self.help_scroll.saturating_sub(1);
+            }
+            Action::Nav(NavAction::Down) if self.help => self.help_scroll += 1,
             action => {
                 // Esc closes any popup and also dismisses the message.
                 if let Action::Nav(NavAction::Back) = action {

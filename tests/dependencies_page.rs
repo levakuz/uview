@@ -673,3 +673,118 @@ fn u_and_d_do_nothing_without_a_row_or_over_a_popup() {
         }]
     );
 }
+
+fn corp() -> uview::domain::Index {
+    uview::domain::Index {
+        name: Some("corp".into()),
+        url: "https://corp.example.com/simple/".into(),
+        kind: uview::domain::IndexKind::Default,
+    }
+}
+
+#[test]
+fn i_adds_an_index_extra_unless_said_otherwise() {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('i'));
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    // "PyPI is the only index" does nothing; "Add index…" asks for the name and the URL.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.type_text("pytorch");
+    screen.press(KeyCode::Enter);
+    screen.type_text("https://download.pytorch.org/whl/cpu");
+    screen.press(KeyCode::Enter);
+    // Extra is highlighted.
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::AddIndex {
+            name: "pytorch".into(),
+            url: "https://download.pytorch.org/whl/cpu".into(),
+            default: false,
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn a_bad_name_or_url_is_asked_for_again_and_default_can_be_chosen() {
+    let mut screen = Screen::with(&["six"]);
+    screen.state.deps.indexes = vec![corp()];
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    // corp is taken.
+    screen.type_text("corp");
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.type_text("2");
+    screen.press(KeyCode::Enter);
+    // A token in the URL never gets as far as pyproject.toml.
+    screen.type_text("https://token@mirror.example.com/simple/");
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    for _ in 0.."https://token@mirror.example.com/simple/".len() {
+        screen.press(KeyCode::Backspace);
+    }
+    screen.type_text("https://mirror.example.com/simple/");
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::AddIndex {
+            name: "corp2".into(),
+            url: "https://mirror.example.com/simple/".into(),
+            default: true,
+        }]
+    );
+}
+
+#[test]
+fn an_index_in_the_list_can_be_removed_or_kept() {
+    let mut screen = Screen::with(&["six"]);
+    screen.state.deps.indexes = vec![corp()];
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Enter);
+    assert_eq!(screen.press(KeyCode::Enter), [Command::RemoveIndex(corp())]);
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // Esc closes the list.
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn d_in_the_list_of_indexes_removes_the_highlighted_one_at_once() {
+    let mut screen = Screen::with(&["six"]);
+    let other = uview::domain::Index {
+        name: None,
+        url: "https://mirror.example.com/simple/".into(),
+        kind: uview::domain::IndexKind::Extra,
+    };
+    screen.state.deps.indexes = vec![corp(), other.clone()];
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Char('d')),
+        [Command::RemoveIndex(other)]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // On "Add index…" there is nothing to remove, and the list stays.
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Esc);
+    // In the group list, d does nothing either.
+    screen.type_requirement("ruff");
+    screen.press(KeyCode::Enter);
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+}

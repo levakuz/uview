@@ -5,6 +5,7 @@ use crate::{
     ui::components::{
         features::{
             add_from_source::AddFromSource,
+            indexes_popup::IndexesPopup,
             input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
         },
@@ -41,6 +42,8 @@ pub struct DependenciesTablesTabs {
     new_group_popup: InputPopup,
     /// The questions `P` asks before its group is chosen.
     add_from_source: AddFromSource,
+    /// The project's indexes, on `i`.
+    indexes_popup: IndexesPopup,
     /// What waits on a group to be chosen.
     pending: Option<Pending>,
     /// The groups `pending` can be done to; past them, a new group.
@@ -92,6 +95,7 @@ impl DependenciesTablesTabs {
             pin_version_popup,
             new_group_popup,
             add_from_source: AddFromSource::default(),
+            indexes_popup: IndexesPopup::default(),
             pending: None,
             group_popup: None,
             emptied: Vec::new(),
@@ -111,6 +115,7 @@ impl DependenciesTablesTabs {
             self.pin_version_popup.render(frame, area);
         }
         self.add_from_source.render(frame, area);
+        self.indexes_popup.render(frame, area);
         if let Some((popup, _)) = &mut self.group_popup {
             popup.render(frame, area);
         }
@@ -165,7 +170,7 @@ impl DependenciesTablesTabs {
 
     /// Where the focus is: an input, the actions list, or the table.
     pub fn mode(&self) -> Mode {
-        if let Some(mode) = self.add_from_source.mode() {
+        if let Some(mode) = self.add_from_source.mode().or(self.indexes_popup.mode()) {
             mode
         } else if self.package_add_popup.is_editing()
             || self.pin_version_popup.is_editing()
@@ -272,6 +277,9 @@ impl DependenciesTablesTabs {
     }
 
     fn respond(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
+        if self.indexes_popup.mode().is_some() {
+            return self.indexes_popup.update(action).into_iter().collect();
+        }
         if self.add_from_source.mode().is_some() {
             if let Some(source) = self.add_from_source.update(action) {
                 self.pending = Some(Pending::AddFrom(source));
@@ -377,7 +385,11 @@ impl DependenciesTablesTabs {
             }
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
             Action::Deps(DepsAction::OpenAddFromSource) => self.add_from_source.open(),
-            // The keys of the actions list's Update and Remove, on the selected row.
+            Action::Deps(DepsAction::OpenIndexes) => self.indexes_popup.open(&deps.indexes),
+            // The keys of the actions list's Update and Remove, on the selected row; d in the list
+            // itself is for the list of indexes.
+            Action::Deps(DepsAction::Update | DepsAction::Remove)
+                if self.show_package_control_popup => {}
             Action::Deps(DepsAction::Update) => {
                 if let Some(name) = self.selected_name(deps) {
                     return vec![Command::Upgrade { name }];
