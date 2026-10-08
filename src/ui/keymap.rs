@@ -89,13 +89,16 @@ impl Binding {
     }
 
     /// What the footer shows for it, if anything: the first key of each thing it does, run
-    /// together, such as `↑↓` for moving, and its hint.
+    /// together, such as `↑↓` for moving, and its hint. A capital whose small letter is shown,
+    /// such as `P` beside `p`, is left to the help.
     pub fn hint(&self) -> Option<(String, &'static str)> {
         let hint = self.hint?;
         let mut done: Vec<&Action> = Vec::new();
         let mut keys = String::new();
         for (key, action) in self.keys {
-            if !done.contains(&action) {
+            let shifted = matches!(key.code, KeyCode::Char(c) if c.is_ascii_uppercase()
+                && keys.contains(c.to_ascii_lowercase()));
+            if !done.contains(&action) && !shifted {
                 done.push(action);
                 keys += &key.name();
             }
