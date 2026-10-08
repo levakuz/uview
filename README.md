@@ -78,8 +78,9 @@ one for instance, the tile shows what uv said instead. Below it is the uv log: e
 operation's name, then the lines uv printed while it ran.
 
 **The bottom lines.** The first shows what is running and the latest error or notice. The
-last lists the keys that work where you are: in a table, in the actions list or in an input.
-Press `?` for every key, by where it works.
+last lists the main keys that work where you are: in a table, in the actions list or in an
+input. The arrows, `P` and `q` are left out for room. Press `?` for every key, by where it
+works.
 
 ### Actions
 

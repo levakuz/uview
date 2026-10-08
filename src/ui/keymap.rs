@@ -74,8 +74,8 @@ impl Key {
 /// Keys, what each does, and how the footer and the help describe them.
 pub struct Binding {
     keys: &'static [(Key, Action)],
-    /// A word for the footer, or `None` to leave the binding to the help.
-    hint: Option<&'static str>,
+    /// The footer's word for it, or one per thing it does; none leaves it to the help.
+    hints: &'static [&'static str],
     /// What it does, for the help.
     help: &'static str,
 }
@@ -88,22 +88,28 @@ impl Binding {
             .map(|(_, action)| action.clone())
     }
 
-    /// What the footer shows for it, if anything: the first key of each thing it does, run
-    /// together, such as `↑↓` for moving, and its hint. A capital whose small letter is shown,
-    /// such as `P` beside `p`, is left to the help.
-    pub fn hint(&self) -> Option<(String, &'static str)> {
-        let hint = self.hint?;
-        let mut done: Vec<&Action> = Vec::new();
-        let mut keys = String::new();
+    /// What the footer shows for it: with one hint, the first key of each thing it does run
+    /// together, such as `↑↓` for moving; with one hint per thing it does, each its own key, such
+    /// as `u update` and `d remove`. A capital whose small letter is shown, such as `P` beside
+    /// `p`, is left to the help.
+    pub fn hints(&self) -> Vec<(String, &'static str)> {
+        let mut shown: Vec<(&Action, String)> = Vec::new();
         for (key, action) in self.keys {
             let shifted = matches!(key.code, KeyCode::Char(c) if c.is_ascii_uppercase()
-                && keys.contains(c.to_ascii_lowercase()));
-            if !done.contains(&action) && !shifted {
-                done.push(action);
-                keys += &key.name();
+                && shown.iter().any(|(_, name)| name.contains(c.to_ascii_lowercase())));
+            if !shifted && !shown.iter().any(|(done, _)| *done == action) {
+                shown.push((action, key.name()));
             }
         }
-        Some((keys, hint))
+        match self.hints {
+            [] => Vec::new(),
+            [hint] => vec![(shown.into_iter().map(|(_, name)| name).collect(), *hint)],
+            hints => shown
+                .into_iter()
+                .zip(hints)
+                .map(|((_, name), hint)| (name, *hint))
+                .collect(),
+        }
     }
 
     /// What the help shows for it: every key, and what it does.
@@ -131,12 +137,12 @@ const SELECT_KEYS: [(Key, Action); 2] =
 const TABLE: &[Binding] = &[
     Binding {
         keys: &MOVE_KEYS,
-        hint: Some("move"),
+        hints: &[],
         help: "Move the selection",
     },
     Binding {
         keys: &SELECT_KEYS,
-        hint: Some("actions"),
+        hints: &["actions"],
         help: "Open the actions for the selected package",
     },
     Binding {
@@ -145,7 +151,7 @@ const TABLE: &[Binding] = &[
             (Key::char('['), SWITCH),
             (Key::char(']'), SWITCH),
         ],
-        hint: Some("switch"),
+        hints: &["switch"],
         help: "Switch between the pyproject.toml and Environment tables",
     },
     // One row of the help, which fills 80x24.
@@ -154,32 +160,31 @@ const TABLE: &[Binding] = &[
             (Key::char('p'), Action::Deps(DepsAction::OpenAdd)),
             (Key::char('P'), Action::Deps(DepsAction::OpenAddFromSource)),
         ],
-        hint: Some("add"),
+        hints: &["add"],
         help: "Add a package (p), or from an index, git or a path (P)",
     },
-    // One row of the help, which fills 80x24, and left out of the footer, which would no
-    // longer fit 80 columns.
+    // One row of the help, which fills 80x24.
     Binding {
         keys: &[
             (Key::char('u'), Action::Deps(DepsAction::Update)),
             (Key::char('d'), Action::Deps(DepsAction::Remove)),
         ],
-        hint: None,
+        hints: &["update", "remove"],
         help: "Update (u) or remove (d) the selected package",
     },
     Binding {
         keys: &[(Key::char('s'), Action::Deps(DepsAction::Sync))],
-        hint: Some("sync"),
+        hints: &["sync"],
         help: "Sync the environment with uv sync",
     },
     Binding {
         keys: &[(Key::char('r'), Action::Deps(DepsAction::Refresh))],
-        hint: Some("reload"),
+        hints: &["reload"],
         help: "Read both tables again",
     },
     Binding {
         keys: &[(Key::new(KeyCode::Esc), BACK)],
-        hint: None,
+        hints: &[],
         help: "Dismiss the message on the bottom line",
     },
 ];
@@ -187,17 +192,17 @@ const TABLE: &[Binding] = &[
 const ACTIONS: &[Binding] = &[
     Binding {
         keys: &MOVE_KEYS,
-        hint: Some("move"),
+        hints: &[],
         help: "Move the highlight",
     },
     Binding {
         keys: &SELECT_KEYS,
-        hint: Some("run"),
+        hints: &["run"],
         help: "Run the highlighted action",
     },
     Binding {
         keys: &[(Key::new(KeyCode::Esc), BACK)],
-        hint: Some("close"),
+        hints: &["close"],
         help: "Close the list",
     },
 ];
@@ -205,12 +210,12 @@ const ACTIONS: &[Binding] = &[
 const INPUT: &[Binding] = &[
     Binding {
         keys: &[(Key::new(KeyCode::Enter), Action::Nav(NavAction::Confirm))],
-        hint: Some("confirm"),
+        hints: &["confirm"],
         help: "Confirm what you typed",
     },
     Binding {
         keys: &[(Key::new(KeyCode::Esc), BACK)],
-        hint: Some("cancel"),
+        hints: &["cancel"],
         help: "Close the input",
     },
 ];
@@ -219,19 +224,19 @@ const INPUT: &[Binding] = &[
 const OUTSIDE_INPUTS: &[Binding] = &[
     Binding {
         keys: &[(Key::char('?'), Action::Help)],
-        hint: Some("help"),
+        hints: &["help"],
         help: "Show this help",
     },
     Binding {
         keys: &[(Key::char('q'), Action::Quit)],
-        hint: Some("quit"),
+        hints: &[],
         help: "Quit, once whatever uv is running has stopped",
     },
 ];
 
 const ANYWHERE: &[Binding] = &[Binding {
     keys: &[(Key::ctrl('c'), Action::Cancel)],
-    hint: None,
+    hints: &[],
     help: "Cancel what uv is running, and what waits behind it",
 }];
 
@@ -242,7 +247,7 @@ const HELP: &[Binding] = &[Binding {
         (Key::char('?'), Action::Help),
         (Key::char('q'), Action::Help),
     ],
-    hint: Some("close"),
+    hints: &["close"],
     help: "Close the help",
 }];
 
