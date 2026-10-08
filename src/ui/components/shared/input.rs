@@ -41,6 +41,12 @@ impl UviewInput {
         self
     }
 
+    /// Starts with `value` already typed.
+    pub fn with_value(mut self, value: impl Into<String>) -> Self {
+        self.input = Input::new(value.into());
+        self
+    }
+
     pub fn start_editing(&mut self) {
         self.input_mode = InputMode::Editing
     }

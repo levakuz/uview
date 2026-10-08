@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
-use uview::domain::{Membership, PyprojectDependency};
+use uview::domain::{Membership, PyprojectDependency, Source};
 use uview::message::{Action, Command, Input, NavAction};
 use uview::state::{AppState, Loadable};
 use uview::ui::Component;
@@ -513,4 +513,101 @@ fn an_empty_group_is_offered_too() {
             membership: Membership::Group("docs".into()),
         }]
     );
+}
+
+impl Screen {
+    fn type_text(&mut self, text: &str) {
+        for c in text.chars() {
+            self.press(KeyCode::Char(c));
+        }
+    }
+}
+
+#[test]
+fn shift_p_adds_a_package_pinned_to_an_index() {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('P'));
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    // Index URL is first: the package, then the URL, then the group.
+    screen.press(KeyCode::Enter);
+    screen.type_text("torch");
+    screen.press(KeyCode::Enter);
+    screen.type_text("https://download.pytorch.org/whl/cpu");
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::AddFrom {
+            source: Source::Index {
+                package: "torch".into(),
+                url: "https://download.pytorch.org/whl/cpu".into(),
+            },
+            membership: Membership::Project,
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn a_git_url_with_a_problem_is_asked_for_again_as_typed() {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('P'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.type_text("github.com/org/repo");
+    // Refused: the input stays open with what was typed, to be fixed rather than retyped.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.press(KeyCode::Home);
+    screen.type_text("https://");
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::AddFrom {
+            source: Source::Git {
+                url: "https://github.com/org/repo".into(),
+            },
+            membership: Membership::Project,
+        }]
+    );
+}
+
+#[test]
+fn a_local_path_is_editable_unless_said_otherwise() {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('P'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.type_text("../mylib");
+    screen.press(KeyCode::Enter);
+    // Editable is highlighted; then main.
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::AddFrom {
+            source: Source::Path {
+                path: "../mylib".into(),
+                editable: true,
+            },
+            membership: Membership::Project,
+        }]
+    );
+}
+
+#[test]
+fn esc_gives_up_on_a_source_at_any_step() {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('P'));
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    screen.press(KeyCode::Char('P'));
+    screen.press(KeyCode::Enter);
+    screen.type_text("torch");
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // Plain p still adds from the default index at once.
+    screen.press(KeyCode::Char('p'));
+    assert_eq!(screen.page.mode(), Mode::Input);
 }

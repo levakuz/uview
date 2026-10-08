@@ -1,3 +1,4 @@
+pub mod add_from_source;
 pub mod dependencies_table;
 pub mod help;
 pub mod input_popup;
