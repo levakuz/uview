@@ -148,7 +148,7 @@ impl IndexesPopup {
                         None => {
                             let kinds = vec![
                                 "Extra: searched alongside PyPI".into(),
-                                "Default: replaces PyPI".into(),
+                                "Default: replaces PyPI; needs every package".into(),
                             ];
                             let list = ListPopup::new("Kind of index", kinds);
                             (Some(Step::Kind { name, url, list }), None)

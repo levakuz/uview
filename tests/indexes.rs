@@ -158,7 +158,11 @@ impl UvClient for Lock {
             calls.push(args.join(" "));
         }
         if self.fails {
-            Err(UvError::Parse("no".into()))
+            Err(UvError::Failed {
+                command: "lock".into(),
+                status: std::process::ExitStatus::default(),
+                stderr: "× No solution found when resolving dependencies".into(),
+            })
         } else {
             Ok(String::new())
         }
@@ -195,7 +199,16 @@ async fn an_edit_relocks_and_a_failed_lock_puts_the_file_back() -> Result<(), Bo
         "https://example.com/unnamed/simple/",
         IndexKind::Extra,
     );
-    assert!(remove_index(&failing, &path, &unnamed).await.is_err());
+    // Said in full: the file is as it was, and uv's own words are in the log.
+    let failed = remove_index(&failing, &path, &unnamed).await;
+    assert_eq!(
+        failed.map_err(|e| e.to_string()),
+        Err(
+            "pyproject.toml: left as it was, since uv could not lock the project with the \
+             change; the uv log says why"
+                .into()
+        )
+    );
     assert_eq!(std::fs::read_to_string(&path)?, before);
     // A refused edit runs nothing.
     let pinned = index(
