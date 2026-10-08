@@ -758,3 +758,33 @@ fn an_index_in_the_list_can_be_removed_or_kept() {
     screen.press(KeyCode::Esc);
     assert_eq!(screen.page.mode(), Mode::Table);
 }
+
+#[test]
+fn d_in_the_list_of_indexes_removes_the_highlighted_one_at_once() {
+    let mut screen = Screen::with(&["six"]);
+    let other = uview::domain::Index {
+        name: None,
+        url: "https://mirror.example.com/simple/".into(),
+        kind: uview::domain::IndexKind::Extra,
+    };
+    screen.state.deps.indexes = vec![corp(), other.clone()];
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Char('d')),
+        [Command::RemoveIndex(other)]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // On "Add index…" there is nothing to remove, and the list stays.
+    screen.press(KeyCode::Char('i'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Esc);
+    // In the group list, d does nothing either.
+    screen.type_requirement("ruff");
+    screen.press(KeyCode::Enter);
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+}

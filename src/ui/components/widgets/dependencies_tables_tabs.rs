@@ -386,7 +386,10 @@ impl DependenciesTablesTabs {
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
             Action::Deps(DepsAction::OpenAddFromSource) => self.add_from_source.open(),
             Action::Deps(DepsAction::OpenIndexes) => self.indexes_popup.open(&deps.indexes),
-            // The keys of the actions list's Update and Remove, on the selected row.
+            // The keys of the actions list's Update and Remove, on the selected row; d in the list
+            // itself is for the list of indexes.
+            Action::Deps(DepsAction::Update | DepsAction::Remove)
+                if self.show_package_control_popup => {}
             Action::Deps(DepsAction::Update) => {
                 if let Some(name) = self.selected_name(deps) {
                     return vec![Command::Upgrade { name }];

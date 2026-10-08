@@ -2,7 +2,7 @@ use ratatui::{Frame, layout::Rect};
 
 use crate::{
     domain::{Index, index_name_problem, index_url_problem},
-    message::{Action, Command, NavAction},
+    message::{Action, Command, DepsAction, NavAction},
     ui::{
         components::{features::input_popup::InputPopup, shared::list_popup::ListPopup},
         keymap::Mode,
@@ -47,12 +47,15 @@ impl IndexesPopup {
     /// Opens on `indexes`, the project's as last loaded.
     pub fn open(&mut self, indexes: &[Index]) {
         let mut rows: Vec<String> = indexes.iter().map(row).collect();
-        if rows.is_empty() {
+        let title = if rows.is_empty() {
             rows.push("PyPI is the only index".into());
-        }
+            "Package indexes"
+        } else {
+            "Package indexes · d removes"
+        };
         rows.push("Add index…".into());
         self.step = Some(Step::List {
-            list: ListPopup::new("Package indexes", rows),
+            list: ListPopup::new(title, rows),
             indexes: indexes.to_vec(),
         });
     }
@@ -78,6 +81,14 @@ impl IndexesPopup {
     /// Moves on with `action`. Returns the command once there is one to run; Esc anywhere
     /// gives up.
     pub fn update(&mut self, action: &Action) -> Option<Command> {
+        // d on an index in the list removes it at once.
+        if let (Action::Deps(DepsAction::Remove), Some(Step::List { list, indexes })) =
+            (action, &self.step)
+        {
+            let index = list.selected().and_then(|i| indexes.get(i)).cloned()?;
+            self.step = None;
+            return Some(Command::RemoveIndex(index));
+        }
         let Action::Nav(nav) = action else {
             return None;
         };

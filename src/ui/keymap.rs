@@ -209,6 +209,11 @@ const ACTIONS: &[Binding] = &[
         hints: &["close"],
         help: "Close the list",
     },
+    Binding {
+        keys: &[(Key::char('d'), Action::Deps(DepsAction::Remove))],
+        hints: &[],
+        help: "Remove the highlighted index, in the list of indexes",
+    },
 ];
 
 const INPUT: &[Binding] = &[
@@ -244,16 +249,24 @@ const ANYWHERE: &[Binding] = &[Binding {
     help: "Cancel what uv is running, and what waits behind it",
 }];
 
-/// The help itself, which `?` and `q` close rather than open or quit.
-const HELP: &[Binding] = &[Binding {
-    keys: &[
-        (Key::new(KeyCode::Esc), Action::Help),
-        (Key::char('?'), Action::Help),
-        (Key::char('q'), Action::Help),
-    ],
-    hints: &["close"],
-    help: "Close the help",
-}];
+/// The help itself, which `?` and `q` close rather than open or quit. Its title says when it
+/// scrolls.
+const HELP: &[Binding] = &[
+    Binding {
+        keys: &MOVE_KEYS,
+        hints: &[],
+        help: "Scroll the help",
+    },
+    Binding {
+        keys: &[
+            (Key::new(KeyCode::Esc), Action::Help),
+            (Key::char('?'), Action::Help),
+            (Key::char('q'), Action::Help),
+        ],
+        hints: &["close"],
+        help: "Close the help",
+    },
+];
 
 /// The bindings in force in `mode`, in the order the footer lists them. Where two bind a key,
 /// the first wins.

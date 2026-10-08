@@ -22,10 +22,9 @@ pub fn render_footer(frame: &mut Frame, area: Rect, mode: Mode) {
     frame.render_widget(Line::from(spans), area);
 }
 
-/// Every binding, by where it works, in a popup over `area`.
-/// ponytail: no scrolling. The bindings fill 80x24 exactly; the next one needs scrolling, or
-/// they will not all show.
-pub fn render_help(frame: &mut Frame, area: Rect) {
+/// Every binding, by where it works, in a popup over `area`, `scroll` rows down. A `scroll` past
+/// the last row is brought back to it.
+pub fn render_help(frame: &mut Frame, area: Rect, scroll: &mut u16) {
     let groups = keymap::groups();
     let keys_width = groups
         .iter()
@@ -44,14 +43,23 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         }
     }
     let width = lines.iter().map(Line::width).max().unwrap_or(0) + 2;
-    let height = lines.len() + 2;
+    let rows = u16::try_from(lines.len()).unwrap_or(u16::MAX);
     let popup = Popup::new(PopupSize {
         width: u16::try_from(width).unwrap_or(u16::MAX),
-        height: u16::try_from(height).unwrap_or(u16::MAX),
+        height: rows.saturating_add(2).min(area.height),
     })
     .render(frame, area);
+    let hidden = rows.saturating_sub(popup.height.saturating_sub(2));
+    *scroll = (*scroll).min(hidden);
+    let title = if hidden > 0 {
+        "Keys (↑↓ to scroll)"
+    } else {
+        "Keys"
+    };
     frame.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title("Keys")),
+        Paragraph::new(lines)
+            .block(Block::bordered().title(title))
+            .scroll((*scroll, 0)),
         popup,
     );
 }

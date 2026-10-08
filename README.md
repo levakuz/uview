@@ -130,8 +130,8 @@ there. Quitting cancels the same way.
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |
 | `s` | Sync the environment with `uv sync`. |
 | `r` | Read both tables again, for changes made outside uview. |
-| `i` | Show the project's package indexes (`[[tool.uv.index]]`). Pick one to remove it, or add one: a name, a URL, and whether it is an extra index searched alongside PyPI or the default that replaces it. uview edits pyproject.toml for this, since uv has no command for it, then runs `uv lock`. |
-| `?` | Show every key, by where it works. `Esc`, `?` or `q` closes the list. |
+| `i` | Show the project's package indexes (`[[tool.uv.index]]`). Pick one, or press `d` on it, to remove it, or add one: a name, a URL, and whether it is an extra index searched alongside PyPI or the default that replaces it. uview edits pyproject.toml for this, since uv has no command for it, then runs `uv lock`. |
+| `?` | Show every key, by where it works; `↑` / `↓` scroll it when it does not fit. `Esc`, `?` or `q` closes the list. |
 | `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. |
 | `q` | Quit, cancelling whatever is running first. |
 
