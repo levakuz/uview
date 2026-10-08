@@ -163,8 +163,9 @@ async fn read_lines(
     let mut lines = BufReader::new(pipe).split(b'\n');
     while let Some(line) = lines.next_segment().await? {
         let line = String::from_utf8_lossy(&line);
+        // The indent stays: uv lines up its error blocks with it.
         if !line.trim().is_empty() {
-            on_line(line.trim());
+            on_line(line.trim_end());
         }
         all.push_str(&line);
         all.push('\n');
