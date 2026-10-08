@@ -386,6 +386,8 @@ impl DependenciesTablesTabs {
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
             Action::Deps(DepsAction::OpenAddFromSource) => self.add_from_source.open(),
             Action::Deps(DepsAction::OpenIndexes) => self.indexes_popup.open(&deps.indexes),
+            // The page's: the version is the project's, not the tables'.
+            Action::Deps(DepsAction::OpenVersion) => {}
             // The keys of the actions list's Update and Remove, on the selected row; d in the list
             // itself is for the list of indexes.
             Action::Deps(DepsAction::Update | DepsAction::Remove)

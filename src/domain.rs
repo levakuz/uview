@@ -200,3 +200,47 @@ pub struct ProjectInfo {
     pub name: String,
     pub version: String,
 }
+
+/// A step up from the project's version, as `uv version --bump` takes it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Bump {
+    Patch,
+    Minor,
+    Major,
+}
+
+impl Bump {
+    /// In the order the version list offers them.
+    pub const ALL: [Bump; 3] = [Bump::Patch, Bump::Minor, Bump::Major];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Bump::Patch => "patch",
+            Bump::Minor => "minor",
+            Bump::Major => "major",
+        }
+    }
+}
+
+/// How to change the project's version.
+#[derive(Clone, Debug, PartialEq)]
+pub enum VersionChange {
+    Bump(Bump),
+    /// To a version typed in.
+    To(String),
+}
+
+/// Why `version` will not do, if it plainly will not. uv checks the rest of PEP 440, and writes
+/// nothing when it refuses.
+pub fn version_problem(version: &str) -> Option<&'static str> {
+    if !version.starts_with(|c: char| c.is_ascii_digit()) {
+        Some("A version starts with a number, e.g. 1.0.0")
+    } else if !version
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '!' | '_' | '-'))
+    {
+        Some("Letters, digits and . + ! _ - only")
+    } else {
+        None
+    }
+}

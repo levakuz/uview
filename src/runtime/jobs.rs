@@ -100,13 +100,15 @@ impl<U: UvClient + 'static> JobRunner<U> {
 
 /// Whether `command` changes the project or its environment, both of which `uv` locks.
 fn mutates(command: &Command) -> bool {
-    !matches!(command, Command::Reload)
+    !matches!(command, Command::Reload | Command::PreviewVersions)
 }
 
 /// What the progress indicator says while `command` runs.
 fn label(command: &Command) -> String {
     match command {
         Command::Reload => "Loading dependencies".into(),
+        Command::PreviewVersions => "Reading the next versions".into(),
+        Command::SetVersion(_) => "Setting the version".into(),
         Command::Sync => "Syncing the environment".into(),
         Command::Add {
             requirement,

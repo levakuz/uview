@@ -24,6 +24,29 @@ pub struct ProjectState {
     pub root: String,
     /// Its name and version.
     pub info: Loadable<ProjectInfo>,
+    /// What a patch, minor and major bump would make the version, once asked for.
+    pub bumps: Loadable<Vec<String>>,
+    /// The generation of the newest `info` shown, as for the tables.
+    generation: u64,
+}
+
+impl ProjectState {
+    /// The project at `root`, nothing about it loaded yet.
+    pub fn new(root: String) -> Self {
+        Self {
+            root,
+            ..Self::default()
+        }
+    }
+
+    /// Takes in a reload's name and version, unless what is shown comes from a newer one: a
+    /// reload from before a version change can land after the one that followed it.
+    pub fn apply_info(&mut self, generation: u64, loaded: Result<ProjectInfo, String>) {
+        if generation >= self.generation {
+            self.generation = generation;
+            self.info = loaded.into();
+        }
+    }
 }
 
 /// The project's dependencies: as pyproject.toml declares them, and as the environment has them.

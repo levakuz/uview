@@ -205,7 +205,7 @@ src/
     ├── mod.rs              # Component trait
     ├── keymap.rs           # Input × Mode → Action, one table; the footer and the help read it too
     ├── pages/
-    │   └── dependencies.rs # DependenciesPage — its mode; drawn in the left 60%
+    │   └── dependencies.rs # DependenciesPage — its mode, and the version popup over it; drawn in the left 60%
     └── components/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>, over rows it is handed
@@ -221,7 +221,8 @@ src/
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
         │   ├── package_control_popup.rs   # the actions list
         │   ├── project_tile.rs            # top right: name and version, and the project root
-        │   └── uv_log.rs                  # bottom right: what uv wrote, job by job
+        │   ├── uv_log.rs                  # bottom right: what uv wrote, job by job
+        │   └── version_popup.rs           # v: each bump with the version it makes, or one typed in
         └── widgets/
             └── dependencies_tables_tabs.rs # tables behind tabs in their border, popups; turns their results into commands
 ```

@@ -13,7 +13,7 @@ use crate::controllers::dependencies::{
 };
 use crate::controllers::groups::{delete_group, empty_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
-use crate::controllers::project::load_project_info;
+use crate::controllers::project::{load_project_info, preview_bumps, set_version};
 use crate::controllers::pyproject::PYPROJECT;
 use crate::domain::Membership;
 use crate::message::{Command, Event};
@@ -32,6 +32,20 @@ async fn run(
 ) {
     let outcome = match command {
         Command::Reload => return reload(uv, env, events, generation).await,
+        // What uv says is the list's to show, not the status line's.
+        Command::PreviewVersions => {
+            let previewed = preview_bumps(uv).await;
+            if !matches!(previewed, Err(UvError::Cancelled)) {
+                let _ = events.send(Event::VersionsPreviewed(previewed.map_err(|e| match e {
+                    UvError::Failed { stderr, .. } => stderr,
+                    e => e.to_string(),
+                })));
+            }
+            return;
+        }
+        Command::SetVersion(change) => set_version(uv, &change)
+            .await
+            .map(|version| format!("The version is now {version}")),
         Command::Sync => sync_exact(uv)
             .await
             .map(|()| "Synced the environment".to_string()),
@@ -135,7 +149,10 @@ async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>,
         UvError::Failed { stderr, .. } => stderr,
         e => e.to_string(),
     });
-    let _ = events.send(Event::ProjectLoaded(info));
+    let _ = events.send(Event::ProjectLoaded {
+        generation,
+        loaded: info,
+    });
 }
 
 /// Where an add goes, as its notice and label say it: nothing for the main dependencies.

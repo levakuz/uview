@@ -2,7 +2,9 @@
 
 use crossterm::event::KeyEvent;
 
-use crate::domain::{EnvDependency, Index, Membership, ProjectInfo, PyprojectDependency, Source};
+use crate::domain::{
+    EnvDependency, Index, Membership, ProjectInfo, PyprojectDependency, Source, VersionChange,
+};
 
 /// What the terminal sends.
 #[derive(Debug)]
@@ -47,6 +49,8 @@ pub enum DepsAction {
     OpenAddFromSource,
     /// Show the project's indexes, to add or remove one.
     OpenIndexes,
+    /// Show the project's version, to bump it or set it.
+    OpenVersion,
     /// Update the selected package, as its actions list's Update does.
     Update,
     /// Remove the selected package, as its actions list's Remove does.
@@ -80,6 +84,10 @@ pub enum Command {
         source: Source,
         membership: Membership,
     },
+    /// Find out what each bump would make the project's version, writing nothing.
+    PreviewVersions,
+    /// Change the project's version with `uv version`.
+    SetVersion(VersionChange),
     /// Add an index to `[[tool.uv.index]]`, then `uv lock`. A default one replaces PyPI.
     AddIndex {
         name: String,
@@ -136,9 +144,13 @@ pub enum Event {
         loaded: Result<Vec<EnvDependency>, String>,
     },
     /// The project's name and version, or what uv said when it could not read them.
-    /// ponytail: no generation, unlike the tables: nothing uview runs changes the version yet.
-    /// #24, which bumps it, adds one.
-    ProjectLoaded(Result<ProjectInfo, String>),
+    /// From a reload that started at `generation`, like the tables'.
+    ProjectLoaded {
+        generation: u64,
+        loaded: Result<ProjectInfo, String>,
+    },
+    /// What each bump would make the version, in `Bump::ALL`'s order, or why uv could not say.
+    VersionsPreviewed(Result<Vec<String>, String>),
     /// A mutation has ended, however it did: what the views show of the project may be stale.
     ProjectMutated,
     Notice(String),

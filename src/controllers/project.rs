@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use crate::domain::ProjectInfo;
+use crate::domain::{Bump, ProjectInfo, VersionChange};
 use crate::uv::{UvClient, UvError, args, parse};
 
 /// The nearest directory at or above `start` that holds a pyproject.toml: where uv, started
@@ -107,6 +107,28 @@ fn matches_any(globs: &[String], root: &Path, path: &Path) -> bool {
 /// The project's name and version, as `uv version` reports them.
 pub async fn load_project_info(uv: &impl UvClient) -> Result<ProjectInfo, UvError> {
     parse::version(&uv.run(&args::VERSION).await?)
+}
+
+/// The versions each bump would make, in `Bump::ALL`'s order. Nothing is written.
+pub async fn preview_bumps(uv: &impl UvClient) -> Result<Vec<String>, UvError> {
+    let mut versions = Vec::new();
+    for bump in Bump::ALL {
+        let args = args::version_args(&VersionChange::Bump(bump), true);
+        let out = uv
+            .run(&args.iter().map(String::as_str).collect::<Vec<_>>())
+            .await?;
+        versions.push(parse::version(&out)?.version);
+    }
+    Ok(versions)
+}
+
+/// Makes `change` to the project's version, and returns the new one.
+pub async fn set_version(uv: &impl UvClient, change: &VersionChange) -> Result<String, UvError> {
+    let args = args::version_args(change, false);
+    let out = uv
+        .run(&args.iter().map(String::as_str).collect::<Vec<_>>())
+        .await?;
+    Ok(parse::version(&out)?.version)
 }
 
 /// Creates a project in `dir` with `uv init`, named `name`, or after `dir`.

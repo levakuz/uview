@@ -182,6 +182,11 @@ const TABLE: &[Binding] = &[
         help: "Sync with uv sync (s), or read both tables again (r)",
     },
     Binding {
+        keys: &[(Key::char('v'), Action::Deps(DepsAction::OpenVersion))],
+        hints: &[],
+        help: "Bump the project's version, or set it",
+    },
+    Binding {
         keys: &[(Key::char('i'), Action::Deps(DepsAction::OpenIndexes))],
         hints: &[],
         help: "Show the project's package indexes, to add or remove one",
