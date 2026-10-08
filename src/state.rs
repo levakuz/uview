@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::domain::{EnvDependency, ProjectInfo, PyprojectDependency};
+use crate::domain::{EnvDependency, Index, ProjectInfo, PyprojectDependency};
 use crate::message::{Event, JobId};
 
 /// Everything the app knows, by domain. It carries no behaviour; a domain that needs some
@@ -35,6 +35,8 @@ pub struct DepsState {
     pub empty_groups: Vec<String>,
     /// Those of `empty_groups` that could be deleted.
     pub deletable_groups: Vec<String>,
+    /// The project's `[[tool.uv.index]]` entries, as of the pyproject load.
+    pub indexes: Vec<Index>,
     /// The generation of the newest load shown: how many mutations had ended as it started.
     generation: u64,
 }
@@ -50,11 +52,13 @@ impl DepsState {
                 loaded,
                 empty_groups,
                 deletable_groups,
+                indexes,
             } if generation >= self.generation => {
                 self.generation = generation;
                 self.pyproject = loaded.into();
                 self.empty_groups = empty_groups;
                 self.deletable_groups = deletable_groups;
+                self.indexes = indexes;
             }
             Event::EnvLoaded { generation, loaded } if generation >= self.generation => {
                 self.generation = generation;

@@ -6,9 +6,8 @@ use std::path::Path;
 
 use toml_edit::{DocumentMut, Item, Value};
 
-use crate::uv::{UvClient, UvError, args};
-
-pub const PYPROJECT: &str = "./pyproject.toml";
+use crate::controllers::pyproject::{PYPROJECT, edit_then_lock};
+use crate::uv::{UvClient, UvError};
 
 /// `pyproject` without the group `name`, if the group is empty and nothing else names it:
 /// `tool.uv.default-groups`, or another group's `{ include-group = "name" }`. uv refuses to sync
@@ -79,17 +78,9 @@ pub async fn empty_groups() -> (Vec<String>, Vec<String>) {
 /// Deletes the empty group `name` from the `pyproject` file, then relocks, since uv.lock lists
 /// the project's groups. If uv cannot lock, the file is put back as it was.
 pub async fn delete_group(uv: &impl UvClient, pyproject: &Path, name: &str) -> Result<(), UvError> {
-    let io = |e: std::io::Error| UvError::Pyproject(e.to_string());
-    let before = tokio::fs::read_to_string(pyproject).await.map_err(io)?;
-    let Some(after) = without_empty_group(&before, name) else {
-        return Err(UvError::Pyproject(format!(
-            "group `{name}` is no longer empty, or something else names it"
-        )));
-    };
-    tokio::fs::write(pyproject, after).await.map_err(io)?;
-    if let Err(e) = uv.run(&args::LOCK).await {
-        tokio::fs::write(pyproject, before).await.map_err(io)?;
-        return Err(e);
-    }
-    Ok(())
+    edit_then_lock(uv, pyproject, |before| {
+        without_empty_group(before, name)
+            .ok_or_else(|| format!("group `{name}` is no longer empty, or something else names it"))
+    })
+    .await
 }

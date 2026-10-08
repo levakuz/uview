@@ -172,15 +172,19 @@ const TABLE: &[Binding] = &[
         hints: &["update", "remove"],
         help: "Update (u) or remove (d) the selected package",
     },
+    // One row of the help, which fills 80x24.
     Binding {
-        keys: &[(Key::char('s'), Action::Deps(DepsAction::Sync))],
-        hints: &["sync"],
-        help: "Sync the environment with uv sync",
+        keys: &[
+            (Key::char('s'), Action::Deps(DepsAction::Sync)),
+            (Key::char('r'), Action::Deps(DepsAction::Refresh)),
+        ],
+        hints: &["sync", "reload"],
+        help: "Sync with uv sync (s), or read both tables again (r)",
     },
     Binding {
-        keys: &[(Key::char('r'), Action::Deps(DepsAction::Refresh))],
-        hints: &["reload"],
-        help: "Read both tables again",
+        keys: &[(Key::char('i'), Action::Deps(DepsAction::OpenIndexes))],
+        hints: &[],
+        help: "Show the project's package indexes, to add or remove one",
     },
     Binding {
         keys: &[(Key::new(KeyCode::Esc), BACK)],

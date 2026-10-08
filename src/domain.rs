@@ -102,6 +102,69 @@ impl Source {
     }
 }
 
+/// One of the project's `[[tool.uv.index]]` entries.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Index {
+    /// `None` for an index `uv add --index <url>` added without one.
+    pub name: Option<String>,
+    pub url: String,
+    pub kind: IndexKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum IndexKind {
+    /// Searched before PyPI, which is still searched.
+    Extra,
+    /// Replaces PyPI.
+    Default,
+    /// Used only by the packages `[tool.uv.sources]` pins to it.
+    Explicit,
+}
+
+impl fmt::Display for IndexKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IndexKind::Extra => write!(f, "extra"),
+            IndexKind::Default => write!(f, "default"),
+            IndexKind::Explicit => write!(f, "explicit"),
+        }
+    }
+}
+
+/// Why an index named `name` at `url` should not be added beside `existing`, if anything is
+/// wrong with it.
+pub fn index_problem(name: &str, url: &str, existing: &[Index]) -> Option<&'static str> {
+    index_name_problem(name, existing).or_else(|| index_url_problem(url))
+}
+
+/// Why `name` will not do for a new index beside `existing`, as uv checks it.
+pub fn index_name_problem(name: &str, existing: &[Index]) -> Option<&'static str> {
+    if name.is_empty() {
+        Some("Name the index")
+    } else if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        Some("A name is letters, digits, -, _ and . only")
+    } else if existing.iter().any(|i| i.name.as_deref() == Some(name)) {
+        Some("An index has that name already")
+    } else {
+        None
+    }
+}
+
+/// Why `url` will not do for an index. uv takes a mistyped URL for a path, so it would not
+/// catch one.
+pub fn index_url_problem(url: &str) -> Option<&'static str> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        Some("The URL starts with https://")
+    } else if has_credentials(url) {
+        Some("No credentials in the URL; uv reads them itself")
+    } else {
+        None
+    }
+}
+
 /// Whether the part of `url` before its path holds a user or a token, as in
 /// `https://token@host/`.
 fn has_credentials(url: &str) -> bool {

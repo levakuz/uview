@@ -31,8 +31,9 @@ with [tokio](https://tokio.rs) providing the async runtime.
 
 It owns no Python or packaging logic of its own. Every operation is delegated to the
 `uv` binary as a subprocess, and `uview` is responsible only for presenting state and
-turning key presses into `uv` invocations. The one exception is deleting an emptied
-dependency group, which uv has no command for (ADR-0009).
+turning key presses into `uv` invocations. The exceptions are two edits of pyproject.toml uv has
+no command for: deleting an emptied dependency group (ADR-0009) and managing the project's
+package indexes (ADR-0010).
 
 The design follows the Elm architecture (TEA), with messages split by direction of travel
 (§4): the keymap turns input into actions, components turn actions into commands, and
@@ -48,7 +49,7 @@ There are four layers, plus a thin application shell and the state they share.
 | **State** | `src/state.rs` | Hold what the app knows, once: the project, the dependencies, the jobs and the latest message (ADR-0004) | Render, run anything, know about ratatui, the UI or the runtime |
 | **UI** | `src/ui/` | Render frames from the state, turn input into actions and actions into commands, hold view state | Write the state, spawn tasks, call controllers, read the filesystem |
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
-| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it (ADR-0009) | Render, hold UI state, know about ratatui, start a process |
+| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it, and add or remove an index (ADR-0009, ADR-0010) | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
 
 The rule that matters: **controllers never import ratatui, UI code never invokes `uv` or a
@@ -192,7 +193,9 @@ src/
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
-│   ├── groups.rs           # deleting an empty dependency group: the one write to pyproject.toml (ADR-0009)
+│   ├── groups.rs           # deleting an empty dependency group (ADR-0009)
+│   ├── indexes.rs          # the project's [[tool.uv.index]]: list, add, remove (ADR-0010)
+│   ├── pyproject.rs        # edit pyproject.toml, then uv lock, putting it back if the lock fails
 │   └── project.rs          # the project root, or why uv would refuse it; its workspace root and environment; its name and version
 ├── uv/
 │   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
@@ -214,6 +217,7 @@ src/
         │   ├── add_from_source.rs         # the questions P asks: an index, git or a path, and its fields
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── help.rs                    # the footer and the help overlay, from the keymap
+        │   ├── indexes_popup.rs           # i: the project's indexes, adding and removing one
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
         │   ├── package_control_popup.rs   # the actions list
         │   ├── project_tile.rs            # top right: name and version, and the project root
