@@ -21,7 +21,7 @@ fn each_source_becomes_its_uv_add() {
             "add",
             "torch",
             "--index",
-            "download-pytorch-org=https://download.pytorch.org/whl/cpu"
+            "download-pytorch-org-whl-cpu=https://download.pytorch.org/whl/cpu"
         ]
     );
     // Without `git+` uv would take the URL for an archive; `@ref` is left to uv.
@@ -59,12 +59,20 @@ fn each_source_becomes_its_uv_add() {
 }
 
 #[test]
-fn an_index_is_named_after_its_host() {
+fn each_index_url_gets_its_own_name() {
     assert_eq!(
         index_name("https://download.pytorch.org/whl/cpu"),
-        "download-pytorch-org"
+        "download-pytorch-org-whl-cpu"
     );
-    assert_eq!(index_name("http://Localhost:8080/simple"), "localhost");
+    assert_eq!(
+        index_name("http://Localhost:8080/simple/"),
+        "localhost-8080-simple"
+    );
+    // Two indexes on one host keep apart: one name would move the first's packages.
+    assert_ne!(
+        index_name("https://example.com/a/simple/"),
+        index_name("https://example.com/b/simple/")
+    );
 }
 
 #[test]

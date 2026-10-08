@@ -111,12 +111,16 @@ fn has_credentials(url: &str) -> bool {
         .is_some_and(|host| host.contains('@'))
 }
 
-/// The name uv files the index at `url` under: its host, dots made dashes, e.g.
-/// `download-pytorch-org`.
+/// The name uv files the index at `url` under: its host and path, each run of other
+/// characters a dash, e.g. `download-pytorch-org-whl-cpu`. Each URL gets its own name: by the
+/// host alone, a second index on that host would take over the first's packages.
 pub fn index_name(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let host = rest.split(['/', ':']).next().unwrap_or(rest);
-    host.replace('.', "-").to_lowercase()
+    rest.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 #[derive(Clone, Debug, Deserialize)]
