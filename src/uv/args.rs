@@ -1,6 +1,6 @@
 //! `uv` argument lists, built without spawning or awaiting anything.
 
-use crate::domain::{Membership, Source, index_name};
+use crate::domain::{Membership, Source, VersionChange, index_name};
 
 /// Brings the environment exactly in line with the lockfile: packages it does not list, such
 /// as `uv pip install`ed ones, are uninstalled.
@@ -70,6 +70,21 @@ pub fn init_args<'a>(dir: &'a str, name: Option<&'a str>) -> Vec<&'a str> {
 /// Reads the project's name and version as JSON. Given no new version, `uv version` neither
 /// locks nor syncs.
 pub const VERSION: [&str; 3] = ["version", "--output-format", "json"];
+
+/// `uv version` arguments that make `change`, or with `dry_run` only say what it would make.
+/// Either way uv answers with the new version as JSON.
+pub fn version_args(change: &VersionChange, dry_run: bool) -> Vec<String> {
+    let mut args = vec!["version".to_string()];
+    match change {
+        VersionChange::Bump(bump) => args.extend(["--bump".into(), bump.as_str().into()]),
+        VersionChange::To(version) => args.push(version.clone()),
+    }
+    if dry_run {
+        args.push("--dry-run".into());
+    }
+    args.extend(["--output-format".into(), "json".into()]);
+    args
+}
 
 /// `uv pip list` arguments that read the packages installed in `env` as JSON. Quietly, so that
 /// uv writes nothing but errors: given an environment other than the `.venv` in the working

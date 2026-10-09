@@ -22,10 +22,9 @@ fn rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
 }
 
 fn project(info: Loadable<ProjectInfo>) -> ProjectState {
-    ProjectState {
-        root: "/home/jane/billing-api".into(),
-        info,
-    }
+    let mut project = ProjectState::new("/home/jane/billing-api".into());
+    project.info = info;
+    project
 }
 
 #[test]

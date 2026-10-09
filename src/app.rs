@@ -44,10 +44,7 @@ impl App {
             help: false,
             help_scroll: 0,
             state: AppState {
-                project: ProjectState {
-                    root: project,
-                    ..ProjectState::default()
-                },
+                project: ProjectState::new(project),
                 ..AppState::default()
             },
             runner: JobRunner::new(Arc::new(RealUvClient), env, events_tx),
@@ -170,9 +167,14 @@ impl App {
             event @ (Event::PyprojectLoaded { .. } | Event::EnvLoaded { .. }) => {
                 self.state.deps.apply(event)
             }
-            Event::ProjectLoaded(loaded) => self.state.project.info = loaded.into(),
+            Event::ProjectLoaded { generation, loaded } => {
+                self.state.project.apply_info(generation, loaded);
+            }
+            Event::VersionsPreviewed(loaded) => self.state.project.bumps = loaded.into(),
             // What the tables show may be stale. Not worth reading again on the way out.
             Event::ProjectMutated => {
+                // The next bumps may differ; `v` asks again.
+                self.state.project.bumps = Loadable::NotLoaded;
                 if !self.should_quit {
                     self.runner.execute(Command::Reload);
                 }

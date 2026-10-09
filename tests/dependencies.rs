@@ -11,11 +11,14 @@ use tokio_util::sync::CancellationToken;
 use uview::controllers::dependencies::{
     add_dep, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
-use uview::domain::{Membership, PyprojectDependency};
+use uview::controllers::project::{preview_bumps, set_version};
+use uview::domain::{Bump, Membership, ProjectInfo, PyprojectDependency, VersionChange};
 use uview::message::{Command, Event, JobId};
 use uview::runtime::jobs::JobRunner;
-use uview::state::{DepsState, JobsState, LOG_LINES, LogLine};
-use uview::uv::args::{membership_args, pin_requirement, pip_list_args, uninstall_args};
+use uview::state::{DepsState, JobsState, LOG_LINES, Loadable, LogLine, ProjectState};
+use uview::uv::args::{
+    membership_args, pin_requirement, pip_list_args, uninstall_args, version_args,
+};
 use uview::uv::{RealUvClient, UvClient, UvError};
 
 /// Stands in for `uv`: answers each call with the next canned result, or empty stdout once
@@ -575,7 +578,7 @@ async fn a_reload_reads_the_projects_name_and_version() -> Result<(), Box<dyn Er
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(
         e,
-        Event::ProjectLoaded(Ok(info)) if info.name == "acme-api" && info.version == "0.4.2"
+        Event::ProjectLoaded { loaded: Ok(info), .. } if info.name == "acme-api" && info.version == "0.4.2"
     )));
     assert_eq!(uv.calls()[1], ["version", "--output-format", "json"]);
     Ok(())
@@ -601,7 +604,7 @@ async fn a_version_uv_cannot_read_is_told_to_the_project_tile_alone() -> Result<
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, Event::ProjectLoaded(Err(r)) if r == said))
+            .any(|e| matches!(e, Event::ProjectLoaded { loaded: Err(r), .. } if r == said))
     );
     assert!(
         !events
@@ -831,4 +834,91 @@ fn a_reload_from_before_a_mutation_is_discarded() {
     });
     deps.apply(loaded(1, "==1.15.0"));
     assert_eq!(deps.pyproject.rows()[0].version_constraint, "==1.15.0");
+}
+
+fn version_json(version: &str) -> Result<String, UvError> {
+    Ok(format!(
+        r#"{{"package_name": "acme-api", "version": "{version}", "commit_info": null}}"#
+    ))
+}
+
+#[test]
+fn a_version_change_is_its_uv_version() {
+    assert_eq!(
+        version_args(&VersionChange::Bump(Bump::Minor), true),
+        [
+            "version",
+            "--bump",
+            "minor",
+            "--dry-run",
+            "--output-format",
+            "json"
+        ]
+    );
+    assert_eq!(
+        version_args(&VersionChange::To("1.0.0rc1".into()), false),
+        ["version", "1.0.0rc1", "--output-format", "json"]
+    );
+}
+
+#[tokio::test]
+async fn the_bumps_are_previewed_without_writing_and_set_returns_the_new_version()
+-> Result<(), UvError> {
+    let uv = FakeUvClient::returning([
+        version_json("0.4.3"),
+        version_json("0.5.0"),
+        version_json("1.0.0"),
+        version_json("0.5.0"),
+    ]);
+    assert_eq!(preview_bumps(&uv).await?, ["0.4.3", "0.5.0", "1.0.0"]);
+    assert!(
+        uv.calls()
+            .iter()
+            .all(|call| call.contains(&"--dry-run".to_string()))
+    );
+    assert_eq!(
+        set_version(&uv, &VersionChange::Bump(Bump::Minor)).await?,
+        "0.5.0"
+    );
+    assert!(!uv.calls()[3].contains(&"--dry-run".to_string()));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_preview_is_a_read_and_a_change_a_mutation() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::returning([
+        version_json("0.4.3"),
+        version_json("0.5.0"),
+        version_json("1.0.0"),
+        version_json("0.5.0"),
+    ]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    runner.execute(Command::PreviewVersions);
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::VersionsPreviewed(Ok(versions)) if versions == &["0.4.3", "0.5.0", "1.0.0"]
+    )));
+    assert!(!events.iter().any(|e| matches!(e, Event::ProjectMutated)));
+    runner.execute(Command::SetVersion(VersionChange::Bump(Bump::Minor)));
+    let events = events_until(&mut received, finished(2)).await?;
+    assert!(events.iter().any(notice("The version is now 0.5.0")));
+    assert!(events.iter().any(|e| matches!(e, Event::ProjectMutated)));
+    Ok(())
+}
+
+#[test]
+fn a_version_read_before_a_change_is_discarded() {
+    let info = |version: &str| {
+        Ok(ProjectInfo {
+            name: "acme-api".into(),
+            version: version.into(),
+        })
+    };
+    let mut project = ProjectState::new("/acme".into());
+    project.apply_info(1, info("0.5.0"));
+    // A reload from before the bump lands late.
+    project.apply_info(0, info("0.4.2"));
+    assert!(matches!(&project.info, Loadable::Loaded(i) if i.version == "0.5.0"));
 }

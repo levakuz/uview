@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
-use uview::domain::{Membership, PyprojectDependency, Source};
+use uview::domain::{Bump, Membership, PyprojectDependency, Source, VersionChange};
 use uview::message::{Action, Command, Input, NavAction};
 use uview::state::{AppState, Loadable};
 use uview::ui::Component;
@@ -787,4 +787,78 @@ fn d_in_the_list_of_indexes_removes_the_highlighted_one_at_once() {
     screen.press(KeyCode::Enter);
     assert!(screen.press(KeyCode::Char('d')).is_empty());
     assert_eq!(screen.page.mode(), Mode::Actions);
+}
+
+#[test]
+fn v_asks_uv_for_the_next_versions_and_bumps_with_one_more_key() {
+    let mut screen = Screen::with(&["six"]);
+    assert_eq!(screen.press(KeyCode::Char('v')), [Command::PreviewVersions]);
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::SetVersion(VersionChange::Bump(Bump::Minor))]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn a_typed_version_is_checked_before_uv_runs() {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('v'));
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
+    screen.press(KeyCode::Enter);
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.type_text("v1.0");
+    // Refused: open again with what was typed.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.press(KeyCode::Home);
+    screen.press(KeyCode::Delete);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::SetVersion(VersionChange::To("1.0".into()))]
+    );
+    // Esc closes the list without a change.
+    screen.press(KeyCode::Char('v'));
+    assert!(screen.press(KeyCode::Esc).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn each_bump_shows_the_version_it_makes_once_uv_has_said() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut screen = Screen::with(&["six"]);
+    screen.state.project.info = Loadable::Loaded(uview::domain::ProjectInfo {
+        name: "acme-api".into(),
+        version: "0.4.2".into(),
+    });
+    screen.press(KeyCode::Char('v'));
+    let text = |screen: &mut Screen| -> Result<String, Box<dyn std::error::Error>> {
+        let mut terminal = Terminal::new(TestBackend::new(48, 12))?;
+        terminal.draw(|frame| screen.page.render(frame, frame.area(), &screen.state))?;
+        Ok(terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect())
+    };
+    let waiting = text(&mut screen)?;
+    assert!(waiting.contains("Version 0.4.2") && waiting.contains("minor → …"));
+    screen.state.project.bumps =
+        Loadable::Loaded(vec!["0.4.3".into(), "0.5.0".into(), "1.0.0".into()]);
+    let shown = text(&mut screen)?;
+    for row in [
+        "patch → 0.4.3",
+        "minor → 0.5.0",
+        "major → 1.0.0",
+        "Set version…",
+    ] {
+        assert!(shown.contains(row), "{row}");
+    }
+    Ok(())
 }

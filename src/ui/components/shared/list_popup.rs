@@ -18,18 +18,18 @@ pub struct ListPopup {
 impl ListPopup {
     /// Opens with the first item highlighted.
     pub fn new(title: &str, items: Vec<String>) -> Self {
-        let widest = items.iter().map(|item| item.chars().count()).max();
-        let width = widest.unwrap_or(0).max(title.chars().count()) + 4;
         Self {
-            // The items inside a border.
-            popup: Popup::new(PopupSize {
-                width: u16::try_from(width).unwrap_or(u16::MAX),
-                height: u16::try_from(items.len() + 2).unwrap_or(u16::MAX),
-            }),
+            popup: size(title, &items),
             title: title.to_string(),
             items,
             state: ListState::default().with_selected(Some(0)),
         }
+    }
+
+    /// Shows `items` in place of the list's, keeping the highlight where it is.
+    pub fn set_items(&mut self, items: Vec<String>) {
+        self.popup = size(&self.title, &items);
+        self.items = items;
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
@@ -55,4 +55,14 @@ impl ListPopup {
     pub fn selected(&self) -> Option<usize> {
         self.state.selected().filter(|&i| i < self.items.len())
     }
+}
+
+/// A popup that fits `title` and `items` inside a border.
+fn size(title: &str, items: &[String]) -> Popup {
+    let widest = items.iter().map(|item| item.chars().count()).max();
+    let width = widest.unwrap_or(0).max(title.chars().count()) + 4;
+    Popup::new(PopupSize {
+        width: u16::try_from(width).unwrap_or(u16::MAX),
+        height: u16::try_from(items.len() + 2).unwrap_or(u16::MAX),
+    })
 }
