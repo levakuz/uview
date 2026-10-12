@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,6 +7,7 @@ use ratatui::DefaultTerminal;
 use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
+use crate::controllers::project::ProjectPaths;
 use crate::message::{Action, Command, Event, Input, NavAction};
 use crate::runtime::jobs::JobRunner;
 use crate::state::{AppState, Loadable, Message, ProjectState};
@@ -36,7 +36,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(project: String, env: PathBuf) -> Self {
+    pub fn new(paths: ProjectPaths) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded_channel();
         Self {
             page: DependenciesPage::new(),
@@ -44,10 +44,10 @@ impl App {
             help: false,
             help_scroll: 0,
             state: AppState {
-                project: ProjectState::new(project),
+                project: ProjectState::new(paths.root.display().to_string()),
                 ..AppState::default()
             },
-            runner: JobRunner::new(Arc::new(RealUvClient), env, events_tx),
+            runner: JobRunner::new(Arc::new(RealUvClient::new(&paths.root)), paths, events_tx),
             events_rx,
         }
     }

@@ -4,6 +4,7 @@ pub mod args;
 pub mod parse;
 
 use std::fmt;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -75,9 +76,20 @@ pub trait UvClient: Send + Sync {
     }
 }
 
-/// Runs the `uv` binary found on `PATH`. The only code in uview that starts a process.
-#[derive(Clone, Copy)]
-pub struct RealUvClient;
+/// Runs the `uv` binary found on `PATH`, in the directory it was made for. The only code in
+/// uview that starts a process.
+#[derive(Clone, Debug)]
+pub struct RealUvClient {
+    dir: PathBuf,
+}
+
+impl RealUvClient {
+    /// A client that runs `uv` in `dir`, as a shell in it would. uview's own working directory
+    /// is left alone.
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
+}
 
 impl UvClient for RealUvClient {
     async fn run(&self, args: &[&str]) -> Result<String, UvError> {
@@ -102,8 +114,9 @@ impl UvClient for RealUvClient {
             // Plain text: FORCE_COLOR would otherwise colour even a pipe.
             .args(["--color", "never"])
             .args(args)
-            // main.rs already turned UV_PROJECT into the working directory; left set, uv would
-            // resolve a relative value a second time, from there.
+            .current_dir(&self.dir)
+            // main.rs already turned UV_PROJECT into the directory uv runs in; left set, uv
+            // would resolve a relative value a second time, from there.
             .env_remove("UV_PROJECT")
             // Kept off the terminal the app draws on.
             .stdin(Stdio::null())

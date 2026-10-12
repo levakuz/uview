@@ -4,8 +4,6 @@ use std::path::Path;
 
 use crate::uv::{UvClient, UvError, args};
 
-pub const PYPROJECT: &str = "./pyproject.toml";
-
 /// Rewrites the `pyproject` file with `edit`, then relocks: uv.lock follows what the file
 /// declares. If `edit` refuses, nothing is written; if uv cannot lock, the file is put back as
 /// it was, and the error says so. Why uv could not is in the uv log: its first line, which is

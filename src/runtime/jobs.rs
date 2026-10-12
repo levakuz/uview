@@ -1,21 +1,21 @@
 //! Runs commands as jobs (ADR-0003). `uv` locks the project, so of two mutations at once one
 //! fails: they run one at a time, in the order accepted. Reads take no lock and start at once.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
+use crate::controllers::project::ProjectPaths;
 use crate::message::{Command, Event, JobId};
 use crate::uv::{UvClient, UvError};
 
 /// Accepts commands as jobs and runs them.
 pub struct JobRunner<U> {
     uv: Arc<U>,
-    /// The project's environment.
-    env: Arc<Path>,
+    /// Where the project's files are.
+    paths: Arc<ProjectPaths>,
     events: UnboundedSender<Event>,
     /// Mutations waiting their turn. A single task takes them in order.
     mutations: UnboundedSender<Job>,
@@ -36,26 +36,26 @@ struct Job {
 
 impl<U: UvClient + 'static> JobRunner<U> {
     /// Starts the task that runs mutations, so it must be called inside a tokio runtime.
-    pub fn new(uv: Arc<U>, env: PathBuf, events: UnboundedSender<Event>) -> Self {
-        let env: Arc<Path> = env.into();
+    pub fn new(uv: Arc<U>, paths: ProjectPaths, events: UnboundedSender<Event>) -> Self {
+        let paths = Arc::new(paths);
         let (mutations, mut queue) = mpsc::unbounded_channel::<Job>();
         let generation = Arc::new(AtomicU64::new(0));
         tokio::spawn({
-            let (uv, env, events, generation) = (
+            let (uv, paths, events, generation) = (
                 Arc::clone(&uv),
-                Arc::clone(&env),
+                Arc::clone(&paths),
                 events.clone(),
                 Arc::clone(&generation),
             );
             async move {
                 while let Some(job) = queue.recv().await {
-                    run_job(job, &*uv, &env, &events, &generation).await;
+                    run_job(job, &*uv, &paths, &events, &generation).await;
                 }
             }
         });
         Self {
             uv,
-            env,
+            paths,
             events,
             mutations,
             last_id: 0,
@@ -80,13 +80,13 @@ impl<U: UvClient + 'static> JobRunner<U> {
         if mutates(&job.command) {
             let _ = self.mutations.send(job);
         } else {
-            let (uv, env, events) = (
+            let (uv, paths, events) = (
                 Arc::clone(&self.uv),
-                Arc::clone(&self.env),
+                Arc::clone(&self.paths),
                 self.events.clone(),
             );
             let generation = Arc::clone(&self.generation);
-            tokio::spawn(async move { run_job(job, &*uv, &env, &events, &generation).await });
+            tokio::spawn(async move { run_job(job, &*uv, &paths, &events, &generation).await });
         }
     }
 
@@ -132,7 +132,7 @@ fn label(command: &Command) -> String {
 async fn run_job(
     job: Job,
     uv: &impl UvClient,
-    env: &Path,
+    paths: &ProjectPaths,
     events: &UnboundedSender<Event>,
     generation: &AtomicU64,
 ) {
@@ -154,7 +154,7 @@ async fn run_job(
         logged: mutates,
     };
     let as_it_starts = generation.load(Ordering::SeqCst);
-    super::run(job.command, &job_uv, env, events, as_it_starts).await;
+    super::run(job.command, &job_uv, paths, events, as_it_starts).await;
     if job.cancel.is_cancelled() {
         send(Event::Notice(format!("Cancelled: {}", job.label)));
     }

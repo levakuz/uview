@@ -182,7 +182,7 @@ nothing of it: the failure would recur on every reload, and is no mistake of the
 
 ```
 src/
-├── main.rs                 # tokio entry point; finds the project root, or offers uv init; makes it the cwd
+├── main.rs                 # tokio entry point; finds the project root, or offers uv init; resolves its paths
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, the help
 ├── message.rs              # Input / Action / Command / Event
@@ -324,8 +324,10 @@ belongs to, by uv's rules (ADR-0008). The project is its own root if it declares
 Otherwise the nearest `pyproject.toml` above it decides: its directory is the root if its
 workspace's `members` match the project and its `exclude` does not. Failing both, the project
 stands alone. `project_environment` joins `.venv`, or `UV_PROJECT_ENVIRONMENT`, to that root.
-`main.rs` resolves it once at startup and the `JobRunner` hands it to every command, so
-`controllers::dependencies` passes it to `uv pip` as `--python`. An environment that does not
+`main.rs` resolves it once at startup, with the root and its pyproject.toml, into
+`ProjectPaths` (ADR-0011). The `JobRunner` hands each command the path it needs: the
+pyproject.toml to the controllers that read or edit it, and the environment to
+`controllers::dependencies`, which passes it to `uv pip` as `--python`. An environment that does not
 exist yet, as in a project never synced, lists as empty without running `uv`.
 
 Output is read in machine-readable form: `uv pip list --format json` is deserialized
@@ -346,8 +348,9 @@ runtime formats the error into `Event::Error`, except `Cancelled`, which the run
 as a notice. `RealUvClient` runs `uv --color never`: `FORCE_COLOR` would otherwise put escape
 codes into a pipe.
 `RealUvClient` is the only implementation in `src/` and the only code that starts a
-process (ADR-0002). `uv` runs in the working directory, which `main.rs` has made the project root, without
-`UV_PROJECT`, which that root already accounts for.
+process (ADR-0002). It runs `uv` in the directory it was made for, the project root, set on
+the child process; uview's own working directory is never changed (ADR-0011). `UV_PROJECT` is
+removed from uv's environment, as that root already accounts for it.
 `panic!`, `unwrap` and `expect` are denied crate-wide by `[lints.clippy]` in `Cargo.toml`.
 
 ## 9. Concurrency

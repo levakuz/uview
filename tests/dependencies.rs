@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use uview::controllers::dependencies::{
     add_dep, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
-use uview::controllers::project::{preview_bumps, set_version};
+use uview::controllers::project::{ProjectPaths, preview_bumps, set_version};
 use uview::domain::{Bump, Membership, ProjectInfo, PyprojectDependency, VersionChange};
 use uview::message::{Command, Event, JobId};
 use uview::runtime::jobs::JobRunner;
@@ -100,9 +100,15 @@ impl Drop for CountsDrop<'_> {
     }
 }
 
-/// An environment that exists, so a reload asks `uv` to list it.
-fn synced() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+/// The project a runner acts on: a fixture pyproject.toml, and an environment that exists, so
+/// a reload asks `uv` to list it.
+fn project() -> ProjectPaths {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    ProjectPaths {
+        pyproject: root.join("tests/fixtures/pyproject/all_kinds.toml"),
+        env: root.clone(),
+        root,
+    }
 }
 
 /// Receives events up to the first that `last` matches, and returns them all. Gives up after a
@@ -217,7 +223,7 @@ fn pin_requirement_normalizes_constraints() {
 async fn failed_uv_call_returns_error_instead_of_panicking() {
     // `uv` exits 1 for an unknown package; without `uv` on PATH this is a spawn error.
     assert!(
-        RealUvClient
+        RealUvClient::new(std::env::temp_dir())
             .run(&["pip", "show", "uview-no-such-package"])
             .await
             .is_err()
@@ -226,7 +232,10 @@ async fn failed_uv_call_returns_error_instead_of_panicking() {
 
 #[tokio::test]
 async fn successful_uv_call_returns_stdout() {
-    match RealUvClient.run(&["--version"]).await {
+    match RealUvClient::new(std::env::temp_dir())
+        .run(&["--version"])
+        .await
+    {
         Err(UvError::Spawn(_)) => {} // `uv` is not installed here; nothing to check.
         other => assert!(other.is_ok_and(|out| out.starts_with("uv "))),
     }
@@ -253,15 +262,8 @@ async fn uv_add_streams_its_lines_and_a_cancel_puts_pyproject_back() -> Result<(
         Ok(std::fs::read_to_string(&pyproject)?.contains("requests"))
     };
 
-    let dir_arg = dir.to_string_lossy();
-    let args = [
-        "add",
-        "requests",
-        "--directory",
-        &dir_arg,
-        "--default-index",
-        &url,
-    ];
+    // No --directory: the client runs uv in the project, as uview's does.
+    let args = ["add", "requests", "--default-index", &url];
     let lines = Mutex::new(Vec::new());
     let on_line = |line: &str| {
         let mut lines = lines.lock().unwrap_or_else(PoisonError::into_inner);
@@ -274,7 +276,8 @@ async fn uv_add_streams_its_lines_and_a_cancel_puts_pyproject_back() -> Result<(
             .is_empty()
     };
     let cancel = CancellationToken::new();
-    let mut add = Box::pin(RealUvClient.run_streaming(&args, &cancel, &on_line));
+    let uv = RealUvClient::new(&dir);
+    let mut add = Box::pin(uv.run_streaming(&args, &cancel, &on_line));
     let mut waited = 0;
     // Both while uv still runs, since it hangs until cancelled.
     while !(lists_requests()? && streamed()) {
@@ -385,7 +388,7 @@ async fn add_runs_uv_add_alone() -> Result<(), UvError> {
 async fn an_add_to_a_group_says_which() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Add {
         requirement: "pytest".into(),
         membership: Membership::Group("dev".into()),
@@ -412,7 +415,7 @@ fn move_six() -> Command {
 async fn a_move_adds_to_the_new_group_then_removes_from_the_old() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(move_six());
     let events = events_until(&mut received, finished(1)).await?;
     assert_eq!(
@@ -430,7 +433,7 @@ async fn a_move_adds_to_the_new_group_then_removes_from_the_old() -> Result<(), 
 async fn a_move_whose_add_fails_removes_nothing() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::returning([Err(UvError::Parse("no".into()))]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(move_six());
     events_until(&mut received, finished(1)).await?;
     assert_eq!(uv.calls().len(), 1);
@@ -444,7 +447,7 @@ async fn a_move_whose_remove_fails_says_where_the_package_is() -> Result<(), Box
         Err(UvError::Parse("no".into())),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(move_six());
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(
@@ -462,7 +465,7 @@ async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<
         Err(UvError::Parse("no".into())),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Upgrade { name: "six".into() });
     runner.execute(Command::Add {
         requirement: "httpx".into(),
@@ -486,7 +489,7 @@ async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<
 async fn a_reload_carries_how_many_mutations_had_ended() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     let generation = |events: &[Event]| {
         events.iter().find_map(|event| match event {
             Event::PyprojectLoaded { generation, .. } => Some(*generation),
@@ -508,7 +511,7 @@ async fn a_reload_carries_how_many_mutations_had_ended() -> Result<(), Box<dyn E
 async fn sync_runs_plain_uv_sync() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Sync);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(notice("Synced the environment")));
@@ -527,7 +530,7 @@ async fn a_failed_load_reaches_its_table_and_the_status_line() -> Result<(), Box
         "bad json".into(),
     ))]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     let reason = "could not read `uv` output: bad json";
@@ -548,7 +551,10 @@ async fn a_failed_load_reaches_its_table_and_the_status_line() -> Result<(), Box
 async fn a_missing_environment_loads_empty_without_asking_uv() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let missing = synced().join("no-such-venv");
+    let missing = ProjectPaths {
+        env: project().root.join("no-such-venv"),
+        ..project()
+    };
     let mut runner = JobRunner::new(Arc::clone(&uv), missing, events);
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
@@ -573,7 +579,7 @@ async fn a_reload_reads_the_projects_name_and_version() -> Result<(), Box<dyn Er
         Ok(r#"{"package_name": "acme-api", "version": "0.4.2", "commit_info": null}"#.into()),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(
@@ -581,6 +587,11 @@ async fn a_reload_reads_the_projects_name_and_version() -> Result<(), Box<dyn Er
         Event::ProjectLoaded { loaded: Ok(info), .. } if info.name == "acme-api" && info.version == "0.4.2"
     )));
     assert_eq!(uv.calls()[1], ["version", "--output-format", "json"]);
+    // From the fixture it was handed, not from wherever the tests run.
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::PyprojectLoaded { loaded: Ok(rows), .. } if rows.len() == 5 && rows[0].name == "httpx"
+    )));
     Ok(())
 }
 
@@ -597,7 +608,7 @@ async fn a_version_uv_cannot_read_is_told_to_the_project_tile_alone() -> Result<
         }),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     // What uv said, without the command around it, and not on the status line.
@@ -618,7 +629,7 @@ async fn a_version_uv_cannot_read_is_told_to_the_project_tile_alone() -> Result<
 async fn a_cancelled_load_is_not_left_loading() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::hanging_on("pip"));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Reload);
     events_until(&mut received, started(1)).await?;
     runner.cancel();
@@ -643,7 +654,7 @@ async fn a_cancelled_load_is_not_left_loading() -> Result<(), Box<dyn Error>> {
 async fn a_mutation_waits_for_the_one_running_and_a_read_does_not() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::hanging_on("add"));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Add {
         requirement: "httpx".into(),
         membership: Membership::Project,
@@ -662,7 +673,7 @@ async fn a_mutation_waits_for_the_one_running_and_a_read_does_not() -> Result<()
 async fn cancel_stops_the_running_job_and_drops_the_waiting() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::hanging_on("add"));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Add {
         requirement: "httpx".into(),
         membership: Membership::Project,
@@ -697,7 +708,7 @@ async fn a_jobs_uv_lines_arrive_in_order_as_its_output() -> Result<(), Box<dyn E
         ..FakeUvClient::default()
     });
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Upgrade { name: "six".into() });
     let events = events_until(&mut received, finished(1)).await?;
     let output: Vec<&str> = events
@@ -721,7 +732,7 @@ async fn a_reload_writes_nothing_to_the_log() -> Result<(), Box<dyn Error>> {
         ..FakeUvClient::default()
     });
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(
@@ -893,7 +904,7 @@ async fn a_preview_is_a_read_and_a_change_a_mutation() -> Result<(), Box<dyn Err
         version_json("0.5.0"),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), synced(), events);
+    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
     runner.execute(Command::PreviewVersions);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(

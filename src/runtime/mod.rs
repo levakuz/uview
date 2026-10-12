@@ -3,8 +3,6 @@
 
 pub mod jobs;
 
-use std::path::Path;
-
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::controllers::dependencies::{
@@ -13,25 +11,24 @@ use crate::controllers::dependencies::{
 };
 use crate::controllers::groups::{delete_group, empty_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
-use crate::controllers::project::{load_project_info, preview_bumps, set_version};
-use crate::controllers::pyproject::PYPROJECT;
+use crate::controllers::project::{ProjectPaths, load_project_info, preview_bumps, set_version};
 use crate::domain::Membership;
 use crate::message::{Command, Event};
 use crate::uv::{UvClient, UvError};
 
 /// Runs `command` against `uv` and reports how it went. `generation` is the project's as the job
 /// starts, which a reload reports its rows with. A mutation does not reload the tables: the app
-/// does, when the job runner reports that the project changed. `env` is the project's
-/// environment, which `uv pip` must be told: left implicit, it follows an activated virtualenv.
+/// does, when the job runner reports that the project changed. `paths` says where the
+/// project's files are.
 async fn run(
     command: Command,
     uv: &impl UvClient,
-    env: &Path,
+    paths: &ProjectPaths,
     events: &UnboundedSender<Event>,
     generation: u64,
 ) {
     let outcome = match command {
-        Command::Reload => return reload(uv, env, events, generation).await,
+        Command::Reload => return reload(uv, paths, events, generation).await,
         // What uv says is the list's to show, not the status line's.
         Command::PreviewVersions => {
             let previewed = preview_bumps(uv).await;
@@ -65,14 +62,14 @@ async fn run(
             .await
             .map(|()| format!("Added {}{}", source.label(), to(&membership))),
         Command::AddIndex { name, url, default } => {
-            add_index(uv, Path::new(PYPROJECT), &name, &url, default)
+            add_index(uv, &paths.pyproject, &name, &url, default)
                 .await
                 .map(|()| format!("Added index {name}"))
         }
-        Command::RemoveIndex(index) => remove_index(uv, Path::new(PYPROJECT), &index)
+        Command::RemoveIndex(index) => remove_index(uv, &paths.pyproject, &index)
             .await
             .map(|()| format!("Removed index {}", index_label(&index))),
-        Command::DeleteGroup { name } => delete_group(uv, Path::new(PYPROJECT), &name)
+        Command::DeleteGroup { name } => delete_group(uv, &paths.pyproject, &name)
             .await
             .map(|()| format!("Deleted group {name}")),
         Command::Move {
@@ -98,15 +95,17 @@ async fn run(
                 }
             }
         }
-        Command::Uninstall { name } => uninstall_from_env(uv, &name, env)
+        Command::Uninstall { name } => uninstall_from_env(uv, &name, &paths.env)
             .await
             .map(|()| format!("Uninstalled {name} from the environment")),
         Command::Upgrade { name } => upgrade_env_dep(uv, &name)
             .await
             .map(|()| format!("Updated {name}")),
-        Command::Pin { name, constraint } => pin_dep_version(uv, &name, &constraint)
-            .await
-            .map(|pinned| format!("Pinned {pinned}")),
+        Command::Pin { name, constraint } => {
+            pin_dep_version(uv, &paths.pyproject, &name, &constraint)
+                .await
+                .map(|pinned| format!("Pinned {pinned}"))
+        }
     };
     let event = match outcome {
         Ok(notice) => Event::Notice(notice),
@@ -119,20 +118,27 @@ async fn run(
 
 /// Reads both tables, and the project's name and version, again, as at startup. A table that
 /// cannot load shows why, and the status line says so too.
-async fn reload(uv: &impl UvClient, env: &Path, events: &UnboundedSender<Event>, generation: u64) {
-    let pyproject = load_pyproject_deps().await.map_err(|e| e.to_string());
+async fn reload(
+    uv: &impl UvClient,
+    paths: &ProjectPaths,
+    events: &UnboundedSender<Event>,
+    generation: u64,
+) {
+    let pyproject = load_pyproject_deps(&paths.pyproject)
+        .await
+        .map_err(|e| e.to_string());
     if let Err(reason) = &pyproject {
         let _ = events.send(Event::Error(format!("pyproject.toml: {reason}")));
     }
-    let (empty_groups, deletable_groups) = empty_groups().await;
+    let (empty_groups, deletable_groups) = empty_groups(&paths.pyproject).await;
     let _ = events.send(Event::PyprojectLoaded {
         generation,
         loaded: pyproject,
         empty_groups,
         deletable_groups,
-        indexes: load_indexes().await,
+        indexes: load_indexes(&paths.pyproject).await,
     });
-    let env = load_env_deps(uv, env).await;
+    let env = load_env_deps(uv, &paths.env).await;
     // A cancel is the runner's to report.
     if let Err(e) = &env
         && !matches!(e, UvError::Cancelled)

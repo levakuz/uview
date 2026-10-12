@@ -5,7 +5,7 @@ use std::path::Path;
 
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
-use crate::controllers::pyproject::{PYPROJECT, edit_then_lock};
+use crate::controllers::pyproject::edit_then_lock;
 use crate::domain::{Index, IndexKind, index_problem};
 use crate::uv::{UvClient, UvError};
 
@@ -139,9 +139,9 @@ fn pinned_to(doc: &DocumentMut, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// The project's indexes as pyproject.toml declares them now.
-pub async fn load_indexes() -> Vec<Index> {
-    tokio::fs::read_to_string(PYPROJECT)
+/// The indexes the `pyproject` file declares now.
+pub async fn load_indexes(pyproject: &Path) -> Vec<Index> {
+    tokio::fs::read_to_string(pyproject)
         .await
         .map(|pyproject| list_indexes(&pyproject))
         .unwrap_or_default()

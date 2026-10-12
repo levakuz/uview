@@ -27,13 +27,11 @@ async fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
-    // pyproject.toml and every `uv` subprocess resolve
-    // against the working directory, so make that the project root.
-    // ponytail: process-wide; the root moves into UvClient (#41) if one run ever spans projects.
-    std::env::set_current_dir(&root)?;
+    // Every path from here on is the project's, handed on; uview's working directory is left
+    // as it was started in (ADR-0011).
     let configured = std::env::var("UV_PROJECT_ENVIRONMENT").ok();
-    let env = controllers::project::project_environment(&root, configured.as_deref());
-    let mut app = app::App::new(root.display().to_string(), env);
+    let paths = controllers::project::ProjectPaths::at(root, configured.as_deref());
+    let mut app = app::App::new(paths);
     app.run().await
 }
 
@@ -84,7 +82,7 @@ async fn offer_init(dir: &Path) -> Result<Option<PathBuf>, String> {
         return Ok(None);
     };
     let name = Some(name.as_str()).filter(|name| !name.is_empty());
-    match controllers::project::init_project(&Echoing, dir, name).await {
+    match controllers::project::init_project(&Echoing(RealUvClient::new(dir)), dir, name).await {
         Ok(()) => controllers::project::find_project_root(dir)
             .map(Some)
             .ok_or_else(|| format!("`uv init` left no pyproject.toml in {dir:?}.")),
@@ -106,12 +104,12 @@ fn ask(question: &str) -> Option<String> {
 
 /// Runs `uv` as a shell would, before the app takes the terminal: each line it writes to stderr
 /// is printed as it comes.
-struct Echoing;
+struct Echoing(RealUvClient);
 
 impl UvClient for Echoing {
     async fn run(&self, args: &[&str]) -> Result<String, UvError> {
         let echo = |line: &str| eprintln!("{line}");
-        RealUvClient
+        self.0
             .run_streaming(args, &CancellationToken::new(), &echo)
             .await
     }
