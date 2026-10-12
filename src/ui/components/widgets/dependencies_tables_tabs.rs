@@ -342,7 +342,7 @@ impl DependenciesTablesTabs {
         if self.version_picker.is_open() {
             match self.version_picker.update(action, deps) {
                 Some(Picked::Typed) => self.pin_version_popup.open(),
-                Some(Picked::Version(constraint)) => {
+                Some(Picked::Constraint(constraint)) => {
                     if let Some(name) = self.target.clone() {
                         return vec![Command::Pin { name, constraint }];
                     }

@@ -315,3 +315,36 @@ fn uv_goes_past_the_codes_an_index_answers_for_a_missing_package() {
     );
     assert!(ignores(&listed, "https://corp.example.com/simple", 401));
 }
+
+#[test]
+fn a_version_can_be_pinned_with_each_operator_pep_440_allows_for_it() {
+    use uview::domain::constraint_choices;
+    let constraints = |version: &str| -> Vec<String> {
+        constraint_choices(version)
+            .into_iter()
+            .map(|(constraint, _)| constraint)
+            .collect()
+    };
+    assert_eq!(
+        constraints("0.28.1"),
+        [
+            "==0.28.1", ">=0.28.1", "~=0.28.1", "==0.28.*", ">0.28.1", "<=0.28.1", "<0.28.1",
+            "!=0.28.1"
+        ]
+    );
+    assert_eq!(
+        constraint_choices("0.28.1")[2].1,
+        "compatible: >=0.28.1, <0.29"
+    );
+    // One part has no series; a pre-release gets no series either.
+    assert!(
+        !constraints("2")
+            .iter()
+            .any(|c| c.starts_with("~=") || c.ends_with(".*"))
+    );
+    assert!(!constraints("1.0rc1").iter().any(|c| c.starts_with("~=")));
+    // A local version, as the PyTorch index serves, keeps only what PEP 440 allows it.
+    let local = constraints("2.4.0+cpu");
+    assert!(local.contains(&"==2.4.0+cpu".to_string()));
+    assert!(!local.contains(&"~=2.4.0+cpu".to_string()));
+}

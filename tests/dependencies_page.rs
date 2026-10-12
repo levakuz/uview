@@ -917,17 +917,37 @@ fn pin_to_version_lists_the_versions_and_pins_the_one_chosen()
     for row in ["2.0.0b1  pre", "1.17.0  needs Python >=3.12", "1.16.0"] {
         assert!(listed.contains(row), "{row}");
     }
-    // The third row is 1.17.0; a bare version is pinned exactly by the pin path.
+    // The third row is 1.17.0; then how to pin it, `==` first, so Enter twice pins it exactly.
     screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    let operators = screen.drawn()?;
+    assert!(operators.contains("Pin six to 1.17.0"));
+    assert!(operators.contains("==1.17.0  exactly this version"));
+    assert!(operators.contains("~=1.17.0  compatible: >=1.17.0, <1.18"));
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "six".into(),
+            constraint: "==1.17.0".into()
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // The second operator is `>=`.
+    for _ in 0..2 {
+        screen.press(KeyCode::Enter);
+    }
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::Pin {
             name: "six".into(),
-            constraint: "1.17.0".into()
+            constraint: ">=1.17.0".into()
         }]
     );
-    assert_eq!(screen.page.mode(), Mode::Table);
     Ok(())
 }
 

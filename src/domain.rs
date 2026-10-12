@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use serde::Deserialize;
 
@@ -263,4 +264,45 @@ pub struct VersionChoice {
     pub pre: bool,
     /// What its files need when none supports the project's oldest Python, e.g. `>=3.12`.
     pub needs_python: Option<String>,
+}
+
+/// The constraints a pin to `version` can take, each with what it means, `==` first. One that
+/// PEP 440 does not allow for this version, such as `~=` on `1` or on a local version, is left out.
+pub fn constraint_choices(version: &str) -> Vec<(String, String)> {
+    let mut choices = vec![
+        (format!("=={version}"), "exactly this version".to_string()),
+        (format!(">={version}"), "this version or newer".to_string()),
+    ];
+    // A release series needs at least two parts, and means little for a pre-release.
+    if let Ok(parsed) = pep440_rs::Version::from_str(version)
+        && !parsed.any_prerelease()
+        && let Some((_, series)) = parsed.release().split_last()
+        && let Some((&last, head)) = series.split_last()
+    {
+        let join = |parts: &[u64]| {
+            parts
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(".")
+        };
+        let next = join(&[head, &[last + 1]].concat());
+        let series = join(series);
+        choices.push((
+            format!("~={version}"),
+            format!("compatible: >={version}, <{next}"),
+        ));
+        choices.push((format!("=={series}.*"), format!("any {series}.x release")));
+    }
+    choices.extend(
+        [
+            (">", "newer than this"),
+            ("<=", "this version or older"),
+            ("<", "older than this"),
+            ("!=", "any version but this"),
+        ]
+        .map(|(op, means)| (format!("{op}{version}"), means.to_string())),
+    );
+    choices.retain(|(constraint, _)| pep440_rs::VersionSpecifier::from_str(constraint).is_ok());
+    choices
 }

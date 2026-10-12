@@ -1,7 +1,7 @@
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    domain::VersionChoice,
+    domain::{VersionChoice, constraint_choices},
     message::{Action, NavAction},
     state::{DepsState, Loadable},
     ui::components::shared::list_popup::ListPopup,
@@ -12,21 +12,32 @@ use crate::{
 pub enum Picked {
     /// "Type a constraint…": the constraint input, as before the list.
     Typed,
-    Version(String),
+    /// A version, with the operator chosen for it, such as `>=1.17.0`.
+    Constraint(String),
+}
+
+/// Where the list is: choosing the version, then how to pin it.
+enum Step {
+    Versions(ListPopup),
+    /// The constraints the version can take, as the list shows them.
+    Operator {
+        list: ListPopup,
+        constraints: Vec<String>,
+    },
 }
 
 /// Pin to version: "Type a constraint…", then the versions of the package, newest first, as its
-/// index lists them.
+/// index lists them; then, for the version chosen, `==`, `>=` and the other operators.
 #[derive(Default)]
 pub struct VersionPicker {
-    /// The package it is open for, and the list.
-    open: Option<(String, ListPopup)>,
+    /// The package it is open for, and where it is.
+    open: Option<(String, Step)>,
 }
 
 impl VersionPicker {
     pub fn open(&mut self, name: &str, deps: &DepsState) {
         let list = ListPopup::new(&format!("Pin {name}"), rows(name, deps));
-        self.open = Some((name.to_string(), list));
+        self.open = Some((name.to_string(), Step::Versions(list)));
     }
 
     pub fn is_open(&self) -> bool {
@@ -35,31 +46,66 @@ impl VersionPicker {
 
     /// Draws it with the versions as they are now: they arrive after it opens.
     pub fn render(&mut self, frame: &mut Frame, area: Rect, deps: &DepsState) {
-        if let Some((name, list)) = &mut self.open {
-            list.set_items(rows(name, deps));
-            list.render(frame, area);
+        match &mut self.open {
+            Some((name, Step::Versions(list))) => {
+                list.set_items(rows(name, deps));
+                list.render(frame, area);
+            }
+            Some((_, Step::Operator { list, .. })) => list.render(frame, area),
+            None => {}
         }
     }
 
     /// Moves on with `action`, and says what was chosen once something is; Esc closes it.
     pub fn update(&mut self, action: &Action, deps: &DepsState) -> Option<Picked> {
-        let (name, list) = self.open.as_mut()?;
+        let (name, step) = self.open.as_mut()?;
+        let list = match step {
+            Step::Versions(list) | Step::Operator { list, .. } => list,
+        };
         match action {
             Action::Nav(NavAction::Up) => list.up(),
             Action::Nav(NavAction::Down) => list.down(),
             Action::Nav(NavAction::Back) => self.open = None,
-            Action::Nav(NavAction::Select) => {
-                let picked = match list.selected()? {
-                    0 => Picked::Typed,
+            Action::Nav(NavAction::Select) => match step {
+                Step::Versions(list) => match list.selected()? {
+                    0 => {
+                        self.open = None;
+                        return Some(Picked::Typed);
+                    }
                     // A row past the first is a version only once they have loaded.
-                    row => Picked::Version(versions(name, deps)?.get(row - 1)?.version.clone()),
-                };
-                self.open = None;
-                return Some(picked);
-            }
+                    row => {
+                        let version = versions(name, deps)?.get(row - 1)?.version.clone();
+                        *step = operators(name, &version);
+                    }
+                },
+                Step::Operator { list, constraints } => {
+                    let constraint = constraints.get(list.selected()?)?.clone();
+                    self.open = None;
+                    return Some(Picked::Constraint(constraint));
+                }
+            },
             _ => {}
         }
         None
+    }
+}
+
+/// The second step, for `version` of `name`: each constraint it can take, with what it means,
+/// `==` highlighted.
+fn operators(name: &str, version: &str) -> Step {
+    let choices = constraint_choices(version);
+    let width = choices
+        .iter()
+        .map(|(c, _)| c.chars().count())
+        .max()
+        .unwrap_or(0);
+    let rows = choices
+        .iter()
+        .map(|(constraint, means)| format!("{constraint:width$}  {means}"))
+        .collect();
+    Step::Operator {
+        list: ListPopup::new(&format!("Pin {name} to {version}"), rows),
+        constraints: choices.into_iter().map(|(c, _)| c).collect(),
     }
 }
 
