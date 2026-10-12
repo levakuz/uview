@@ -4,9 +4,16 @@ use crate::domain::{EnvDependency, Membership, PyprojectDependency, Source};
 use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
 
+/// The dependencies the project's pyproject.toml declares.
 pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
-    let content = tokio::fs::read_to_string("./pyproject.toml").await?;
-    let value: toml::Value = toml::from_str(&content)?;
+    parse_pyproject_deps(&tokio::fs::read_to_string("./pyproject.toml").await?)
+}
+
+/// The dependencies `pyproject` declares, one row per package: the main ones in file order,
+/// then the dependency groups and then the extras, each by name. A package in several places is
+/// one row with each of them; its first declaration gives the constraint and extras.
+pub fn parse_pyproject_deps(pyproject: &str) -> Result<Vec<PyprojectDependency>> {
+    let value: toml::Value = toml::from_str(pyproject)?;
 
     let mut deps: Vec<PyprojectDependency> = Vec::new();
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
