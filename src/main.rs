@@ -1,6 +1,7 @@
 mod app;
 mod controllers;
 mod domain;
+mod index;
 mod message;
 mod runtime;
 mod state;

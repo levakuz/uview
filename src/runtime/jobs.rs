@@ -8,12 +8,15 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
 use crate::controllers::project::ProjectPaths;
+use crate::index::IndexClient;
 use crate::message::{Command, Event, JobId};
 use crate::uv::{UvClient, UvError};
 
 /// Accepts commands as jobs and runs them.
-pub struct JobRunner<U> {
+pub struct JobRunner<U, I> {
     uv: Arc<U>,
+    /// Reads package indexes, for what uv cannot list.
+    index: Arc<I>,
     /// Where the project's files are.
     paths: Arc<ProjectPaths>,
     events: UnboundedSender<Event>,
@@ -34,27 +37,34 @@ struct Job {
     cancel: CancellationToken,
 }
 
-impl<U: UvClient + 'static> JobRunner<U> {
+impl<U: UvClient + 'static, I: IndexClient + Send + Sync + 'static> JobRunner<U, I> {
     /// Starts the task that runs mutations, so it must be called inside a tokio runtime.
-    pub fn new(uv: Arc<U>, paths: ProjectPaths, events: UnboundedSender<Event>) -> Self {
+    pub fn new(
+        uv: Arc<U>,
+        index: Arc<I>,
+        paths: ProjectPaths,
+        events: UnboundedSender<Event>,
+    ) -> Self {
         let paths = Arc::new(paths);
         let (mutations, mut queue) = mpsc::unbounded_channel::<Job>();
         let generation = Arc::new(AtomicU64::new(0));
         tokio::spawn({
-            let (uv, paths, events, generation) = (
+            let (uv, index, paths, events, generation) = (
                 Arc::clone(&uv),
+                Arc::clone(&index),
                 Arc::clone(&paths),
                 events.clone(),
                 Arc::clone(&generation),
             );
             async move {
                 while let Some(job) = queue.recv().await {
-                    run_job(job, &*uv, &paths, &events, &generation).await;
+                    run_job(job, &*uv, &*index, &paths, &events, &generation).await;
                 }
             }
         });
         Self {
             uv,
+            index,
             paths,
             events,
             mutations,
@@ -80,13 +90,16 @@ impl<U: UvClient + 'static> JobRunner<U> {
         if mutates(&job.command) {
             let _ = self.mutations.send(job);
         } else {
-            let (uv, paths, events) = (
+            let (uv, index, paths, events) = (
                 Arc::clone(&self.uv),
+                Arc::clone(&self.index),
                 Arc::clone(&self.paths),
                 self.events.clone(),
             );
             let generation = Arc::clone(&self.generation);
-            tokio::spawn(async move { run_job(job, &*uv, &paths, &events, &generation).await });
+            tokio::spawn(async move {
+                run_job(job, &*uv, &*index, &paths, &events, &generation).await;
+            });
         }
     }
 
@@ -100,7 +113,10 @@ impl<U: UvClient + 'static> JobRunner<U> {
 
 /// Whether `command` changes the project or its environment, both of which `uv` locks.
 fn mutates(command: &Command) -> bool {
-    !matches!(command, Command::Reload | Command::PreviewVersions)
+    !matches!(
+        command,
+        Command::Reload | Command::PreviewVersions | Command::ListVersions { .. }
+    )
 }
 
 /// What the progress indicator says while `command` runs.
@@ -108,6 +124,7 @@ fn label(command: &Command) -> String {
     match command {
         Command::Reload => "Loading dependencies".into(),
         Command::PreviewVersions => "Reading the next versions".into(),
+        Command::ListVersions { name } => format!("Listing the versions of {name}"),
         Command::SetVersion(_) => "Setting the version".into(),
         Command::Sync => "Syncing the environment".into(),
         Command::Add {
@@ -132,6 +149,7 @@ fn label(command: &Command) -> String {
 async fn run_job(
     job: Job,
     uv: &impl UvClient,
+    index: &impl IndexClient,
     paths: &ProjectPaths,
     events: &UnboundedSender<Event>,
     generation: &AtomicU64,
@@ -154,7 +172,12 @@ async fn run_job(
         logged: mutates,
     };
     let as_it_starts = generation.load(Ordering::SeqCst);
-    super::run(job.command, &job_uv, paths, events, as_it_starts).await;
+    let clients = super::Clients {
+        uv: &job_uv,
+        index,
+        cancel: &job.cancel,
+    };
+    super::run(job.command, &clients, paths, events, as_it_starts).await;
     if job.cancel.is_cancelled() {
         send(Event::Notice(format!("Cancelled: {}", job.label)));
     }

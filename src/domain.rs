@@ -244,3 +244,23 @@ pub fn version_problem(version: &str) -> Option<&'static str> {
         None
     }
 }
+
+/// `name` as PEP 503 normalizes a project name: lower case, each run of `-`, `_` and `.` one
+/// dash. Indexes and uv compare names this way.
+pub fn normalize_name(name: &str) -> String {
+    name.split(['-', '_', '.'])
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase()
+}
+
+/// A version a package can be pinned to, as the version list shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VersionChoice {
+    pub version: String,
+    /// An alpha, beta, release candidate or dev release.
+    pub pre: bool,
+    /// What its files need when none supports the project's oldest Python, e.g. `>=3.12`.
+    pub needs_python: Option<String>,
+}

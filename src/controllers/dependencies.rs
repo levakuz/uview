@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::domain::{EnvDependency, Membership, PyprojectDependency, Source};
+use crate::domain::{EnvDependency, Membership, PyprojectDependency, Source, normalize_name};
 use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
 
@@ -139,12 +139,7 @@ pub async fn uninstall_from_env(uv: &impl UvClient, name: &str, env: &Path) -> R
 /// PEP 503 name normalization, ignoring extras, so `Flask_SQLAlchemy` matches
 /// `flask-sqlalchemy` and a declared `flask[dotenv]` matches an installed `flask`.
 pub fn normalize(name: &str) -> String {
-    let name = name.split('[').next().unwrap_or(name).trim();
-    name.split(['-', '_', '.'])
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
-        .to_lowercase()
+    normalize_name(name.split('[').next().unwrap_or(name).trim())
 }
 
 pub async fn upgrade_env_dep(uv: &impl UvClient, name: &str) -> Result<(), UvError> {

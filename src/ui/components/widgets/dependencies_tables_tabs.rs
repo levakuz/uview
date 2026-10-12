@@ -8,6 +8,7 @@ use crate::{
             indexes_popup::IndexesPopup,
             input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
+            version_picker::{Picked, VersionPicker},
         },
         shared::{list_popup::ListPopup, table::SharedTable},
     },
@@ -44,6 +45,8 @@ pub struct DependenciesTablesTabs {
     add_from_source: AddFromSource,
     /// The project's indexes, on `i`.
     indexes_popup: IndexesPopup,
+    /// Pin to version's list of versions.
+    version_picker: VersionPicker,
     /// What waits on a group to be chosen.
     pending: Option<Pending>,
     /// The groups `pending` can be done to; past them, a new group.
@@ -96,6 +99,7 @@ impl DependenciesTablesTabs {
             new_group_popup,
             add_from_source: AddFromSource::default(),
             indexes_popup: IndexesPopup::default(),
+            version_picker: VersionPicker::default(),
             pending: None,
             group_popup: None,
             emptied: Vec::new(),
@@ -111,6 +115,7 @@ impl DependenciesTablesTabs {
         if self.package_add_popup.is_editing() {
             self.package_add_popup.render(frame, area);
         }
+        self.version_picker.render(frame, area, deps);
         if self.pin_version_popup.is_editing() {
             self.pin_version_popup.render(frame, area);
         }
@@ -180,6 +185,7 @@ impl DependenciesTablesTabs {
         } else if self.show_package_control_popup
             || self.group_popup.is_some()
             || self.delete_question.is_some()
+            || self.version_picker.is_open()
         {
             Mode::Actions
         } else {
@@ -330,6 +336,18 @@ impl DependenciesTablesTabs {
                     self.pending = None;
                 }
                 _ => {}
+            }
+            return Vec::new();
+        }
+        if self.version_picker.is_open() {
+            match self.version_picker.update(action, deps) {
+                Some(Picked::Typed) => self.pin_version_popup.open(),
+                Some(Picked::Version(constraint)) => {
+                    if let Some(name) = self.target.clone() {
+                        return vec![Command::Pin { name, constraint }];
+                    }
+                }
+                None => {}
             }
             return Vec::new();
         }
@@ -492,9 +510,10 @@ impl DependenciesTablesTabs {
             return Vec::new();
         };
         match self.package_control_popup.selected() {
+            // The versions are asked for as the list opens, and fill it when they arrive.
             Some(PackageControlOption::PinToVersion) => {
-                self.pin_version_popup.open();
-                Vec::new()
+                self.version_picker.open(&name, deps);
+                vec![Command::ListVersions { name }]
             }
             Some(PackageControlOption::Update) => vec![Command::Upgrade { name }],
             Some(PackageControlOption::Remove) => self.remove(&name, deps).into_iter().collect(),

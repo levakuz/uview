@@ -52,9 +52,13 @@ impl Screen {
 fn enter_and_space_open_the_actions_and_run_the_highlighted_one() {
     for key in [KeyCode::Char(' '), KeyCode::Enter] {
         let mut screen = Screen::with(&["six"]);
-        // On a row: open the actions list. In the list: run Pin to version, which opens the
-        // version input.
+        // On a row: open the actions list. In the list: run Pin to version, which lists the
+        // versions. In that list: "Type a constraint…", which opens the input.
         assert!(screen.press(key).is_empty());
+        assert_eq!(
+            screen.press(key),
+            [Command::ListVersions { name: "six".into() }]
+        );
         assert!(screen.press(key).is_empty());
         assert_eq!(screen.page.mode(), Mode::Input, "{key:?}");
     }
@@ -63,8 +67,9 @@ fn enter_and_space_open_the_actions_and_run_the_highlighted_one() {
 #[test]
 fn a_typed_version_is_pinned() {
     let mut screen = Screen::with(&["six"]);
-    screen.press(KeyCode::Enter);
-    screen.press(KeyCode::Enter);
+    for _ in 0..3 {
+        screen.press(KeyCode::Enter);
+    }
     screen.press(KeyCode::Char('1'));
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -182,16 +187,17 @@ fn esc_while_choosing_a_group_adds_nothing() {
 #[test]
 fn enter_alone_cannot_pin() {
     let mut screen = Screen::with(&["six"]);
-    // The version input opens empty: a third Enter, as from a held key, runs nothing.
-    for _ in 0..3 {
-        assert!(screen.press(KeyCode::Enter).is_empty());
-    }
-    // A version abandoned with Esc does not come back for the next Enter, Enter, Enter.
+    // The version input opens empty: one more Enter, as from a held key, pins nothing.
+    let pins = |screen: &mut Screen| {
+        (0..4)
+            .flat_map(|_| screen.press(KeyCode::Enter))
+            .any(|command| matches!(command, Command::Pin { .. }))
+    };
+    assert!(!pins(&mut screen));
+    // A version abandoned with Esc does not come back for the next Enters.
     screen.press(KeyCode::Char('1'));
     screen.press(KeyCode::Esc);
-    for _ in 0..3 {
-        assert!(screen.press(KeyCode::Enter).is_empty());
-    }
+    assert!(!pins(&mut screen));
 }
 
 #[test]
@@ -860,5 +866,101 @@ fn each_bump_shows_the_version_it_makes_once_uv_has_said() -> Result<(), Box<dyn
     ] {
         assert!(shown.contains(row), "{row}");
     }
+    Ok(())
+}
+
+fn version(version: &str, pre: bool, needs_python: Option<&str>) -> uview::domain::VersionChoice {
+    uview::domain::VersionChoice {
+        version: version.into(),
+        pre,
+        needs_python: needs_python.map(String::from),
+    }
+}
+
+impl Screen {
+    /// What the page draws, as text, in the left pane's width at 80 columns.
+    fn drawn(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+        let mut terminal = Terminal::new(TestBackend::new(48, 16))?;
+        terminal.draw(|frame| self.page.render(frame, frame.area(), &self.state))?;
+        Ok(terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect())
+    }
+}
+
+#[test]
+fn pin_to_version_lists_the_versions_and_pins_the_one_chosen()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::ListVersions { name: "six".into() }]
+    );
+    // Until the index answers.
+    let waiting = screen.drawn()?;
+    assert!(waiting.contains("Pin six") && waiting.contains("Type a constraint…"));
+    assert!(waiting.contains('…'));
+    screen.state.deps.versions = Some((
+        "six".into(),
+        Loadable::Loaded(vec![
+            version("2.0.0b1", true, None),
+            version("1.17.0", false, Some(">=3.12")),
+            version("1.16.0", false, None),
+        ]),
+    ));
+    let listed = screen.drawn()?;
+    for row in ["2.0.0b1  pre", "1.17.0  needs Python >=3.12", "1.16.0"] {
+        assert!(listed.contains(row), "{row}");
+    }
+    // The third row is 1.17.0; a bare version is pinned exactly by the pin path.
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "six".into(),
+            constraint: "1.17.0".into()
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    Ok(())
+}
+
+#[test]
+fn a_list_that_failed_or_is_for_another_package_offers_typing_alone()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = Screen::with(&["six"]);
+    // Versions of another package, from an earlier list, are not six's.
+    screen.state.deps.versions = Some((
+        "idna".into(),
+        Loadable::Loaded(vec![version("3.10", false, None)]),
+    ));
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Enter);
+    assert!(!screen.drawn()?.contains("3.10"));
+    // Nothing to choose past "Type a constraint…" while it waits.
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.state.deps.versions = Some((
+        "six".into(),
+        Loadable::Failed("no answer: timed out".into()),
+    ));
+    assert!(
+        screen
+            .drawn()?
+            .contains("Could not list versions: no answer")
+    );
+    // Typing still works.
+    screen.press(KeyCode::Up);
+    screen.press(KeyCode::Enter);
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
     Ok(())
 }

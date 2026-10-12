@@ -4,6 +4,7 @@ use crossterm::event::KeyEvent;
 
 use crate::domain::{
     EnvDependency, Index, Membership, ProjectInfo, PyprojectDependency, Source, VersionChange,
+    VersionChoice,
 };
 
 /// What the terminal sends.
@@ -86,6 +87,10 @@ pub enum Command {
     },
     /// Find out what each bump would make the project's version, writing nothing.
     PreviewVersions,
+    /// Read the versions `name` can be pinned to from its index.
+    ListVersions {
+        name: String,
+    },
     /// Change the project's version with `uv version`.
     SetVersion(VersionChange),
     /// Add an index to `[[tool.uv.index]]`, then `uv lock`. A default one replaces PyPI.
@@ -151,6 +156,11 @@ pub enum Event {
     },
     /// What each bump would make the version, in `Bump::ALL`'s order, or why uv could not say.
     VersionsPreviewed(Result<Vec<String>, String>),
+    /// The versions `name` can be pinned to, newest first, or why the index could not say.
+    VersionsListed {
+        name: String,
+        loaded: Result<Vec<VersionChoice>, String>,
+    },
     /// A mutation has ended, however it did: what the views show of the project may be stale.
     ProjectMutated,
     Notice(String),
