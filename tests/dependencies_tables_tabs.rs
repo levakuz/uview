@@ -218,3 +218,45 @@ fn the_group_column_shows_two_groups_then_dots() {
     );
     assert_eq!(PyprojectDependency::fixed_width(1), Some(20));
 }
+
+#[test]
+fn the_group_column_is_cut_at_exactly_its_width() {
+    let groups = |groups: &[&str]| {
+        PyprojectDependency {
+            name: "pkg".into(),
+            groups: groups
+                .iter()
+                .map(|g| Membership::Group(g.to_string()))
+                .collect(),
+            extras: Vec::new(),
+            version_constraint: String::new(),
+        }
+        .cells()[1]
+            .clone()
+    };
+    // 20 characters fit; 21 do not, and are cut to 17 and `...`.
+    assert_eq!(groups(&["abcdefghi", "jklmnopqr"]), "abcdefghi, jklmnopqr");
+    assert_eq!(groups(&["abcdefghij", "jklmnopqr"]), "abcdefghij, jklmn...");
+    // One group alone, too long.
+    assert_eq!(groups(&["integration-tests-slow"]), "integration-tests...");
+    // A third group's `...` that does not fit is cut like the rest.
+    assert_eq!(
+        groups(&["abcdefgh", "ijklmnop", "q"]),
+        "abcdefgh, ijklmno..."
+    );
+    // Main reads as main.
+    let main = PyprojectDependency {
+        groups: vec![Membership::Project, Membership::Group("dev".into())],
+        ..dep_named("six")
+    };
+    assert_eq!(main.cells()[1], "main, dev");
+}
+
+fn dep_named(name: &str) -> PyprojectDependency {
+    PyprojectDependency {
+        name: name.into(),
+        groups: Vec::new(),
+        extras: Vec::new(),
+        version_constraint: String::new(),
+    }
+}
