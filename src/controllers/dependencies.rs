@@ -4,9 +4,9 @@ use crate::domain::{EnvDependency, Membership, PyprojectDependency, Source};
 use crate::uv::{UvClient, UvError, args, parse};
 use color_eyre::Result;
 
-/// The dependencies the project's pyproject.toml declares.
-pub async fn load_pyproject_deps() -> Result<Vec<PyprojectDependency>> {
-    parse_pyproject_deps(&tokio::fs::read_to_string("./pyproject.toml").await?)
+/// The dependencies the `pyproject` file declares.
+pub async fn load_pyproject_deps(pyproject: &Path) -> Result<Vec<PyprojectDependency>> {
+    parse_pyproject_deps(&tokio::fs::read_to_string(pyproject).await?)
 }
 
 /// The dependencies `pyproject` declares, one row per package: the main ones in file order,
@@ -153,9 +153,9 @@ pub async fn upgrade_env_dep(uv: &impl UvClient, name: &str) -> Result<(), UvErr
 }
 
 /// The entry declaring `name` in pyproject.toml, if there is one.
-async fn declaration(name: &str) -> Option<PyprojectDependency> {
+async fn declaration(pyproject: &Path, name: &str) -> Option<PyprojectDependency> {
     let wanted = normalize(name);
-    load_pyproject_deps()
+    load_pyproject_deps(pyproject)
         .await
         .ok()?
         .into_iter()
@@ -167,10 +167,11 @@ async fn declaration(name: &str) -> Option<PyprojectDependency> {
 /// read, uv reports why.
 pub async fn pin_dep_version(
     uv: &impl UvClient,
+    pyproject: &Path,
     name: &str,
     constraint: &str,
 ) -> Result<String, UvError> {
-    let declared = declaration(name).await;
+    let declared = declaration(pyproject, name).await;
     let marker = declared
         .as_ref()
         .and_then(|d| d.version_constraint.split_once(';'))

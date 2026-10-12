@@ -170,7 +170,7 @@ async fn uv_init_makes_a_project_uview_opens() -> Result<(), Box<dyn std::error:
         eprintln!("skipped: {dir:?} is inside a project");
         return Ok(fs::remove_dir_all(&dir)?);
     }
-    let created = init_project(&RealUvClient, &dir, Some("acme-api")).await;
+    let created = init_project(&RealUvClient::new(&dir), &dir, Some("acme-api")).await;
     let root = find_project_root(&dir);
     let refused = refusal(&dir);
     let pyproject = fs::read_to_string(dir.join("pyproject.toml")).unwrap_or_default();

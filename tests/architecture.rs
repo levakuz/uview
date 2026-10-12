@@ -72,6 +72,12 @@ const RULES: &[Rule] = &[
         source: "ARCHITECTURE.md §2, ADR-0001, ADR-0002",
     },
     Rule {
+        name: "no-working-directory",
+        scope: "src",
+        forbidden: &["set_current_dir", "\"./"],
+        source: "ADR-0011",
+    },
+    Rule {
         name: "no-tests-in-src",
         scope: "src",
         forbidden: &["#[test]", "#[cfg(test)]"],

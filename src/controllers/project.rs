@@ -65,6 +65,29 @@ pub fn workspace_root(project: &Path) -> PathBuf {
     project.to_path_buf()
 }
 
+/// Where the project's files are: resolved once, at startup, and handed to whatever needs one.
+#[derive(Clone, Debug)]
+pub struct ProjectPaths {
+    /// The project's root, where `uv` runs.
+    pub root: PathBuf,
+    /// Its pyproject.toml.
+    pub pyproject: PathBuf,
+    /// The environment `uv sync` uses for it, which `uv pip` must be told.
+    pub env: PathBuf,
+}
+
+impl ProjectPaths {
+    /// The paths of the project at `root`, its environment `configured` as
+    /// `UV_PROJECT_ENVIRONMENT` says, if it says.
+    pub fn at(root: PathBuf, configured: Option<&str>) -> Self {
+        Self {
+            pyproject: root.join("pyproject.toml"),
+            env: project_environment(&root, configured),
+            root,
+        }
+    }
+}
+
 /// The environment uv syncs for `project`: `configured`, the value of
 /// `UV_PROJECT_ENVIRONMENT`, or else `.venv`. A relative path is taken from the workspace root.
 pub fn project_environment(project: &Path, configured: Option<&str>) -> PathBuf {

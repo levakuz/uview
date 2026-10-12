@@ -6,7 +6,7 @@ use std::path::Path;
 
 use toml_edit::{DocumentMut, Item, Value};
 
-use crate::controllers::pyproject::{PYPROJECT, edit_then_lock};
+use crate::controllers::pyproject::edit_then_lock;
 use crate::uv::{UvClient, UvError};
 
 /// `pyproject` without the group `name`, if the group is empty and nothing else names it:
@@ -61,9 +61,9 @@ pub fn declared_empty(pyproject: &str) -> Vec<String> {
         .collect()
 }
 
-/// The groups pyproject.toml declares empty, and those of them that could be deleted.
-pub async fn empty_groups() -> (Vec<String>, Vec<String>) {
-    let Ok(pyproject) = tokio::fs::read_to_string(PYPROJECT).await else {
+/// The groups the `pyproject` file declares empty, and those of them that could be deleted.
+pub async fn empty_groups(pyproject: &Path) -> (Vec<String>, Vec<String>) {
+    let Ok(pyproject) = tokio::fs::read_to_string(pyproject).await else {
         return (Vec::new(), Vec::new());
     };
     let empty = declared_empty(&pyproject);
