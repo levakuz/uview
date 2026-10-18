@@ -4,7 +4,7 @@ use crossterm::event::KeyEvent;
 
 use crate::domain::{
     DeclaredGroup, EnvDependency, Index, LockState, Membership, ProjectInfo, PyprojectDependency,
-    Source, VersionChange, VersionList,
+    Source, TreeNode, VersionChange, VersionList,
 };
 
 /// What the terminal sends.
@@ -62,6 +62,18 @@ pub enum DepsAction {
     OpenVersion,
     /// Bump the selected package to its next patch, minor or major release.
     Bump,
+    /// The tab before the active one.
+    SwitchTableBack,
+    /// On the tree: unfold the highlighted package, or fold it or go to its parent.
+    Expand,
+    Collapse,
+    /// On the tree: unfold everything, or fold everything below the direct dependencies.
+    ExpandAll,
+    CollapseAll,
+    /// On the tree: show or hide which packages are behind, which asks the index.
+    Outdated,
+    /// On the tree: show what pulls the highlighted package in.
+    Why,
     /// Update the selected package, as its actions list's Update does.
     Update,
     /// Remove the selected package, as its actions list's Remove does; in a list, delete the
@@ -104,6 +116,14 @@ pub enum Command {
     /// with `uv lock --upgrade`.
     Lock {
         upgrade: bool,
+    },
+    /// Read the dependency tree again, each package that is behind marked when `outdated`.
+    LoadTree {
+        outdated: bool,
+    },
+    /// Read what pulls `name` in.
+    WhyInstalled {
+        name: String,
     },
     /// Find out what each bump would make the project's version, writing nothing.
     PreviewVersions,
@@ -179,6 +199,18 @@ pub enum Event {
     ProjectLoaded {
         generation: u64,
         loaded: Result<ProjectInfo, String>,
+    },
+    /// The dependency tree, from a job that started at `generation`; `outdated` when it marks
+    /// what is behind.
+    TreeLoaded {
+        generation: u64,
+        outdated: bool,
+        loaded: Result<Vec<TreeNode>, String>,
+    },
+    /// What pulls `name` in, as a tree up to the project.
+    WhyLoaded {
+        name: String,
+        loaded: Result<Vec<TreeNode>, String>,
     },
     /// Whether uv.lock matches pyproject.toml, from a reload that started at `generation`.
     LockChecked {

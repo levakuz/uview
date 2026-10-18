@@ -1662,3 +1662,124 @@ fn l_locks_and_shift_l_upgrades_every_package_in_the_lock() {
     screen.press(KeyCode::Char('p'));
     assert!(screen.press(KeyCode::Char('l')).is_empty());
 }
+
+/// A screen whose tree is acme-api ─ httpx[http2] (declared) ─ anyio ─ idna, httpx ─ certifi.
+fn tree_screen() -> Screen {
+    let mut screen = Screen::with(&["httpx"]);
+    let node = |depth: usize, name: &str| uview::domain::TreeNode {
+        depth,
+        name: name.into(),
+        version: "1.0".into(),
+        ..uview::domain::TreeNode::default()
+    };
+    screen.state.deps.tree = Loadable::Loaded(vec![
+        node(0, "acme-api"),
+        node(1, "httpx"),
+        node(2, "anyio"),
+        node(3, "idna"),
+        node(2, "certifi"),
+    ]);
+    // Tab, Tab: the Tree tab.
+    screen.press(KeyCode::Tab);
+    screen.press(KeyCode::Tab);
+    screen
+}
+
+#[test]
+fn the_tree_tab_shows_the_tree_unfolded_and_folds() -> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = tree_screen();
+    assert_eq!(screen.page.mode(), Mode::Tree);
+    let drawn = screen.drawn()?;
+    for row in [
+        "▾ acme-api 1.0",
+        "▾ httpx 1.0",
+        "▾ anyio 1.0",
+        "idna 1.0",
+        "certifi 1.0",
+    ] {
+        assert!(drawn.contains(row), "{row}");
+    }
+    // httpx folded: its subtree goes.
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Left);
+    let folded = screen.drawn()?;
+    assert!(folded.contains("▸ httpx 1.0") && !folded.contains("anyio"));
+    screen.press(KeyCode::Right);
+    assert!(screen.drawn()?.contains("anyio"));
+    // All folded, then all unfolded.
+    screen.press(KeyCode::Char('-'));
+    assert!(!screen.drawn()?.contains("anyio"));
+    screen.press(KeyCode::Char('+'));
+    assert!(screen.drawn()?.contains("idna"));
+    Ok(())
+}
+
+#[test]
+fn o_asks_for_what_is_behind_and_w_for_what_pulls_a_package_in()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = tree_screen();
+    assert_eq!(
+        screen.press(KeyCode::Char('o')),
+        [Command::LoadTree { outdated: true }]
+    );
+    screen.state.deps.tree_outdated = true;
+    assert_eq!(
+        screen.press(KeyCode::Char('o')),
+        [Command::LoadTree { outdated: false }]
+    );
+    // w on idna: what pulls it in, in place of the tree, until Esc.
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
+    assert_eq!(
+        screen.press(KeyCode::Char('w')),
+        [Command::WhyInstalled {
+            name: "idna".into()
+        }]
+    );
+    let why = |depth: usize, name: &str| uview::domain::TreeNode {
+        depth,
+        name: name.into(),
+        version: "1.0".into(),
+        ..uview::domain::TreeNode::default()
+    };
+    screen.state.deps.why = Some((
+        "idna".into(),
+        Loadable::Loaded(vec![why(0, "idna"), why(1, "anyio"), why(2, "httpx")]),
+    ));
+    let drawn = screen.drawn()?;
+    assert!(drawn.contains("Why idna") && !drawn.contains("certifi"));
+    screen.press(KeyCode::Esc);
+    let drawn = screen.drawn()?;
+    assert!(drawn.contains("Tree") && drawn.contains("certifi"));
+    Ok(())
+}
+
+#[test]
+fn package_actions_work_on_the_tree_for_a_declared_package() {
+    let mut screen = tree_screen();
+    // httpx is declared: Enter opens its actions; d removes it from pyproject.toml.
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Esc);
+    assert_eq!(
+        screen.press(KeyCode::Char('d')),
+        [Command::RemoveFromProject {
+            name: "httpx".into(),
+            groups: vec![Membership::Project],
+        }]
+    );
+    // anyio is not: Enter and d do nothing, u updates it within the constraints.
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Tree);
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert!(screen.press(KeyCode::Char('b')).is_empty());
+    assert_eq!(
+        screen.press(KeyCode::Char('u')),
+        [Command::Upgrade {
+            name: "anyio".into()
+        }]
+    );
+}

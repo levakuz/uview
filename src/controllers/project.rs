@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use crate::domain::{Bump, LockState, ProjectInfo, VersionChange};
+use crate::domain::{Bump, LockState, ProjectInfo, TreeNode, VersionChange};
 use crate::uv::{UvClient, UvError, args, parse};
 
 /// The nearest directory at or above `start` that holds a pyproject.toml: where uv, started
@@ -163,6 +163,22 @@ pub async fn lock(uv: &impl UvClient, upgrade: bool) -> Result<(), UvError> {
         uv.run(&args::LOCK).await?;
     }
     Ok(())
+}
+
+/// The project's dependency tree as uv.lock holds it, each package that is behind marked when
+/// `outdated`, which asks the index.
+pub async fn load_tree(uv: &impl UvClient, outdated: bool) -> Result<Vec<TreeNode>, UvError> {
+    let out = if outdated {
+        uv.run(&args::TREE_OUTDATED).await?
+    } else {
+        uv.run(&args::TREE).await?
+    };
+    Ok(parse::tree(&out))
+}
+
+/// What pulls `name` in, as a tree from it up to the project.
+pub async fn why_installed(uv: &impl UvClient, name: &str) -> Result<Vec<TreeNode>, UvError> {
+    Ok(parse::tree(&uv.run(&args::why_args(name)).await?))
 }
 
 /// Makes `change` to the project's version, and returns the new one.

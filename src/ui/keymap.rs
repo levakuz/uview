@@ -14,6 +14,8 @@ pub enum Mode {
     Actions,
     /// The list of dependency groups, or a group's details, where `n`, `r` and `d` act.
     Groups,
+    /// The Tree tab, where the table's keys work and the tree's own too.
+    Tree,
     /// An input, into which every key without a binding is typed.
     Input,
     /// The help overlay.
@@ -58,6 +60,8 @@ impl Key {
         let name = match self.code {
             KeyCode::Up => "↑".to_string(),
             KeyCode::Down => "↓".to_string(),
+            KeyCode::Left => "←".to_string(),
+            KeyCode::Right => "→".to_string(),
             KeyCode::Enter => "enter".to_string(),
             KeyCode::Esc => "esc".to_string(),
             KeyCode::Tab => "tab".to_string(),
@@ -148,13 +152,14 @@ const TABLE: &[Binding] = &[
         help: "Open the actions for the selected package",
     },
     Binding {
-        keys: &[
-            (Key::new(KeyCode::Tab), SWITCH),
-            (Key::char('['), SWITCH),
-            (Key::char(']'), SWITCH),
-        ],
+        keys: &[(Key::new(KeyCode::Tab), SWITCH), (Key::char(']'), SWITCH)],
         hints: &["switch"],
-        help: "Switch between the pyproject.toml and Environment tables",
+        help: "Switch to the next tab: pyproject.toml, Environment, Tree",
+    },
+    Binding {
+        keys: &[(Key::char('['), Action::Deps(DepsAction::SwitchTableBack))],
+        hints: &[],
+        help: "Switch to the tab before",
     },
     // One row of the help, which fills 80x24.
     Binding {
@@ -253,6 +258,40 @@ const ACTIONS: &[Binding] = &[
     },
 ];
 
+const TREE: &[Binding] = &[
+    Binding {
+        keys: &[
+            (Key::new(KeyCode::Left), Action::Deps(DepsAction::Collapse)),
+            (Key::new(KeyCode::Right), Action::Deps(DepsAction::Expand)),
+        ],
+        hints: &["fold"],
+        help: "Fold, or go to the parent (←); unfold (→)",
+    },
+    Binding {
+        keys: &[
+            (Key::char('+'), Action::Deps(DepsAction::ExpandAll)),
+            (Key::char('-'), Action::Deps(DepsAction::CollapseAll)),
+        ],
+        hints: &["fold all"],
+        help: "Unfold all (+), or fold all but direct dependencies (-)",
+    },
+    Binding {
+        keys: &[(Key::char('o'), Action::Deps(DepsAction::Outdated))],
+        hints: &["outdated"],
+        help: "Show or hide which packages are behind, asking the index",
+    },
+    Binding {
+        keys: &[(Key::char('w'), Action::Deps(DepsAction::Why))],
+        hints: &["why"],
+        help: "Show what pulls the highlighted package in",
+    },
+    Binding {
+        keys: &[(Key::new(KeyCode::Esc), BACK)],
+        hints: &["back"],
+        help: "Back from what pulls a package in to the tree",
+    },
+];
+
 const GROUPS: &[Binding] = &[
     Binding {
         keys: &MOVE_KEYS,
@@ -342,14 +381,24 @@ const HELP: &[Binding] = &[
 /// The bindings in force in `mode`, in the order the footer lists them. Where two bind a key,
 /// the first wins.
 pub fn bindings(mode: Mode) -> impl Iterator<Item = &'static Binding> {
-    let lists: [&'static [Binding]; 3] = match mode {
-        Mode::Table => [TABLE, OUTSIDE_INPUTS, ANYWHERE],
-        Mode::Actions => [ACTIONS, OUTSIDE_INPUTS, ANYWHERE],
-        Mode::Groups => [GROUPS, OUTSIDE_INPUTS, ANYWHERE],
-        Mode::Input => [INPUT, ANYWHERE, &[]],
-        Mode::Help => [HELP, ANYWHERE, &[]],
+    let lists: [&'static [Binding]; 4] = match mode {
+        Mode::Table => [TABLE, OUTSIDE_INPUTS, ANYWHERE, &[]],
+        Mode::Tree => [TREE, TABLE, OUTSIDE_INPUTS, ANYWHERE],
+        Mode::Actions => [ACTIONS, OUTSIDE_INPUTS, ANYWHERE, &[]],
+        Mode::Groups => [GROUPS, OUTSIDE_INPUTS, ANYWHERE, &[]],
+        Mode::Input => [INPUT, ANYWHERE, &[], &[]],
+        Mode::Help => [HELP, ANYWHERE, &[], &[]],
     };
     lists.into_iter().flatten()
+}
+
+/// The bindings the footer names in `mode`: all of them, but on the Tree tab only the tree's
+/// own, as the table's would not fit beside them.
+pub fn footer(mode: Mode) -> Box<dyn Iterator<Item = &'static Binding>> {
+    match mode {
+        Mode::Tree => Box::new(TREE.iter().chain(OUTSIDE_INPUTS).chain(ANYWHERE)),
+        mode => Box::new(bindings(mode)),
+    }
 }
 
 /// What `input` means in `mode`, if anything.
@@ -362,9 +411,10 @@ pub fn action_for(mode: Mode, input: &Input) -> Option<Action> {
 }
 
 /// Every binding, by where it works, as the help lists them.
-pub fn groups() -> [(&'static str, &'static [Binding]); 6] {
+pub fn groups() -> [(&'static str, &'static [Binding]); 7] {
     [
         ("In a table", TABLE),
+        ("On the Tree tab, besides the table's", TREE),
         ("In the actions list", ACTIONS),
         ("In the list of groups", GROUPS),
         ("In an input, where other keys are typed", INPUT),

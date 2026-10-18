@@ -115,7 +115,11 @@ impl<U: UvClient + 'static, I: IndexClient + Send + Sync + 'static> JobRunner<U,
 fn mutates(command: &Command) -> bool {
     !matches!(
         command,
-        Command::Reload | Command::PreviewVersions | Command::ListVersions { .. }
+        Command::Reload
+            | Command::PreviewVersions
+            | Command::ListVersions { .. }
+            | Command::LoadTree { .. }
+            | Command::WhyInstalled { .. }
     )
 }
 
@@ -124,6 +128,9 @@ fn label(command: &Command) -> String {
     match command {
         Command::Reload => "Loading dependencies".into(),
         Command::PreviewVersions => "Reading the next versions".into(),
+        Command::LoadTree { outdated: false } => "Reading the dependency tree".into(),
+        Command::LoadTree { outdated: true } => "Checking for newer versions".into(),
+        Command::WhyInstalled { name } => format!("Finding what pulls in {name}"),
         Command::ListVersions { name } => format!("Listing the versions of {name}"),
         Command::SetVersion(_) => "Setting the version".into(),
         Command::Lock { upgrade: false } => "Locking".into(),

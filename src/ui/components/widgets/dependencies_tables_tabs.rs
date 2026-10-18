@@ -1,5 +1,7 @@
 use crate::{
-    domain::{EnvDependency, Membership, PyprojectDependency, Source, bare_name, normalize_name},
+    domain::{
+        EnvDependency, Membership, PyprojectDependency, Source, TreeNode, bare_name, normalize_name,
+    },
     message::{Action, Command, DepsAction, NavAction},
     state::{DepsState, Loadable},
     ui::components::{
@@ -13,7 +15,7 @@ use crate::{
             search_popup::{SearchPopup, Searched},
             version_picker::{First, Picked, VersionPicker},
         },
-        shared::{list_popup::ListPopup, table::SharedTable},
+        shared::{list_popup::ListPopup, table::SharedTable, tree_view::TreeView},
     },
     ui::keymap::Mode,
 };
@@ -27,6 +29,7 @@ use ratatui::{
 enum ActiveTable {
     Pyproject,
     Environment,
+    Tree,
 }
 
 /// The two dependency tables behind tabs, and the popups acting on them. It reads the rows from
@@ -54,6 +57,11 @@ pub struct DependenciesTablesTabs {
     search_popup: SearchPopup,
     /// `b`'s bumps of a declared package.
     bump_popup: BumpPopup,
+    /// The Tree tab's view of the dependency tree, and of what pulls a package in.
+    tree_view: TreeView,
+    why_view: TreeView,
+    /// The package whose "why" the Tree tab shows in place of the tree, when it does.
+    why_of: Option<String>,
     /// The list of versions, for Pin to version or for a package being added.
     version_picker: VersionPicker,
     /// The requirement typed into the add input, while its version is chosen; `None` when the
@@ -112,6 +120,9 @@ impl DependenciesTablesTabs {
             add_from_source: AddFromSource::default(),
             indexes_popup: IndexesPopup::default(),
             version_picker: VersionPicker::default(),
+            tree_view: TreeView::default(),
+            why_view: TreeView::default(),
+            why_of: None,
             bump_popup: BumpPopup::default(),
             search_popup: SearchPopup::default(),
             groups_popup: GroupsPopup::default(),
@@ -221,6 +232,8 @@ impl DependenciesTablesTabs {
             || self.bump_popup.is_open()
         {
             Mode::Actions
+        } else if self.active_table == ActiveTable::Tree {
+            Mode::Tree
         } else {
             Mode::Table
         }
@@ -228,19 +241,27 @@ impl DependenciesTablesTabs {
 
     /// The tabs, as the active table's title: its name green and bold, the other white.
     fn tabs(&self) -> Line<'static> {
-        let tab = |name: &'static str, active: bool| {
+        let tab = |name: String, active: bool| {
             if active {
                 name.green().bold()
             } else {
                 name.white()
             }
         };
-        let pyproject = self.active_table == ActiveTable::Pyproject;
+        let active = |table| self.active_table == table;
         Line::from(vec![
             " ".into(),
-            tab("pyproject.toml", pyproject),
+            tab("pyproject.toml".into(), active(ActiveTable::Pyproject)),
             " • ".white(),
-            tab("Environment", !pyproject),
+            tab("Environment".into(), active(ActiveTable::Environment)),
+            " • ".white(),
+            // A "why" names its package in place of the tree.
+            tab(
+                self.why_of
+                    .as_ref()
+                    .map_or("Tree".into(), |name| format!("Why {name}")),
+                active(ActiveTable::Tree),
+            ),
             " ".into(),
         ])
     }
@@ -268,6 +289,47 @@ impl DependenciesTablesTabs {
                 self.env_table
                     .render(frame, area, deps.env.rows(), placeholder);
             }
+            ActiveTable::Tree => match &self.why_of {
+                // What pulls a package in, in place of the tree until Esc.
+                Some(name) => {
+                    let (rows, placeholder) = match &deps.why {
+                        Some((of, loaded)) if of == name => (
+                            loaded.rows(),
+                            placeholder(loaded, "Nothing pulls it in", "Could not tell"),
+                        ),
+                        _ => (&[][..], Text::from("Loading…").dark_gray()),
+                    };
+                    self.why_view.render(frame, area, rows, tabs, placeholder);
+                }
+                None => {
+                    let placeholder = match &deps.tree {
+                        // uv's words for a project never locked.
+                        Loadable::Failed(reason) if reason.contains("lockfile") => {
+                            Text::from("No uv.lock yet. Press l to lock.").dark_gray()
+                        }
+                        tree => placeholder(tree, "No dependencies", "Could not read the tree"),
+                    };
+                    self.tree_view
+                        .render(frame, area, deps.tree.rows(), tabs, placeholder);
+                }
+            },
+        }
+    }
+
+    /// The highlighted package of the Tree tab, in the tree or in a "why".
+    fn tree_selected<'a>(&self, deps: &'a DepsState) -> Option<&'a TreeNode> {
+        match &self.why_of {
+            Some(name) => match &deps.why {
+                Some((of, loaded)) if of == name => {
+                    let rows = loaded.rows();
+                    self.why_view.selected(rows).and_then(|i| rows.get(i))
+                }
+                _ => None,
+            },
+            None => {
+                let rows = deps.tree.rows();
+                self.tree_view.selected(rows).and_then(|i| rows.get(i))
+            }
         }
     }
 
@@ -281,14 +343,32 @@ impl DependenciesTablesTabs {
                 .env_table
                 .selected(deps.env.rows())
                 .map(|d| d.name.clone()),
+            ActiveTable::Tree => self.tree_selected(deps).map(|node| node.name.clone()),
         }
     }
 
-    fn switch_table(&mut self) {
-        self.active_table = match self.active_table {
-            ActiveTable::Pyproject => ActiveTable::Environment,
-            ActiveTable::Environment => ActiveTable::Pyproject,
+    /// Moves to the next tab, or the one before, round.
+    fn switch_table(&mut self, forward: bool) {
+        use ActiveTable::*;
+        self.active_table = match (&self.active_table, forward) {
+            (Pyproject, true) | (Tree, false) => Environment,
+            (Environment, true) | (Pyproject, false) => Tree,
+            (Tree, true) | (Environment, false) => Pyproject,
         };
+    }
+
+    /// Runs `step` on the Tree tab's view, of the "why" when one shows, with its rows.
+    fn on_tree(&mut self, deps: &DepsState, step: impl FnOnce(&mut TreeView, &[TreeNode])) {
+        match &self.why_of {
+            Some(name) => {
+                if let Some((of, loaded)) = &deps.why
+                    && of == name
+                {
+                    step(&mut self.why_view, loaded.rows());
+                }
+            }
+            None => step(&mut self.tree_view, deps.tree.rows()),
+        }
     }
 
     pub fn update(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
@@ -440,29 +520,62 @@ impl DependenciesTablesTabs {
             Action::Nav(NavAction::Up) => {
                 if self.show_package_control_popup {
                     self.package_control_popup.up();
-                } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.previous(deps.pyproject.rows());
                 } else {
-                    self.env_table.previous(deps.env.rows());
+                    match self.active_table {
+                        ActiveTable::Pyproject => {
+                            self.pyproject_table.previous(deps.pyproject.rows());
+                        }
+                        ActiveTable::Environment => self.env_table.previous(deps.env.rows()),
+                        ActiveTable::Tree => self.on_tree(deps, |view, rows| view.up(rows)),
+                    }
                 }
             }
             Action::Nav(NavAction::Down) => {
                 if self.show_package_control_popup {
                     self.package_control_popup.down();
-                } else if self.active_table == ActiveTable::Pyproject {
-                    self.pyproject_table.next(deps.pyproject.rows());
                 } else {
-                    self.env_table.next(deps.env.rows());
+                    match self.active_table {
+                        ActiveTable::Pyproject => self.pyproject_table.next(deps.pyproject.rows()),
+                        ActiveTable::Environment => self.env_table.next(deps.env.rows()),
+                        ActiveTable::Tree => self.on_tree(deps, |view, rows| view.down(rows)),
+                    }
+                }
+            }
+            // The tree's own keys, bound on its tab alone.
+            Action::Deps(DepsAction::Expand) => self.on_tree(deps, |view, rows| view.expand(rows)),
+            Action::Deps(DepsAction::Collapse) => {
+                self.on_tree(deps, |view, rows| view.collapse(rows));
+            }
+            Action::Deps(DepsAction::ExpandAll) => self.on_tree(deps, |view, _| view.expand_all()),
+            Action::Deps(DepsAction::CollapseAll) => {
+                self.on_tree(deps, |view, rows| view.collapse_all(rows));
+            }
+            // Shown or hidden: what is behind takes the index to tell.
+            Action::Deps(DepsAction::Outdated) => {
+                return vec![Command::LoadTree {
+                    outdated: !deps.tree_outdated,
+                }];
+            }
+            Action::Deps(DepsAction::Why) => {
+                if let Some(node) = self.tree_selected(deps) {
+                    let name = node.name.clone();
+                    self.why_of = Some(name.clone());
+                    self.why_view = TreeView::default();
+                    return vec![Command::WhyInstalled { name }];
                 }
             }
             Action::Nav(NavAction::Select) => {
                 if self.show_package_control_popup {
                     return self.choose(deps);
                 }
-                // Without a row the actions would have nothing to act on.
+                // Without a row the actions would have nothing to act on; on the tree, a
+                // package pyproject.toml does not declare has none.
                 let Some(name) = self.selected_name(deps) else {
                     return Vec::new();
                 };
+                if self.active_table == ActiveTable::Tree && self.declared(&name, deps).is_none() {
+                    return Vec::new();
+                }
                 // A fresh popup, so it never opens with Remove still selected. Group actions are
                 // for a declared package.
                 let groups = self.declared(&name, deps).map_or(0, |d| d.groups.len());
@@ -470,11 +583,18 @@ impl DependenciesTablesTabs {
                 self.package_control_popup = PackageControlPopup::new(groups);
                 self.show_package_control_popup = true;
             }
-            Action::Nav(NavAction::Back) => self.show_package_control_popup = false,
-            Action::Deps(DepsAction::SwitchTable) => {
+            // Esc closes the actions, or goes back from a "why" to the tree.
+            Action::Nav(NavAction::Back) => {
+                if self.show_package_control_popup {
+                    self.show_package_control_popup = false;
+                } else {
+                    self.why_of = None;
+                }
+            }
+            Action::Deps(DepsAction::SwitchTable | DepsAction::SwitchTableBack) => {
                 // The control popup acts on the row it was opened for.
                 if !self.show_package_control_popup {
-                    self.switch_table();
+                    self.switch_table(matches!(action, Action::Deps(DepsAction::SwitchTable)));
                 }
             }
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
@@ -547,12 +667,18 @@ impl DependenciesTablesTabs {
         vec![command]
     }
 
-    /// The pyproject row of `name`, when the pyproject table is the one showing.
+    /// The pyproject row of `name`, when the pyproject table or the tree is the one showing.
+    /// The tree names packages as uv does, so it is matched normalized.
     fn declared<'a>(&self, name: &str, deps: &'a DepsState) -> Option<&'a PyprojectDependency> {
-        if self.active_table != ActiveTable::Pyproject {
-            return None;
+        let rows = deps.pyproject.rows().iter();
+        match self.active_table {
+            ActiveTable::Pyproject => rows.into_iter().find(|d| d.name == name),
+            ActiveTable::Tree => {
+                let wanted = normalize_name(name);
+                rows.into_iter().find(|d| normalize_name(&d.name) == wanted)
+            }
+            ActiveTable::Environment => None,
         }
-        deps.pyproject.rows().iter().find(|d| d.name == name)
     }
 
     /// Opens the group list for a group action on the declared package `name`.
@@ -646,6 +772,13 @@ impl DependenciesTablesTabs {
                         groups: d.groups.clone(),
                     })
             }
+            // On the tree, as from pyproject.toml, for a package it declares.
+            ActiveTable::Tree => self
+                .declared(name, deps)
+                .map(|d| Command::RemoveFromProject {
+                    name: d.name.clone(),
+                    groups: d.groups.clone(),
+                }),
             // Environment only: pyproject.toml is left alone.
             ActiveTable::Environment => {
                 deps.env

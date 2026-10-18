@@ -12,7 +12,7 @@ use crate::ui::keymap::{self, Mode};
 /// The bottom line: the keys that work in `mode`, each with a word on what it does.
 pub fn render_footer(frame: &mut Frame, area: Rect, mode: Mode) {
     let mut spans = Vec::new();
-    for (keys, hint) in keymap::bindings(mode).flat_map(keymap::Binding::hints) {
+    for (keys, hint) in keymap::footer(mode).flat_map(keymap::Binding::hints) {
         if !spans.is_empty() {
             spans.push("  ".into());
         }

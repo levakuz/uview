@@ -74,6 +74,11 @@ fn the_footer_lists_the_keys_that_work_where_the_focus_is() -> Result<(), Box<dy
         rows(&footer(Mode::Actions)?)[0].trim_end(),
         "enter run  esc close  ? help"
     );
+    // The Tree tab names the tree's own keys; the table's still work there.
+    assert_eq!(
+        rows(&footer(Mode::Tree)?)[0].trim_end(),
+        "←→ fold  +- fold all  o outdated  w why  esc back  ? help"
+    );
     // The list of groups names what it is for.
     assert_eq!(
         rows(&footer(Mode::Groups)?)[0].trim_end(),

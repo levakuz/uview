@@ -13,7 +13,8 @@ use crate::controllers::dependencies::{
 use crate::controllers::groups::{create_group, delete_group, empty_groups, load_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{
-    ProjectPaths, check_lock, load_project_info, lock, preview_bumps, set_version,
+    ProjectPaths, check_lock, load_project_info, load_tree, lock, preview_bumps, set_version,
+    why_installed,
 };
 use crate::controllers::versions::list_versions;
 use crate::domain::Membership;
@@ -56,6 +57,19 @@ async fn run<U: UvClient, I: IndexClient>(
             return;
         }
         Command::Reload => return reload(uv, paths, events, generation).await,
+        Command::LoadTree { outdated } => {
+            return send_tree(uv, events, generation, outdated).await;
+        }
+        Command::WhyInstalled { name } => {
+            let loaded = why_installed(uv, &name).await;
+            if !matches!(loaded, Err(UvError::Cancelled)) {
+                let _ = events.send(Event::WhyLoaded {
+                    name,
+                    loaded: loaded.map_err(|e| said(&e)),
+                });
+            }
+            return;
+        }
         // What uv says is the list's to show, not the status line's.
         Command::PreviewVersions => {
             let previewed = preview_bumps(uv).await;
@@ -207,6 +221,7 @@ async fn reload(
     if let Ok(state) = check_lock(uv).await {
         let _ = events.send(Event::LockChecked { generation, state });
     }
+    send_tree(uv, events, generation, false).await;
 }
 
 /// Where an add goes, as its notice and label say it: nothing for the main dependencies.
@@ -220,4 +235,30 @@ fn to(membership: &Membership) -> String {
 /// An index as notices name it: by its name, or its URL when it has none.
 fn index_label(index: &crate::domain::Index) -> &str {
     index.name.as_deref().unwrap_or(&index.url)
+}
+
+/// Reads the dependency tree and reports it with `generation`. What uv said, when it could not,
+/// is the tab's to show; a cancel is the runner's.
+async fn send_tree(
+    uv: &impl UvClient,
+    events: &UnboundedSender<Event>,
+    generation: u64,
+    outdated: bool,
+) {
+    let loaded = load_tree(uv, outdated).await;
+    if !matches!(loaded, Err(UvError::Cancelled)) {
+        let _ = events.send(Event::TreeLoaded {
+            generation,
+            outdated,
+            loaded: loaded.map_err(|e| said(&e)),
+        });
+    }
+}
+
+/// What uv said when it refused, without the command around it; otherwise the error.
+fn said(e: &UvError) -> String {
+    match e {
+        UvError::Failed { stderr, .. } => stderr.clone(),
+        e => e.to_string(),
+    }
 }
