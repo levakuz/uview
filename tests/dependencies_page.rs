@@ -1371,7 +1371,7 @@ fn g_lists_the_groups_and_d_deletes_an_empty_one_at_once() -> Result<(), Box<dyn
 {
     let mut screen = groups_screen();
     screen.press(KeyCode::Char('g'));
-    assert_eq!(screen.page.mode(), Mode::Actions);
+    assert_eq!(screen.page.mode(), Mode::Groups);
     let mut terminal = Terminal::new(TestBackend::new(80, 16))?;
     terminal.draw(|frame| screen.page.render(frame, frame.area(), &screen.state))?;
     let drawn: String = terminal
@@ -1406,7 +1406,7 @@ fn g_lists_the_groups_and_d_deletes_an_empty_one_at_once() -> Result<(), Box<dyn
         screen.press(KeyCode::Down);
     }
     assert!(screen.press(KeyCode::Char('d')).is_empty());
-    assert_eq!(screen.page.mode(), Mode::Actions);
+    assert_eq!(screen.page.mode(), Mode::Groups);
     Ok(())
 }
 
@@ -1472,7 +1472,7 @@ fn keep_and_esc_leave_the_groups_as_they_are() {
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Esc);
-    assert_eq!(screen.page.mode(), Mode::Actions);
+    assert_eq!(screen.page.mode(), Mode::Groups);
     screen.press(KeyCode::Esc);
     assert_eq!(screen.page.mode(), Mode::Table);
 }
@@ -1568,7 +1568,7 @@ fn a_new_group_is_created_empty_and_a_named_one_offers_nothing()
             .contains("Kept: named in tool.uv.default-groups")
     );
     assert!(screen.press(KeyCode::Enter).is_empty());
-    assert_eq!(screen.page.mode(), Mode::Actions);
+    assert_eq!(screen.page.mode(), Mode::Groups);
     Ok(())
 }
 
@@ -1612,7 +1612,7 @@ fn n_r_and_d_act_from_the_list_of_groups_and_from_a_group_s_details() {
         screen.press(KeyCode::Down);
     }
     assert!(screen.press(KeyCode::Char('r')).is_empty());
-    assert_eq!(screen.page.mode(), Mode::Actions);
+    assert_eq!(screen.page.mode(), Mode::Groups);
     screen.press(KeyCode::Esc);
     // From test's details, d asks first, as it has a package.
     screen.press(KeyCode::Char('g'));

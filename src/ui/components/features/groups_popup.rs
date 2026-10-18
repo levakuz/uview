@@ -10,8 +10,7 @@ use crate::{
     },
 };
 
-/// The list's title, which names its keys: the footer has no room for them.
-const TITLE: &str = "Groups · n new · r rename · d delete";
+const TITLE: &str = "Dependency groups";
 
 enum Step {
     /// "New group…", then each group with its package count.
@@ -46,10 +45,13 @@ impl GroupsPopup {
     }
 
     /// Where the focus is while open: a list, or an input.
+    /// Where the focus is while open: the list or a group, where `n`, `r` and `d` act; the
+    /// question of a deletion; or an input.
     pub fn mode(&self) -> Option<Mode> {
         match self.step.as_ref()? {
+            Step::List(_) | Step::Details { .. } => Some(Mode::Groups),
+            Step::Confirm { .. } => Some(Mode::Actions),
             Step::NewName(_) | Step::Rename { .. } => Some(Mode::Input),
-            _ => Some(Mode::Actions),
         }
     }
 
