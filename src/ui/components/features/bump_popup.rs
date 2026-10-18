@@ -136,7 +136,7 @@ fn targets(open: &Open, deps: &DepsState) -> Option<[Option<String>; 3]> {
     let current = open.current.as_deref()?;
     match &deps.versions {
         Some((listed, Loadable::Loaded(versions))) if *listed == open.name => {
-            Some(bump_targets(current, versions))
+            Some(bump_targets(current, &versions.versions))
         }
         _ => None,
     }

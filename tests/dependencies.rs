@@ -12,7 +12,9 @@ use uview::controllers::dependencies::{
     add_dep, normalize, parse_dep_string, remove_dep_from_pyproject,
 };
 use uview::controllers::project::{ProjectPaths, preview_bumps, set_version};
-use uview::domain::{Bump, Membership, ProjectInfo, PyprojectDependency, VersionChange};
+use uview::domain::{
+    Bump, Membership, PackageInfo, ProjectInfo, PyprojectDependency, VersionChange,
+};
 use uview::index::{IndexClient, IndexError, Page, project_url};
 use uview::message::{Command, Event, JobId};
 use uview::runtime::jobs::JobRunner;
@@ -121,6 +123,10 @@ impl IndexClient for FakeIndex {
             .find(|(served, _)| *served == url)
             .map(|(_, page)| page.clone())
             .ok_or(IndexError::NotFound)
+    }
+
+    async fn pypi_project(&self, _: &str) -> Result<PackageInfo, IndexError> {
+        Err(IndexError::NotFound)
     }
 }
 
@@ -1050,6 +1056,10 @@ impl IndexClient for Silent {
     async fn project_page(&self, _: &str, _: &str) -> Result<Page, IndexError> {
         std::future::pending().await
     }
+
+    async fn pypi_project(&self, _: &str) -> Result<PackageInfo, IndexError> {
+        std::future::pending().await
+    }
 }
 
 #[tokio::test]
@@ -1072,7 +1082,7 @@ async fn listing_versions_is_a_read_and_a_cancel_ends_it() -> Result<(), Box<dyn
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(
         e,
-        Event::VersionsListed { name, loaded: Ok(v) } if name == "six" && v[0].version == "1.17.0"
+        Event::VersionsListed { name, loaded: Ok(v) } if name == "six" && v.versions[0].version == "1.17.0"
     )));
     assert!(!events.iter().any(|e| matches!(e, Event::ProjectMutated)));
     assert!(uv.calls().is_empty());

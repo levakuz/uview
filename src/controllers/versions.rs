@@ -8,7 +8,7 @@ use std::str::FromStr;
 use pep440_rs::{Operator, Version, VersionSpecifiers};
 
 use crate::controllers::indexes::{list_indexes, pinned_index};
-use crate::domain::{IndexKind, VersionChoice};
+use crate::domain::{IndexKind, VersionChoice, VersionList};
 use crate::index::parse::{File, files};
 use crate::index::{IndexClient, IndexError};
 
@@ -42,22 +42,36 @@ pub fn indexes_for(pyproject: &str, package: &str) -> Vec<String> {
 }
 
 /// The versions of `package` to choose from, newest first, from the first index in uv's order
-/// that has it. `pyproject` is the project's file, read for its indexes and its
-/// `requires-python`.
+/// that has it, and PyPI's description of it when PyPI is that index; it is read alongside, and
+/// a failure to read it leaves the versions be. `pyproject` is the project's file, read for its
+/// indexes and its `requires-python`.
 pub async fn list_versions(
     index: &impl IndexClient,
     pyproject: &Path,
     package: &str,
-) -> Result<Vec<VersionChoice>, String> {
+) -> Result<VersionList, String> {
     let text = tokio::fs::read_to_string(pyproject)
         .await
         .map_err(|e| format!("pyproject.toml: {e}"))?;
     let asked = indexes_for(&text, package);
     for url in &asked {
-        match index.project_page(url, package).await {
+        let (page, info) = if url == PYPI {
+            let (page, info) = tokio::join!(
+                index.project_page(url, package),
+                index.pypi_project(package)
+            );
+            (page, info.ok())
+        } else {
+            (index.project_page(url, package).await, None)
+        };
+        match page {
             Ok(page) => {
                 let files = files(&page, package).map_err(|e| format!("{url}: {e}"))?;
-                return Ok(choices(files, requires_python(&text).as_deref()));
+                return Ok(VersionList {
+                    versions: choices(files, requires_python(&text).as_deref()),
+                    index: url.clone(),
+                    info,
+                });
             }
             Err(IndexError::NotFound) => continue,
             Err(IndexError::Status(code)) if ignores(&text, url, code) => continue,

@@ -8,7 +8,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 
 use uview::controllers::versions::{PYPI, choices, indexes_for, list_versions};
-use uview::domain::VersionChoice;
+use uview::domain::{PackageInfo, VersionChoice};
 use uview::index::parse::{files, version_in};
 use uview::index::{IndexClient, IndexError, Page, RealIndexClient, project_url};
 
@@ -186,6 +186,15 @@ impl IndexClient for Pages {
             .map(|(_, page)| page.clone())
             .ok_or(IndexError::NotFound)
     }
+
+    /// PyPI describes every project, so a package taken from another index shows whether the
+    /// description is kept off it.
+    async fn pypi_project(&self, name: &str) -> Result<PackageInfo, IndexError> {
+        Ok(PackageInfo {
+            summary: Some(format!("PyPI's {name}")),
+            ..PackageInfo::default()
+        })
+    }
 }
 
 fn scratch_pyproject(test: &str) -> Result<PathBuf, Box<dyn Error>> {
@@ -203,13 +212,29 @@ async fn the_first_index_that_has_the_package_answers() -> Result<(), Box<dyn Er
         {"filename": "six-1.16.0-py2.py3-none-any.whl", "yanked": false, "requires-python": null},
         {"filename": "six-1.17.0-py2.py3-none-any.whl", "yanked": false}
     ]}"#;
-    // The PyTorch index has no six, so PyPI answers.
+    // The PyTorch index has no six, so PyPI answers, and describes it.
     let index = Pages {
-        pages: vec![(format!("{PYPI}/six/"), json(six))],
+        pages: vec![
+            (format!("{PYPI}/six/"), json(six)),
+            (
+                "https://download.pytorch.org/whl/cpu/torch/".into(),
+                json(r#"{"files": [{"filename": "torch-2.4.0-cp312-none-any.whl"}]}"#),
+            ),
+        ],
         fails: false,
     };
+    let six = list_versions(&index, &pyproject, "six").await?;
+    assert_eq!(six.index, PYPI);
     assert_eq!(
-        list_versions(&index, &pyproject, "six").await?,
+        six.info.and_then(|info| info.summary).as_deref(),
+        Some("PyPI's six")
+    );
+    // torch comes from the PyTorch index: what PyPI says of a torch is kept off it.
+    let torch = list_versions(&index, &pyproject, "torch").await?;
+    assert_eq!(torch.index, "https://download.pytorch.org/whl/cpu");
+    assert_eq!(torch.info, None);
+    assert_eq!(
+        six.versions,
         [
             VersionChoice {
                 version: "1.17.0".into(),
@@ -366,4 +391,44 @@ fn only_a_name_alone_asks_for_its_version() {
     ] {
         assert_eq!(bare_name(typed), None, "{typed}");
     }
+}
+
+#[test]
+fn pypi_describes_a_project_in_its_json() -> Result<(), IndexError> {
+    use uview::index::parse::pypi_project;
+    let info = pypi_project(include_str!("fixtures/index/httpx_pypi.json"))?;
+    assert_eq!(
+        info.summary.as_deref(),
+        Some("The next generation HTTP client.")
+    );
+    assert_eq!(info.requires_python.as_deref(), Some(">=3.8"));
+    assert!(info.homepage.is_some_and(|url| url.starts_with("https://")));
+    // What a project left out comes as an empty string, and is nothing.
+    let bare = pypi_project(
+        r#"{"info": {"summary": "", "requires_python": "", "home_page": null, "project_urls": null}}"#,
+    )?;
+    assert_eq!(bare, PackageInfo::default());
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_real_client_reads_pypi_s_json_api() -> Result<(), Box<dyn Error>> {
+    let url = serve(2, |path, _| match path {
+        "/pypi/typing-extensions/json" => response(
+            "200 OK",
+            "application/json",
+            r#"{"info": {"summary": "Backported types", "requires_python": ">=3.9", "home_page": "", "project_urls": {"Source": "https://example.com/te"}}}"#,
+        ),
+        _ => response("404 Not Found", "text/plain", ""),
+    })?;
+    let client = RealIndexClient::with_pypi_json(&format!("{url}/pypi"));
+    // Asked for by its normalized name.
+    let info = client.pypi_project("Typing_Extensions").await?;
+    assert_eq!(info.summary.as_deref(), Some("Backported types"));
+    assert_eq!(info.homepage.as_deref(), Some("https://example.com/te"));
+    assert!(matches!(
+        client.pypi_project("nosuch").await,
+        Err(IndexError::NotFound)
+    ));
+    Ok(())
 }

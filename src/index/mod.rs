@@ -6,7 +6,7 @@ pub mod parse;
 use std::fmt;
 use std::time::Duration;
 
-use crate::domain::normalize_name;
+use crate::domain::{PackageInfo, normalize_name};
 
 /// Why an index could not say.
 #[derive(Debug)]
@@ -55,7 +55,17 @@ pub trait IndexClient {
         index: &str,
         name: &str,
     ) -> impl Future<Output = Result<Page, IndexError>> + Send;
+
+    /// What PyPI's JSON API says of the project `name`: its summary and the like. Only PyPI
+    /// has this API.
+    fn pypi_project(
+        &self,
+        name: &str,
+    ) -> impl Future<Output = Result<PackageInfo, IndexError>> + Send;
 }
+
+/// PyPI's JSON API, where `{}/<name>/json` describes a project.
+pub const PYPI_JSON: &str = "https://pypi.org/pypi";
 
 /// Asks for JSON, and takes HTML from an index that has only that, as PEP 691 recommends.
 const ACCEPT: &str = "application/vnd.pypi.simple.v1+json, \
@@ -66,17 +76,27 @@ const ACCEPT: &str = "application/vnd.pypi.simple.v1+json, \
 pub struct RealIndexClient {
     /// Why there is no client, when TLS could not be set up.
     http: Result<reqwest::Client, String>,
+    /// PyPI's JSON API, `PYPI_JSON` but in tests.
+    pypi_json: String,
 }
 
 impl RealIndexClient {
     pub fn new() -> Self {
+        Self::with_pypi_json(PYPI_JSON)
+    }
+
+    /// A client that reads the JSON API at `url` in place of PyPI's, as tests do.
+    pub fn with_pypi_json(url: &str) -> Self {
         let http = reqwest::Client::builder()
             .user_agent(concat!("uview/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15))
             .build()
             .map_err(|e| e.to_string());
-        Self { http }
+        Self {
+            http,
+            pypi_json: url.trim_end_matches('/').to_string(),
+        }
     }
 }
 
@@ -114,6 +134,29 @@ impl IndexClient for RealIndexClient {
             .await
             .map_err(|e| IndexError::Network(e.to_string()))?;
         Ok(Page { json, body })
+    }
+
+    async fn pypi_project(&self, name: &str) -> Result<PackageInfo, IndexError> {
+        let http = self
+            .http
+            .as_ref()
+            .map_err(|e| IndexError::Network(e.clone()))?;
+        let url = format!("{}/{}/json", self.pypi_json, normalize_name(name));
+        let response = http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| IndexError::Network(e.to_string()))?;
+        match response.status().as_u16() {
+            200..=299 => {}
+            404 => return Err(IndexError::NotFound),
+            code => return Err(IndexError::Status(code)),
+        }
+        let body = response
+            .text()
+            .await
+            .map_err(|e| IndexError::Network(e.to_string()))?;
+        parse::pypi_project(&body)
     }
 }
 

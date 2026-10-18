@@ -4,7 +4,7 @@ use crossterm::event::KeyEvent;
 
 use crate::domain::{
     EnvDependency, Index, Membership, ProjectInfo, PyprojectDependency, Source, VersionChange,
-    VersionChoice,
+    VersionList,
 };
 
 /// What the terminal sends.
@@ -50,6 +50,8 @@ pub enum DepsAction {
     OpenAddFromSource,
     /// Show the project's indexes, to add or remove one.
     OpenIndexes,
+    /// Look a package up by name, to add it.
+    OpenSearch,
     /// Show the project's version, to bump it or set it.
     OpenVersion,
     /// Bump the selected package to its next patch, minor or major release.
@@ -161,7 +163,7 @@ pub enum Event {
     /// The versions `name` can be pinned to, newest first, or why the index could not say.
     VersionsListed {
         name: String,
-        loaded: Result<Vec<VersionChoice>, String>,
+        loaded: Result<VersionList, String>,
     },
     /// A mutation has ended, however it did: what the views show of the project may be stale.
     ProjectMutated,

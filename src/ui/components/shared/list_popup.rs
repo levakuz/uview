@@ -26,6 +26,12 @@ impl ListPopup {
         }
     }
 
+    /// Titles it `title` in place of its own.
+    pub fn set_title(&mut self, title: &str) {
+        self.title = title.to_string();
+        self.popup = size(&self.title, &self.items);
+    }
+
     /// Shows `items` in place of the list's, keeping the highlight where it is.
     pub fn set_items(&mut self, items: Vec<String>) {
         self.popup = size(&self.title, &items);
