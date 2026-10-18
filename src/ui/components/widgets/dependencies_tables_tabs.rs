@@ -6,6 +6,7 @@ use crate::{
         features::{
             add_from_source::AddFromSource,
             bump_popup::BumpPopup,
+            groups_popup::GroupsPopup,
             indexes_popup::IndexesPopup,
             input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
@@ -47,6 +48,8 @@ pub struct DependenciesTablesTabs {
     add_from_source: AddFromSource,
     /// The project's indexes, on `i`.
     indexes_popup: IndexesPopup,
+    /// `g`: the project's dependency groups.
+    groups_popup: GroupsPopup,
     /// `/`: a package looked up by name.
     search_popup: SearchPopup,
     /// `b`'s bumps of a declared package.
@@ -111,6 +114,7 @@ impl DependenciesTablesTabs {
             version_picker: VersionPicker::default(),
             bump_popup: BumpPopup::default(),
             search_popup: SearchPopup::default(),
+            groups_popup: GroupsPopup::default(),
             adding_version_of: None,
             pending: None,
             group_popup: None,
@@ -130,6 +134,7 @@ impl DependenciesTablesTabs {
         self.version_picker.render(frame, area, deps);
         self.bump_popup.render(frame, area, deps);
         self.search_popup.render(frame, area, deps);
+        self.groups_popup.render(frame, area, deps);
         if self.pin_version_popup.is_editing() {
             self.pin_version_popup.render(frame, area);
         }
@@ -185,6 +190,13 @@ impl DependenciesTablesTabs {
                 }
             }
         }
+        // A group the same commands go on to delete, as `g` deletes or renames one, is not
+        // asked about.
+        self.emptied.retain(|group| {
+            !commands
+                .iter()
+                .any(|c| matches!(c, Command::DeleteGroup { name } if name == group))
+        });
     }
 
     /// Where the focus is: an input, the actions list, or the table.
@@ -194,6 +206,7 @@ impl DependenciesTablesTabs {
             .mode()
             .or(self.indexes_popup.mode())
             .or(self.search_popup.mode())
+            .or(self.groups_popup.mode())
         {
             mode
         } else if self.package_add_popup.is_editing()
@@ -303,6 +316,9 @@ impl DependenciesTablesTabs {
     }
 
     fn respond(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
+        if self.groups_popup.mode().is_some() {
+            return self.groups_popup.update(action, deps);
+        }
         if self.search_popup.mode().is_some() {
             return match self.search_popup.update(action, deps) {
                 Some(Searched::Find(name)) => vec![Command::ListVersions { name }],
@@ -465,8 +481,11 @@ impl DependenciesTablesTabs {
             Action::Deps(DepsAction::OpenAddFromSource) => self.add_from_source.open(),
             Action::Deps(DepsAction::OpenIndexes) => self.indexes_popup.open(&deps.indexes),
             Action::Deps(DepsAction::OpenSearch) => self.search_popup.open(),
+            Action::Deps(DepsAction::OpenGroups) => self.groups_popup.open(deps),
             // The page's: the version is the project's, not the tables'.
             Action::Deps(DepsAction::OpenVersion) => {}
+            // Keys of the list of groups, which handles them itself.
+            Action::Deps(DepsAction::Rename | DepsAction::New) => {}
             // The keys of the actions list's Update and Remove, on the selected row; d in the list
             // itself is for the list of indexes.
             Action::Deps(DepsAction::Update | DepsAction::Remove)

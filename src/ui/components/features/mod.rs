@@ -1,6 +1,7 @@
 pub mod add_from_source;
 pub mod bump_popup;
 pub mod dependencies_table;
+pub mod groups_popup;
 pub mod help;
 pub mod indexes_popup;
 pub mod input_popup;

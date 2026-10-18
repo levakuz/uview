@@ -10,8 +10,10 @@ use crate::message::{Action, DepsAction, Input, NavAction};
 pub enum Mode {
     /// A table, with nothing open over it.
     Table,
-    /// The actions list.
+    /// The actions list, or another list to choose from.
     Actions,
+    /// The list of dependency groups, or a group's details, where `n`, `r` and `d` act.
+    Groups,
     /// An input, into which every key without a binding is typed.
     Input,
     /// The help overlay.
@@ -192,6 +194,11 @@ const TABLE: &[Binding] = &[
         help: "Bump the project's version, or set it",
     },
     Binding {
+        keys: &[(Key::char('g'), Action::Deps(DepsAction::OpenGroups))],
+        hints: &[],
+        help: "Manage the dependency groups: create, rename, delete",
+    },
+    Binding {
         keys: &[(Key::char('/'), Action::Deps(DepsAction::OpenSearch))],
         hints: &[],
         help: "Look a package up by its name, to add it",
@@ -227,7 +234,41 @@ const ACTIONS: &[Binding] = &[
     Binding {
         keys: &[(Key::char('d'), Action::Deps(DepsAction::Remove))],
         hints: &[],
-        help: "Remove the highlighted index, in the list of indexes",
+        help: "Delete the highlighted index, in the list of indexes",
+    },
+];
+
+const GROUPS: &[Binding] = &[
+    Binding {
+        keys: &MOVE_KEYS,
+        hints: &[],
+        help: "Move the highlight",
+    },
+    Binding {
+        keys: &SELECT_KEYS,
+        hints: &["open"],
+        help: "Open the highlighted group, or New group…",
+    },
+    // One row of the help each, and each in the footer: these are what the list is for.
+    Binding {
+        keys: &[(Key::char('n'), Action::Deps(DepsAction::New))],
+        hints: &["new"],
+        help: "Add a group",
+    },
+    Binding {
+        keys: &[(Key::char('r'), Action::Deps(DepsAction::Rename))],
+        hints: &["rename"],
+        help: "Rename the highlighted group, or the open one",
+    },
+    Binding {
+        keys: &[(Key::char('d'), Action::Deps(DepsAction::Remove))],
+        hints: &["delete"],
+        help: "Delete the highlighted group, or the open one",
+    },
+    Binding {
+        keys: &[(Key::new(KeyCode::Esc), BACK)],
+        hints: &["back"],
+        help: "Back from a group to the list, or close the list",
     },
 ];
 
@@ -289,6 +330,7 @@ pub fn bindings(mode: Mode) -> impl Iterator<Item = &'static Binding> {
     let lists: [&'static [Binding]; 3] = match mode {
         Mode::Table => [TABLE, OUTSIDE_INPUTS, ANYWHERE],
         Mode::Actions => [ACTIONS, OUTSIDE_INPUTS, ANYWHERE],
+        Mode::Groups => [GROUPS, OUTSIDE_INPUTS, ANYWHERE],
         Mode::Input => [INPUT, ANYWHERE, &[]],
         Mode::Help => [HELP, ANYWHERE, &[]],
     };
@@ -305,10 +347,11 @@ pub fn action_for(mode: Mode, input: &Input) -> Option<Action> {
 }
 
 /// Every binding, by where it works, as the help lists them.
-pub fn groups() -> [(&'static str, &'static [Binding]); 5] {
+pub fn groups() -> [(&'static str, &'static [Binding]); 6] {
     [
         ("In a table", TABLE),
         ("In the actions list", ACTIONS),
+        ("In the list of groups", GROUPS),
         ("In an input, where other keys are typed", INPUT),
         ("Outside an input", OUTSIDE_INPUTS),
         ("Anywhere", ANYWHERE),

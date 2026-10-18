@@ -491,3 +491,36 @@ impl VersionList {
             .map(|v| v.version.as_str())
     }
 }
+
+/// A `[dependency-groups]` group as pyproject.toml declares it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeclaredGroup {
+    pub name: String,
+    /// What names it elsewhere, so that it can be neither deleted nor renamed: uv would refuse
+    /// a default group or an included one that is not defined.
+    pub named_by: Option<String>,
+}
+
+/// Why `name` will not do for a new group beside `existing`, as uv checks a group's name: it
+/// starts and ends with a letter or digit, holds only those and `-`, `_`, `.`, and is compared
+/// normalized, so `Dev_Tools` is taken when `dev-tools` is.
+pub fn group_name_problem(name: &str, existing: &[DeclaredGroup]) -> Option<&'static str> {
+    let ends = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric());
+    if name.is_empty() {
+        Some("Name the group")
+    } else if !ends(name.chars().next())
+        || !ends(name.chars().last())
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        Some("Letters, digits, - _ and . only, starting and ending with a letter or digit")
+    } else if existing
+        .iter()
+        .any(|g| normalize_name(&g.name) == normalize_name(name))
+    {
+        Some("A group has that name already")
+    } else {
+        None
+    }
+}

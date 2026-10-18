@@ -74,6 +74,11 @@ fn the_footer_lists_the_keys_that_work_where_the_focus_is() -> Result<(), Box<dy
         rows(&footer(Mode::Actions)?)[0].trim_end(),
         "enter run  esc close  ? help"
     );
+    // The list of groups names what it is for.
+    assert_eq!(
+        rows(&footer(Mode::Groups)?)[0].trim_end(),
+        "enter open  n new  r rename  d delete  esc back  ? help"
+    );
     assert_eq!(
         rows(&footer(Mode::Input)?)[0].trim_end(),
         "enter confirm  esc cancel"
@@ -92,8 +97,12 @@ fn the_help_lists_every_binding_by_where_it_works() -> Result<(), Box<dyn Error>
     assert!(rows[0].contains("Keys (↑↓ to scroll)"));
     scroll = u16::MAX;
     terminal.draw(|frame| render_help(frame, frame.area(), &mut scroll))?;
-    // Brought back to the last row.
-    assert!(scroll > 0 && scroll < 10);
+    // Brought back to the last row, and no further however far it is asked to go.
+    assert!(scroll > 0);
+    let last = scroll;
+    scroll += 5;
+    terminal.draw(|frame| render_help(frame, frame.area(), &mut scroll))?;
+    assert_eq!(scroll, last);
     rows.extend(self::rows(&terminal));
     let text = rows.join("\n");
     for (place, bindings) in keymap::groups() {
