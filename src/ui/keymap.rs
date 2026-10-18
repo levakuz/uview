@@ -232,7 +232,17 @@ const ACTIONS: &[Binding] = &[
     Binding {
         keys: &[(Key::char('d'), Action::Deps(DepsAction::Remove))],
         hints: &[],
-        help: "Remove the highlighted index, in the list of indexes",
+        help: "Delete the highlighted index or group",
+    },
+    Binding {
+        keys: &[(Key::char('r'), Action::Deps(DepsAction::Rename))],
+        hints: &[],
+        help: "Rename the highlighted group",
+    },
+    Binding {
+        keys: &[(Key::char('n'), Action::Deps(DepsAction::New))],
+        hints: &[],
+        help: "Add a group, in the list of groups",
     },
 ];
 

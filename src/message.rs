@@ -60,8 +60,13 @@ pub enum DepsAction {
     Bump,
     /// Update the selected package, as its actions list's Update does.
     Update,
-    /// Remove the selected package, as its actions list's Remove does.
+    /// Remove the selected package, as its actions list's Remove does; in a list, delete the
+    /// highlighted item.
     Remove,
+    /// In the list of groups, rename the highlighted one.
+    Rename,
+    /// In the list of groups, add one.
+    New,
     Sync,
     Refresh,
 }

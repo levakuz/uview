@@ -484,6 +484,8 @@ impl DependenciesTablesTabs {
             Action::Deps(DepsAction::OpenGroups) => self.groups_popup.open(deps),
             // The page's: the version is the project's, not the tables'.
             Action::Deps(DepsAction::OpenVersion) => {}
+            // Keys of the list of groups, which handles them itself.
+            Action::Deps(DepsAction::Rename | DepsAction::New) => {}
             // The keys of the actions list's Update and Remove, on the selected row; d in the list
             // itself is for the list of indexes.
             Action::Deps(DepsAction::Update | DepsAction::Remove)

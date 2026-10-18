@@ -10,8 +10,11 @@ use crate::{
     },
 };
 
+/// The list's title, which names its keys: the footer has no room for them.
+const TITLE: &str = "Groups · n new · r rename · d delete";
+
 enum Step {
-    /// Each group with its package count, then "New group…".
+    /// "New group…", then each group with its package count.
     List(ListPopup),
     /// One group: Rename… and Delete group, then its packages.
     Details {
@@ -39,10 +42,7 @@ pub struct GroupsPopup {
 
 impl GroupsPopup {
     pub fn open(&mut self, deps: &DepsState) {
-        self.step = Some(Step::List(ListPopup::new(
-            "Dependency groups",
-            list_rows(deps),
-        )));
+        self.step = Some(Step::List(ListPopup::new(TITLE, list_rows(deps))));
     }
 
     /// Where the focus is while open: a list, or an input.
@@ -79,37 +79,58 @@ impl GroupsPopup {
         let (next, commands) = match (step, action) {
             (Step::List(_), Action::Nav(NavAction::Back)) => (None, Vec::new()),
             (Step::Details { .. } | Step::Confirm { .. }, Action::Nav(NavAction::Back)) => (
-                Some(Step::List(ListPopup::new(
-                    "Dependency groups",
-                    list_rows(deps),
-                ))),
+                Some(Step::List(ListPopup::new(TITLE, list_rows(deps)))),
                 Vec::new(),
             ),
-            (Step::List(list), Action::Nav(NavAction::Select)) => {
-                match list.selected().and_then(|i| deps.groups.get(i)) {
-                    Some(group) => {
-                        let rows = detail_rows(&group.name, deps);
-                        let list = ListPopup::new(&details_title(group, deps), rows);
-                        (
-                            Some(Step::Details {
-                                group: group.name.clone(),
-                                list,
-                            }),
-                            Vec::new(),
-                        )
-                    }
-                    // Past the groups: "New group…".
-                    None => (
-                        Some(Step::NewName(input("New group (e.g. lint)"))),
+            // n, from the list or a group's details, and "New group…", first in the list.
+            (Step::List(_) | Step::Details { .. }, Action::Deps(DepsAction::New)) => (
+                Some(Step::NewName(input("New group (e.g. lint)"))),
+                Vec::new(),
+            ),
+            (Step::List(list), Action::Nav(NavAction::Select)) => match highlighted(&list, deps) {
+                Some(group) => {
+                    let rows = detail_rows(&group.name, deps);
+                    let list = ListPopup::new(&details_title(group, deps), rows);
+                    (
+                        Some(Step::Details {
+                            group: group.name.clone(),
+                            list,
+                        }),
                         Vec::new(),
-                    ),
+                    )
                 }
-            }
-            // d on a group in the list deletes it, as Delete group does.
+                None if list.selected() == Some(0) => (
+                    Some(Step::NewName(input("New group (e.g. lint)"))),
+                    Vec::new(),
+                ),
+                None => (Some(Step::List(list)), Vec::new()),
+            },
+            // d and r on a group in the list, as Delete group and Rename… do.
             (Step::List(list), Action::Deps(DepsAction::Remove)) => {
-                match list.selected().and_then(|i| deps.groups.get(i)) {
+                match highlighted(&list, deps) {
                     Some(group) => delete(group, deps, Step::List(list)),
                     None => (Some(Step::List(list)), Vec::new()),
+                }
+            }
+            (Step::List(list), Action::Deps(DepsAction::Rename)) => {
+                match highlighted(&list, deps) {
+                    Some(group) => rename(group, Step::List(list)),
+                    None => (Some(Step::List(list)), Vec::new()),
+                }
+            }
+            // And on the group whose details are open.
+            (
+                Step::Details { group, list },
+                Action::Deps(DepsAction::Remove | DepsAction::Rename),
+            ) => {
+                let declared = deps.groups.iter().find(|g| g.name == group).cloned();
+                let back = Step::Details { group, list };
+                match declared {
+                    Some(declared) if matches!(action, Action::Deps(DepsAction::Remove)) => {
+                        delete(&declared, deps, back)
+                    }
+                    Some(declared) => rename(&declared, back),
+                    None => (Some(back), Vec::new()),
                 }
             }
             (Step::Details { group, list }, Action::Nav(NavAction::Select)) => {
@@ -123,16 +144,7 @@ impl GroupsPopup {
                         }),
                     )
                     | (_, None) => (Some(Step::Details { group, list }), Vec::new()),
-                    (Some(0), Some(_)) => {
-                        let title = format!("Rename {group} to");
-                        (
-                            Some(Step::Rename {
-                                group,
-                                input: input(&title),
-                            }),
-                            Vec::new(),
-                        )
-                    }
+                    (Some(0), Some(declared)) => rename(&declared, Step::Details { group, list }),
                     (Some(1), Some(declared)) => {
                         delete(&declared, deps, Step::Details { group, list })
                     }
@@ -185,6 +197,24 @@ impl GroupsPopup {
         self.step = next;
         commands
     }
+}
+
+/// The group highlighted in the list, which has "New group…" above the groups.
+fn highlighted<'a>(list: &ListPopup, deps: &'a DepsState) -> Option<&'a DeclaredGroup> {
+    deps.groups.get(list.selected()?.checked_sub(1)?)
+}
+
+/// Asks for `group`'s new name, unless something names it; `back` is the step to stay on then.
+fn rename(group: &DeclaredGroup, back: Step) -> (Option<Step>, Vec<Command>) {
+    if group.named_by.is_some() {
+        return (Some(back), Vec::new());
+    }
+    let title = format!("Rename {} to", group.name);
+    let rename = Step::Rename {
+        group: group.name.clone(),
+        input: input(&title),
+    };
+    (Some(rename), Vec::new())
 }
 
 /// `step` with its list's highlight moved up or down.
@@ -285,7 +315,7 @@ fn renaming(group: &str, new: &str, deps: &DepsState) -> Vec<Command> {
     commands
 }
 
-/// Each group with its package count, and what names it when something does; then "New group…".
+/// "New group…", then each group with its package count, and what names it when something does.
 fn list_rows(deps: &DepsState) -> Vec<String> {
     let width = deps
         .groups
@@ -293,21 +323,17 @@ fn list_rows(deps: &DepsState) -> Vec<String> {
         .map(|g| g.name.chars().count())
         .max()
         .unwrap_or(0);
-    let mut rows: Vec<String> = deps
-        .groups
-        .iter()
-        .map(|group| {
-            let mut row = format!("{:width$}  {}", group.name, count(&group.name, deps));
-            if let Some(named_by) = &group.named_by {
-                row += &format!("  · {named_by}");
-            }
-            row
-        })
-        .collect();
-    if rows.is_empty() {
+    let mut rows = vec!["New group…".to_string()];
+    rows.extend(deps.groups.iter().map(|group| {
+        let mut row = format!("{:width$}  {}", group.name, count(&group.name, deps));
+        if let Some(named_by) = &group.named_by {
+            row += &format!("  · {named_by}");
+        }
+        row
+    }));
+    if deps.groups.is_empty() {
         rows.push("No dependency groups yet".into());
     }
-    rows.push("New group…".into());
     rows
 }
 

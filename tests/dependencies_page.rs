@@ -1390,9 +1390,10 @@ fn g_lists_the_groups_and_d_deletes_an_empty_one_at_once() -> Result<(), Box<dyn
     ] {
         assert!(drawn.contains(row), "{row}");
     }
-    // lint is the third.
-    screen.press(KeyCode::Down);
-    screen.press(KeyCode::Down);
+    // "New group…" is first; lint is the third group.
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
     assert_eq!(
         screen.press(KeyCode::Char('d')),
         [Command::DeleteGroup {
@@ -1401,7 +1402,7 @@ fn g_lists_the_groups_and_d_deletes_an_empty_one_at_once() -> Result<(), Box<dyn
     );
     // docs is a default group: it stays.
     screen.press(KeyCode::Char('g'));
-    for _ in 0..3 {
+    for _ in 0..4 {
         screen.press(KeyCode::Down);
     }
     assert!(screen.press(KeyCode::Char('d')).is_empty());
@@ -1415,6 +1416,7 @@ fn a_group_with_packages_is_deleted_only_once_confirmed() -> Result<(), Box<dyn 
     let mut screen = groups_screen();
     screen.press(KeyCode::Char('g'));
     // dev's details: its actions, then its packages.
+    screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
     let details = screen.drawn()?;
     for row in [
@@ -1458,6 +1460,7 @@ fn a_group_with_packages_is_deleted_only_once_confirmed() -> Result<(), Box<dyn 
 fn keep_and_esc_leave_the_groups_as_they_are() {
     let mut screen = groups_screen();
     screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
@@ -1466,6 +1469,7 @@ fn keep_and_esc_leave_the_groups_as_they_are() {
     assert_eq!(screen.page.mode(), Mode::Table);
     // Esc goes back from the details to the list, then closes.
     screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Esc);
     assert_eq!(screen.page.mode(), Mode::Actions);
@@ -1477,6 +1481,7 @@ fn keep_and_esc_leave_the_groups_as_they_are() {
 fn a_rename_moves_each_package_then_deletes_the_old_group() {
     let mut screen = groups_screen();
     screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Enter);
     assert_eq!(screen.page.mode(), Mode::Input);
@@ -1512,8 +1517,9 @@ fn a_rename_moves_each_package_then_deletes_the_old_group() {
     );
     // An empty group: the new name is made, the old one deleted.
     screen.press(KeyCode::Char('g'));
-    screen.press(KeyCode::Down);
-    screen.press(KeyCode::Down);
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Enter);
     screen.type_text("linters");
@@ -1535,9 +1541,7 @@ fn a_new_group_is_created_empty_and_a_named_one_offers_nothing()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut screen = groups_screen();
     screen.press(KeyCode::Char('g'));
-    for _ in 0..4 {
-        screen.press(KeyCode::Down);
-    }
+    // "New group…" is first.
     screen.press(KeyCode::Enter);
     screen.type_text("my group");
     // Refused, as uv would.
@@ -1554,7 +1558,7 @@ fn a_new_group_is_created_empty_and_a_named_one_offers_nothing()
     );
     // docs is named by default-groups: its details say why, and do nothing.
     screen.press(KeyCode::Char('g'));
-    for _ in 0..3 {
+    for _ in 0..4 {
         screen.press(KeyCode::Down);
     }
     screen.press(KeyCode::Enter);
@@ -1566,4 +1570,79 @@ fn a_new_group_is_created_empty_and_a_named_one_offers_nothing()
     assert!(screen.press(KeyCode::Enter).is_empty());
     assert_eq!(screen.page.mode(), Mode::Actions);
     Ok(())
+}
+
+#[test]
+fn n_r_and_d_act_from_the_list_of_groups_and_from_a_group_s_details() {
+    let mut screen = groups_screen();
+    screen.press(KeyCode::Char('g'));
+    // n: a new group, wherever the highlight is.
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Char('n'));
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.type_text("site");
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::CreateGroup {
+            name: "site".into()
+        }]
+    );
+    // r on lint, the third group: empty, so made anew under the new name.
+    screen.press(KeyCode::Char('g'));
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
+    screen.press(KeyCode::Char('r'));
+    screen.type_text("linters");
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [
+            Command::CreateGroup {
+                name: "linters".into()
+            },
+            Command::DeleteGroup {
+                name: "lint".into()
+            },
+        ]
+    );
+    // r on docs, named by default-groups, does nothing; nor on "New group…".
+    screen.press(KeyCode::Char('g'));
+    assert!(screen.press(KeyCode::Char('r')).is_empty());
+    for _ in 0..4 {
+        screen.press(KeyCode::Down);
+    }
+    assert!(screen.press(KeyCode::Char('r')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Esc);
+    // From test's details, d asks first, as it has a package.
+    screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [
+            Command::RemoveFromProject {
+                name: "pytest".into(),
+                groups: vec![Membership::Group("test".into())],
+            },
+            Command::DeleteGroup {
+                name: "test".into()
+            },
+        ]
+    );
+}
+
+#[test]
+fn r_and_n_outside_the_list_of_groups_keep_their_meaning() {
+    // r still reloads from the table, and n there means nothing.
+    let mut screen = groups_screen();
+    assert_eq!(screen.press(KeyCode::Char('r')), [Command::Reload]);
+    assert!(screen.press(KeyCode::Char('n')).is_empty());
+    // In a package's actions list, neither does anything.
+    screen.press(KeyCode::Enter);
+    assert!(screen.press(KeyCode::Char('r')).is_empty());
+    assert!(screen.press(KeyCode::Char('n')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
 }
