@@ -182,6 +182,11 @@ const TABLE: &[Binding] = &[
         help: "Sync with uv sync (s), or read both tables again (r)",
     },
     Binding {
+        keys: &[(Key::char('b'), Action::Deps(DepsAction::Bump))],
+        hints: &[],
+        help: "Bump the package to its next patch, minor or major",
+    },
+    Binding {
         keys: &[(Key::char('v'), Action::Deps(DepsAction::OpenVersion))],
         hints: &[],
         help: "Bump the project's version, or set it",

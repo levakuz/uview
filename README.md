@@ -89,6 +89,7 @@ Press `Space` or `Enter` on a package to open its actions:
 | Action | What it does |
 |---|---|
 | Pin to version | Lists the versions the package's index has, newest first: pre-releases marked `pre`, a release that needs a newer Python than the project supports marked with what it needs, yanked releases left out. The index is the one uv would use: the package's pinned index, else the project's indexes, then PyPI. Choosing one then asks how to pin it: `==` (highlighted), `>=`, `~=` (compatible: `>=1.17.0, <1.18`), `==1.17.*` (that series), `>`, `<=`, `<` or `!=`, each shown with what it means; only those PEP 440 allows for that version are offered. **Type a constraint…**, first in the list, asks for a constraint instead, then writes it to `pyproject.toml` with `uv add` in every group the package is declared in, and syncs. `1.2.3` becomes `==1.2.3`; `>=2.0` and `<3` are kept as typed. A package that is installed but not declared is added as a main dependency. |
+| Bump | For a package pyproject.toml declares: lists `patch → 0.25.2`, `minor → 0.28.1` and `major → 1.0.0`, the newest release of each above the installed version (or the declared lower bound, if it is not installed), from the package's index. Pre-releases are left out unless the current version is one, as is a release that needs a newer Python than the project supports. Enter writes it keeping the declared operator: `==0.25.0` becomes `==0.28.1`, `>=0.27` becomes `>=0.28.1`. If the new version falls outside a declared range, such as `>=1.15,<1.16`, uview shows the range it would write, `>=1.17.0,<1.18`, and writes it only once you confirm. |
 | Update | Runs `uv sync --upgrade-package`: the newest version the constraints allow. |
 | Remove | **pyproject.toml table:** runs `uv remove` for every group and extra the package is in, which syncs: the package leaves the environment too, with any dependency nothing else needs.<br>**Environment table:** runs `uv pip uninstall` on the environment only. `pyproject.toml` and `uv.lock` are untouched, so a declared package comes back with the next sync, which every other action runs. |
 | Cancel | Closes the list. |
@@ -128,6 +129,7 @@ there. Quitting cancels the same way.
 | `P` | Add a package from another index (the package is pinned to it), a git repository (`URL@branch`, `@tag` or `@commit`) or a local path (editable unless you say otherwise), then choose its group. |
 | `u` | Update the selected package, as **Update** in its actions does. |
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |
+| `b` | Bump the selected package, as **Bump** in its actions does. |
 | `s` | Sync the environment with `uv sync`. |
 | `r` | Read both tables again, for changes made outside uview. |
 | `v` | Change the project's version. The list shows what each bump makes, e.g. `minor → 0.5.0`, as `uv version --bump … --dry-run` says; Enter writes it with `uv version --bump`. **Set version…** takes a version typed in. |

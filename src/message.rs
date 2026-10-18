@@ -52,6 +52,8 @@ pub enum DepsAction {
     OpenIndexes,
     /// Show the project's version, to bump it or set it.
     OpenVersion,
+    /// Bump the selected package to its next patch, minor or major release.
+    Bump,
     /// Update the selected package, as its actions list's Update does.
     Update,
     /// Remove the selected package, as its actions list's Remove does.

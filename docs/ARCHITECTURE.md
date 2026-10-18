@@ -221,6 +221,7 @@ src/
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
         │   ├── add_from_source.rs         # the questions P asks: an index, git or a path, and its fields
+        │   ├── bump_popup.rs              # b: a declared package's next patch, minor or major release
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── help.rs                    # the footer and the help overlay, from the keymap
         │   ├── indexes_popup.rs           # i: the project's indexes, adding and removing one

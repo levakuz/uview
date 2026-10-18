@@ -1,4 +1,5 @@
 pub mod add_from_source;
+pub mod bump_popup;
 pub mod dependencies_table;
 pub mod help;
 pub mod indexes_popup;
