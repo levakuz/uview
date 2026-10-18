@@ -132,3 +132,46 @@ fn a_dependency_reads_as_uv_tree_writes_it_marked_for_what_matters() {
     assert_eq!(line.spans[3].style.fg, Some(Color::DarkGray));
     assert_eq!(line.spans[4].style.fg, Some(Color::Yellow));
 }
+
+#[test]
+fn the_highlighted_row_has_no_colours_of_its_own_to_turn_into_blocks()
+-> Result<(), Box<dyn std::error::Error>> {
+    use ratatui::{Terminal, backend::TestBackend};
+    let node = |depth: usize, name: &str, notes: &[&str]| TreeNode {
+        depth,
+        name: name.into(),
+        version: "1.0".into(),
+        notes: notes.iter().map(ToString::to_string).collect(),
+        ..TreeNode::default()
+    };
+    let rows = vec![
+        node(0, "acme", &[]),
+        node(1, "mypy", &[]),
+        node(2, "librt", &["group: dev"]),
+    ];
+    let mut view = TreeView::default();
+    view.down(&rows);
+    view.down(&rows);
+    let mut terminal = Terminal::new(TestBackend::new(40, 5))?;
+    terminal.draw(|frame| {
+        view.render(
+            frame,
+            frame.area(),
+            &rows,
+            Line::raw("Tree"),
+            Default::default(),
+        );
+    })?;
+    let buffer = terminal.backend().buffer();
+    // The highlighted row, librt: the marker before it and its dim note are reversed alike, with
+    // no grey of their own.
+    let row = 3;
+    for x in 1..38 {
+        assert_ne!(buffer[(x, row)].fg, Color::DarkGray, "x = {x}");
+        assert_ne!(buffer[(x, row)].bg, Color::DarkGray, "x = {x}");
+    }
+    assert!(buffer[(5, row)].modifier.contains(Modifier::REVERSED));
+    // Another row keeps its colours.
+    assert_eq!(buffer[(3, 2)].fg, Color::DarkGray);
+    Ok(())
+}

@@ -191,6 +191,14 @@ impl TreeView {
                 };
                 let mut spans = vec![Span::raw("  ".repeat(rows[i].depth())), marker.dark_gray()];
                 spans.extend(rows[i].line().spans);
+                // The highlight reverses the row's colours: a span with a colour of its own
+                // would turn into a block of it. Highlighted, a row keeps only its weight, and
+                // reads as a table's highlighted row does.
+                if selected == Some(i) {
+                    for span in &mut spans {
+                        span.style = Style::new().add_modifier(span.style.add_modifier);
+                    }
+                }
                 Line::from(spans)
             })
             .collect();
