@@ -170,13 +170,16 @@ impl App {
     /// Puts what a command produced into the state, where every view reads it.
     fn receive(&mut self, event: Event) {
         match event {
-            event @ (Event::PyprojectLoaded { .. } | Event::EnvLoaded { .. }) => {
-                self.state.deps.apply(event)
-            }
+            event @ (Event::PyprojectLoaded { .. }
+            | Event::EnvLoaded { .. }
+            | Event::TreeLoaded { .. }) => self.state.deps.apply(event),
             Event::ProjectLoaded { generation, loaded } => {
                 self.state.project.apply_info(generation, loaded);
             }
             Event::VersionsPreviewed(loaded) => self.state.project.bumps = loaded.into(),
+            Event::WhyLoaded { name, loaded } => {
+                self.state.deps.why = Some((name, loaded.into()));
+            }
             Event::LockChecked { generation, state } => {
                 self.state.project.apply_lock(generation, state);
             }

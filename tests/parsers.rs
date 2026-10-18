@@ -159,3 +159,49 @@ fn uv_lock_check_tells_fresh_stale_missing_and_unknown() {
     assert_eq!(LOCK_CHECK, ["lock", "--check", "--offline"]);
     assert_eq!(LOCK_UPGRADE, ["lock", "--upgrade"]);
 }
+
+#[test]
+fn uv_tree_is_read_from_its_drawing() {
+    use uview::domain::TreeNode;
+    let nodes = parse::tree(include_str!("fixtures/uv/tree.txt"));
+    let shape: Vec<(usize, &str)> = nodes.iter().map(|n| (n.depth, n.name.as_str())).collect();
+    assert_eq!(
+        shape[..4],
+        [(0, "acme-api"), (1, "httpx"), (2, "anyio"), (3, "idna")]
+    );
+    assert_eq!(nodes.len(), 19);
+    let httpx = &nodes[1];
+    assert_eq!(
+        (httpx.version.as_str(), httpx.extras.as_slice()),
+        ("0.27.0", ["http2".to_string()].as_slice())
+    );
+    let h2 = nodes.iter().find(|n| n.name == "h2");
+    assert_eq!(
+        h2.map(|n| n.notes.clone()),
+        Some(vec!["extra: http2".to_string()])
+    );
+    let pytest = nodes.iter().find(|n| n.name == "pytest");
+    assert_eq!(
+        pytest.map(|n| (n.depth, n.notes.clone())),
+        Some((1, vec!["group: dev".to_string()]))
+    );
+    // --outdated marks what is behind.
+    let outdated = parse::tree(include_str!("fixtures/uv/tree_outdated.txt"));
+    assert_eq!(outdated[1].latest.as_deref(), Some("0.28.1"));
+    assert_eq!(outdated[2].latest, None);
+    // Turned over: a repeated subtree, and uv's closing note left out.
+    let why = parse::tree(include_str!("fixtures/uv/tree_why.txt"));
+    assert_eq!(
+        why.last(),
+        Some(&TreeNode {
+            depth: 1,
+            name: "httpx".into(),
+            version: "0.27.0".into(),
+            repeated: true,
+            ..TreeNode::default()
+        })
+    );
+    assert_eq!(why.len(), 5);
+    assert_eq!(why[3].extras, ["http2".to_string()]);
+    assert!(parse::tree("").is_empty());
+}

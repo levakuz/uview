@@ -215,6 +215,7 @@ src/
     └── components/
         ├── shared/         # generic, feature-agnostic
         │   ├── table.rs    #   SharedTable<T: TableRow>, over rows it is handed
+        │   ├── tree_view.rs #  TreeView over T: TreeRow, rows with depths: folding, highlight, scroll
         │   ├── input.rs    #   UviewInput (wraps tui-input)
         │   ├── list_popup.rs #  ListPopup — a titled list of choices: the actions list, the group lists
         │   ├── popup.rs    #   Popup — centering and Clear only
@@ -223,6 +224,7 @@ src/
         │   ├── add_from_source.rs         # the questions P asks: an index, git or a path, and its fields
         │   ├── bump_popup.rs              # b: a declared package's next patch, minor or major release
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
+        │   ├── dependency_tree.rs         # TreeRow for uv tree's packages
         │   ├── groups_popup.rs            # g: the dependency groups, to look into, create, rename or delete
         │   ├── help.rs                    # the footer and the help overlay, from the keymap
         │   ├── indexes_popup.rs           # i: the project's indexes, adding and removing one

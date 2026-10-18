@@ -1138,7 +1138,9 @@ async fn a_reload_checks_the_lock_and_l_locks_as_a_mutation() -> Result<(), Box<
         "Moved every package in uv.lock to its newest allowed version"
     )));
     assert!(events.iter().any(|e| matches!(e, Event::ProjectMutated)));
-    assert_eq!(uv.calls()[3], ["lock", "--upgrade"]);
+    // The reload also read the tree, without a lock and offline.
+    assert_eq!(uv.calls()[3], ["tree", "--frozen"]);
+    assert_eq!(uv.calls()[4], ["lock", "--upgrade"]);
     Ok(())
 }
 
@@ -1172,4 +1174,38 @@ fn a_lock_check_from_before_a_change_is_discarded() {
     project.apply_lock(1, LockState::Fresh);
     project.apply_lock(0, LockState::Stale);
     assert!(matches!(project.lock, Loadable::Loaded(LockState::Fresh)));
+}
+
+#[tokio::test]
+async fn the_tree_and_what_pulls_a_package_in_are_reads() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::returning([
+        Ok("acme-api v0.1.0\n└── six v1.17.0 (latest: v1.18.0)\n".into()),
+        Ok("six v1.17.0\n└── acme-api v0.1.0\n".into()),
+    ]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
+    runner.execute(Command::LoadTree { outdated: true });
+    runner.execute(Command::WhyInstalled { name: "six".into() });
+    let events = events_until(&mut received, finished(2)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::TreeLoaded { outdated: true, loaded: Ok(nodes), .. }
+            if nodes[1].latest.as_deref() == Some("1.18.0")
+    )));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::WhyLoaded { name, loaded: Ok(nodes) } if name == "six" && nodes.len() == 2
+    )));
+    assert!(!events.iter().any(|e| matches!(e, Event::ProjectMutated)));
+    assert_eq!(uv.calls()[0], ["tree", "--frozen", "--outdated"]);
+    assert_eq!(
+        uv.calls()[1],
+        ["tree", "--frozen", "--invert", "--package", "six"]
+    );
+    Ok(())
 }

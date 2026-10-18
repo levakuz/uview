@@ -1,0 +1,19 @@
+acme-api v0.1.0
+├── httpx[http2] v0.27.0
+│   ├── anyio v4.15.1
+│   │   ├── idna v3.20
+│   │   └── typing-extensions v4.16.0
+│   ├── certifi v2026.7.22
+│   ├── httpcore v1.0.9
+│   │   ├── certifi v2026.7.22
+│   │   └── h11 v0.16.0
+│   ├── idna v3.20
+│   ├── sniffio v1.3.1
+│   └── h2 v4.4.1 (extra: http2)
+│       ├── hpack v4.2.0
+│       └── hyperframe v6.1.0
+└── pytest v9.1.1 (group: dev)
+    ├── iniconfig v2.3.1
+    ├── packaging v26.3
+    ├── pluggy v1.7.0
+    └── pygments v2.21.0

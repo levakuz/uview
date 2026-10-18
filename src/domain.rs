@@ -536,3 +536,19 @@ pub enum LockState {
     /// uv could not tell without the network, as for a package not in its cache.
     Unknown,
 }
+
+/// A line of `uv tree`: a package at its depth, the project's own at 0.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TreeNode {
+    pub depth: usize,
+    pub name: String,
+    pub version: String,
+    /// The extras it is asked for with, as in `httpx[http2]`.
+    pub extras: Vec<String>,
+    /// Why it is here when not by plain requirement: `extra: http2`, `group: dev`.
+    pub notes: Vec<String>,
+    /// The newest version, when `uv tree --outdated` said it is behind.
+    pub latest: Option<String>,
+    /// Its subtree is shown in full elsewhere in the tree, so not here.
+    pub repeated: bool,
+}

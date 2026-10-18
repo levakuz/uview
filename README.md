@@ -87,6 +87,8 @@ works.
 
 ### Actions
 
+**The Tree tab** shows the project's dependency tree as `uv tree` draws it from `uv.lock`, fully unfolded, the direct dependencies in bold, with why each package is there when it is an extra or a group. `←` folds the highlighted package or goes to its parent, `→` unfolds it; `+` unfolds everything and `-` folds all but the direct dependencies. `o` shows or hides which packages are behind, marked `latest: …` in yellow, which asks the index. `w` shows what pulls the highlighted package in, until `Esc`. `Enter`, `u`, `b` and `d` act on a package `pyproject.toml` declares as they do in the tables; on another one, only `u`, which updates it within the constraints.
+
 Press `Space` or `Enter` on a package to open its actions:
 
 | Action | What it does |
@@ -124,7 +126,7 @@ there. Quitting cancels the same way.
 | Key | Action |
 |---|---|
 | `↑` / `k`, `↓` / `j` | Move the selection. Table selections wrap around at the ends, and stay on their package when the tables are read again. |
-| `Tab`, `[`, `]` | Switch between the pyproject.toml and Environment tables. |
+| `Tab`, `]` / `[` | Switch to the next tab, or the one before: pyproject.toml, Environment, Tree. |
 | `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |

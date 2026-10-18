@@ -9,6 +9,17 @@ pub const LOCK: [&str; 1] = ["lock"];
 /// Asks whether uv.lock is up to date, never waiting on the network: a check on every reload
 /// must not hang on one.
 pub const LOCK_CHECK: [&str; 3] = ["lock", "--check", "--offline"];
+/// The dependency tree as uv.lock holds it, for this platform, writing nothing and asking no
+/// index.
+pub const TREE: [&str; 2] = ["tree", "--frozen"];
+/// The tree, each package that is behind marked with its newest version, which asks the index.
+pub const TREE_OUTDATED: [&str; 3] = ["tree", "--frozen", "--outdated"];
+
+/// The tree turned over from `name`: what pulls it in, up to the project.
+pub fn why_args(name: &str) -> [&str; 5] {
+    ["tree", "--frozen", "--invert", "--package", name]
+}
+
 /// Moves every package in uv.lock to the newest version the constraints allow.
 pub const LOCK_UPGRADE: [&str; 2] = ["lock", "--upgrade"];
 
