@@ -234,8 +234,8 @@ fn the_actions_act_on_the_row_they_were_opened_for() {
     screen.press(KeyCode::Enter);
     // A reload lands while the list is open for httpx, and the selected row is now requests.
     screen.state.deps.pyproject = Loadable::Loaded(vec![package("httpx"), package("requests")]);
-    // Pin, Update, Move to group, Add to group, Remove.
-    for _ in 0..4 {
+    // Pin, Bump, Update, Move to group, Add to group, Remove.
+    for _ in 0..5 {
         screen.press(KeyCode::Down);
     }
     assert_eq!(
@@ -254,9 +254,10 @@ fn a_load_that_lands_while_typing_is_kept() {
     screen.press(KeyCode::Enter);
     screen.state.deps.pyproject = Loadable::Loaded(vec![package("six"), package("idna")]);
     screen.press(KeyCode::Esc);
-    // idna arrived while the version input was open.
+    // idna arrived while the version input was open. Pin, Bump, Update.
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
     screen.press(KeyCode::Down);
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -308,8 +309,8 @@ fn a_selection_past_the_rows_falls_back_to_the_last() {
     // A reload leaves fewer rows than the selection was down.
     screen.state.deps.pyproject = Loadable::Loaded(vec![package("anyio"), package("httpx")]);
     screen.press(KeyCode::Enter);
-    // Pin, Update, Move to group, Add to group, Remove.
-    for _ in 0..4 {
+    // Pin, Bump, Update, Move to group, Add to group, Remove.
+    for _ in 0..5 {
         screen.press(KeyCode::Down);
     }
     assert_eq!(
@@ -342,8 +343,8 @@ fn the_selection_stays_on_its_package_across_a_reload() {
         package("requests"),
     ]);
     screen.press(KeyCode::Enter);
-    // Pin, Update, Move to group, Add to group, Remove.
-    for _ in 0..4 {
+    // Pin, Bump, Update, Move to group, Add to group, Remove.
+    for _ in 0..5 {
         screen.press(KeyCode::Down);
     }
     assert_eq!(
@@ -410,8 +411,8 @@ fn a_package_in_one_group_moves_to_another() {
             ..package("coverage")
         });
     }
-    // Pin, Update, Move to group.
-    assert!(screen.run_option(1, 2).is_empty());
+    // Pin, Bump, Update, Move to group.
+    assert!(screen.run_option(1, 3).is_empty());
     assert_eq!(screen.page.mode(), Mode::Actions);
     screen.press(KeyCode::Down);
     assert_eq!(
@@ -427,9 +428,9 @@ fn a_package_in_one_group_moves_to_another() {
 
 #[test]
 fn a_package_in_one_group_can_be_added_to_another_too() {
-    // six is in main alone. Pin, Update, Move to group, Add to group; main is left out.
+    // six is in main alone. Pin, Bump, Update, Move to group, Add to group; main is left out.
     let mut screen = with_pytest_in(&["dev"]);
-    screen.run_option(0, 3);
+    screen.run_option(0, 4);
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::Add {
@@ -442,8 +443,8 @@ fn a_package_in_one_group_can_be_added_to_another_too() {
 #[test]
 fn a_package_in_several_groups_is_added_to_or_removed_from_one() {
     let mut screen = with_pytest_in(&["dev", "test"]);
-    // Pin, Update, Add to group: main is the one group it is not in.
-    screen.run_option(1, 2);
+    // Pin, Bump, Update, Add to group: main is the one group it is not in.
+    screen.run_option(1, 3);
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::Add {
@@ -452,7 +453,7 @@ fn a_package_in_several_groups_is_added_to_or_removed_from_one() {
         }]
     );
     // Remove from group: the list is its groups.
-    screen.run_option(0, 3);
+    screen.run_option(0, 4);
     screen.press(KeyCode::Down);
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -471,7 +472,7 @@ fn an_installed_package_has_no_group_actions() {
         version: "1.17.0".into(),
     }]);
     screen.press(KeyCode::Tab);
-    // Pin, Update, Remove: uninstall, as before.
+    // Pin, Update, Remove: uninstall, as before; Bump is for a declared package.
     assert_eq!(
         screen.run_option(0, 2),
         [Command::Uninstall { name: "six".into() }]
@@ -483,9 +484,9 @@ fn removing_a_groups_last_package_offers_to_delete_the_group() {
     let mut screen = with_pytest_in(&["dev"]);
     // A group already empty is not asked about.
     screen.state.deps.deletable_groups = vec!["lint".into()];
-    // pytest: Pin, Update, Move to group, Add to group, Remove.
+    // pytest: Pin, Bump, Update, Move to group, Add to group, Remove.
     assert_eq!(
-        screen.run_option(1, 4),
+        screen.run_option(1, 5),
         [Command::RemoveFromProject {
             name: "pytest".into(),
             groups: vec![Membership::Group("dev".into())],
@@ -507,7 +508,7 @@ fn removing_a_groups_last_package_offers_to_delete_the_group() {
 #[test]
 fn keep_it_leaves_the_empty_group() {
     let mut screen = with_pytest_in(&["dev"]);
-    screen.run_option(1, 4);
+    screen.run_option(1, 5);
     screen.state.deps.deletable_groups = vec!["dev".into()];
     screen.press(KeyCode::Down);
     assert!(screen.press(KeyCode::Enter).is_empty());
@@ -1085,6 +1086,126 @@ fn esc_in_the_version_list_gives_up_the_add() {
         [Command::Pin {
             name: "six".into(),
             constraint: "==1.17.0".into()
+        }]
+    );
+}
+
+/// A screen whose pyproject table declares `name` as `constraint`, with `installed` in the
+/// environment, and the index's versions of it already listed.
+fn bump_screen(name: &str, constraint: &str, installed: &str, versions: &[&str]) -> Screen {
+    let mut screen = Screen::with(&[]);
+    screen.state.deps.pyproject = Loadable::Loaded(vec![PyprojectDependency {
+        version_constraint: constraint.into(),
+        ..package(name)
+    }]);
+    screen.state.deps.env = Loadable::Loaded(vec![uview::domain::EnvDependency {
+        name: name.into(),
+        version: installed.into(),
+    }]);
+    screen.state.deps.versions = Some((
+        name.into(),
+        Loadable::Loaded(versions.iter().map(|v| version(v, false, None)).collect()),
+    ));
+    screen
+}
+
+#[test]
+fn b_bumps_to_the_release_chosen_keeping_the_operator() -> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = bump_screen(
+        "httpx",
+        "==0.25.0",
+        "0.25.0",
+        &["1.0.0", "0.28.1", "0.25.2", "0.25.0"],
+    );
+    assert_eq!(
+        screen.press(KeyCode::Char('b')),
+        [Command::ListVersions {
+            name: "httpx".into()
+        }]
+    );
+    let drawn = screen.drawn()?;
+    for row in [
+        "Bump httpx from 0.25.0",
+        "patch → 0.25.2",
+        "minor → 0.28.1",
+        "major → 1.0.0",
+    ] {
+        assert!(drawn.contains(row), "{row}");
+    }
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "httpx".into(),
+            constraint: "==0.28.1".into()
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    Ok(())
+}
+
+#[test]
+fn a_range_the_bump_leaves_is_written_only_once_confirmed() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut screen = bump_screen("six", ">=1.15,<1.16", "1.15.0", &["1.17.0", "1.15.0"]);
+    screen.press(KeyCode::Char('b'));
+    // minor → 1.17.0, outside the range.
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    let drawn = screen.drawn()?;
+    assert!(drawn.contains("1.17.0 is outside >=1.15,<1.16"));
+    assert!(drawn.contains("Write >=1.17.0,<1.18") && drawn.contains("Keep >=1.15,<1.16"));
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "six".into(),
+            constraint: ">=1.17.0,<1.18".into()
+        }]
+    );
+    // Keep writes nothing.
+    screen.press(KeyCode::Char('b'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Table);
+    Ok(())
+}
+
+#[test]
+fn up_to_date_does_nothing_and_an_undeclared_package_is_not_bumped()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = bump_screen("six", ">=1.17", "1.17.0", &["1.17.0"]);
+    screen.press(KeyCode::Char('b'));
+    assert!(screen.drawn()?.contains("patch: up to date"));
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    screen.press(KeyCode::Esc);
+    // In the Environment table, a package only installed has nothing to bump.
+    screen.state.deps.env = Loadable::Loaded(vec![uview::domain::EnvDependency {
+        name: "idna".into(),
+        version: "3.10".into(),
+    }]);
+    screen.press(KeyCode::Tab);
+    assert!(screen.press(KeyCode::Char('b')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Table);
+    Ok(())
+}
+
+#[test]
+fn bump_is_in_the_actions_of_a_declared_package() {
+    let mut screen = bump_screen("httpx", "==0.25.0", "0.25.0", &["0.25.2", "0.25.0"]);
+    // Pin, Bump.
+    assert_eq!(
+        screen.run_option(0, 1),
+        [Command::ListVersions {
+            name: "httpx".into()
+        }]
+    );
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "httpx".into(),
+            constraint: "==0.25.2".into()
         }]
     );
 }

@@ -7,6 +7,8 @@ use crate::ui::components::shared::list_popup::ListPopup;
 pub enum PackageControlOption {
     Update,
     PinToVersion,
+    /// For a declared package: its next patch, minor or major release.
+    Bump,
     /// For a package in one group.
     MoveToGroup,
     AddToGroup,
@@ -22,6 +24,7 @@ impl PackageControlOption {
         match self {
             PackageControlOption::Update => "Update",
             PackageControlOption::PinToVersion => "Pin to version",
+            PackageControlOption::Bump => "Bump",
             PackageControlOption::MoveToGroup => "Move to group",
             PackageControlOption::AddToGroup => "Add to group",
             PackageControlOption::RemoveFromGroup => "Remove from group",
@@ -46,8 +49,14 @@ impl PackageControlPopup {
             1 => &[MoveToGroup, AddToGroup],
             _ => &[AddToGroup, RemoveFromGroup],
         };
-        let options: Vec<_> = [PinToVersion, Update]
+        // Bump is for a declared package, as the group actions are.
+        let version_actions: &[PackageControlOption] = match groups {
+            0 => &[PinToVersion],
+            _ => &[PinToVersion, Bump],
+        };
+        let options: Vec<_> = version_actions
             .iter()
+            .chain(&[Update])
             .chain(group_actions)
             .chain(&[Remove, Cancel])
             .copied()

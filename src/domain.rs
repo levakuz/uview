@@ -326,3 +326,136 @@ pub fn bare_name(requirement: &str) -> Option<(String, String)> {
     });
     (name_is_bare && extras_are_bare).then(|| (name.to_string(), requirement.to_string()))
 }
+
+/// The newest release of each bump above `current`, in `Bump::ALL`'s order: a patch keeps the
+/// major and minor, a minor keeps the major, a major takes any. `None` where nothing is newer.
+/// `versions` comes without yanked releases; pre-releases count only when `current` is one, and
+/// a release that needs a newer Python than the project supports does not count.
+pub fn bump_targets(current: &str, versions: &[VersionChoice]) -> [Option<String>; 3] {
+    let Ok(current) = pep440_rs::Version::from_str(current) else {
+        return [None, None, None];
+    };
+    let part = |v: &pep440_rs::Version, i: usize| v.release().get(i).copied().unwrap_or(0);
+    let mut targets: [Option<pep440_rs::Version>; 3] = [None, None, None];
+    for choice in versions.iter().filter(|c| c.needs_python.is_none()) {
+        let Ok(version) = pep440_rs::Version::from_str(&choice.version) else {
+            continue;
+        };
+        if version <= current || (version.any_prerelease() && !current.any_prerelease()) {
+            continue;
+        }
+        let same_major = part(&version, 0) == part(&current, 0);
+        let same_minor = same_major && part(&version, 1) == part(&current, 1);
+        for (target, fits) in targets.iter_mut().zip([same_minor, same_major, true]) {
+            if fits && target.as_ref().is_none_or(|t| version > *t) {
+                *target = Some(version.clone());
+            }
+        }
+    }
+    targets.map(|t| t.map(|v| v.to_string()))
+}
+
+/// The version a declared constraint starts from: the highest of its lower bounds, as `0.27`
+/// in `>=0.27,<1`. `None` for a constraint with none, a URL, or none at all.
+pub fn declared_floor(constraint: &str) -> Option<String> {
+    use pep440_rs::Operator::*;
+    specifiers(constraint)?
+        .into_iter()
+        .filter(|s| {
+            matches!(
+                s.operator(),
+                Equal | ExactEqual | TildeEqual | GreaterThan | GreaterThanEqual
+            )
+        })
+        .map(|s| s.version().clone())
+        .max()
+        .map(|v| v.to_string())
+}
+
+/// The specifiers of a declared constraint, without its marker; `None` for a URL or one PEP 440
+/// does not read.
+fn specifiers(constraint: &str) -> Option<Vec<pep440_rs::VersionSpecifier>> {
+    let specs = constraint.split(';').next().unwrap_or_default().trim();
+    if specs.starts_with('@') {
+        return None;
+    }
+    specs
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| pep440_rs::VersionSpecifier::from_str(s).ok())
+        .collect()
+}
+
+/// What a bump writes.
+#[derive(Debug, PartialEq)]
+pub enum Bumped {
+    /// The constraint, its operators kept and the new version in place of the old.
+    To(String),
+    /// The new version falls outside the declared range: the range that would replace it, of
+    /// the same width, for the user to confirm.
+    OutOfRange { old: String, new: String },
+}
+
+/// The constraint a bump of a package declared as `declared` to `new` writes, without the
+/// marker, which the pin path keeps. Lower bounds take the new version; a range whose upper
+/// bound would exclude it moves that bound past it, keeping its number of parts: `>=1.15,<1.16`
+/// bumped to 1.17.0 is `>=1.17.0,<1.18`. Exclusions stay. `None` for a URL, or a constraint PEP
+/// 440 does not read.
+pub fn bump_constraint(declared: &str, new: &str) -> Option<Bumped> {
+    use pep440_rs::Operator::*;
+    let target = pep440_rs::Version::from_str(new).ok()?;
+    let specs = specifiers(declared)?;
+    if specs.is_empty() {
+        return Some(Bumped::To(format!(">={new}")));
+    }
+    // `parts` of the new version, the last moved up one when `past`.
+    let cut = |parts: usize, past: bool| {
+        let mut release: Vec<u64> = (0..parts)
+            .map(|i| target.release().get(i).copied().unwrap_or(0))
+            .collect();
+        if past && let Some(last) = release.last_mut() {
+            *last += 1;
+        }
+        release
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(".")
+    };
+    let rewrite = |move_upper: bool| -> String {
+        specs
+            .iter()
+            .map(|spec| {
+                let parts = spec.version().release().len();
+                match spec.operator() {
+                    Equal | ExactEqual | TildeEqual | GreaterThan | GreaterThanEqual => {
+                        format!("{}{new}", spec.operator())
+                    }
+                    EqualStar => format!("=={}.*", cut(parts, false)),
+                    LessThan if move_upper => format!("<{}", cut(parts, true)),
+                    LessThanEqual if move_upper => format!("<={}", cut(parts, false)),
+                    _ => spec.to_string(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let admits = |constraint: &str| {
+        pep440_rs::VersionSpecifiers::from_str(constraint).is_ok_and(|s| s.contains(&target))
+    };
+    let kept = rewrite(false);
+    if admits(&kept) {
+        return Some(Bumped::To(kept));
+    }
+    let moved = rewrite(true);
+    admits(&moved).then(|| Bumped::OutOfRange {
+        old: declared
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
+        new: moved,
+    })
+}

@@ -1,10 +1,11 @@
 use crate::{
-    domain::{EnvDependency, Membership, PyprojectDependency, Source, bare_name},
+    domain::{EnvDependency, Membership, PyprojectDependency, Source, bare_name, normalize_name},
     message::{Action, Command, DepsAction, NavAction},
     state::{DepsState, Loadable},
     ui::components::{
         features::{
             add_from_source::AddFromSource,
+            bump_popup::BumpPopup,
             indexes_popup::IndexesPopup,
             input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
@@ -45,6 +46,8 @@ pub struct DependenciesTablesTabs {
     add_from_source: AddFromSource,
     /// The project's indexes, on `i`.
     indexes_popup: IndexesPopup,
+    /// `b`'s bumps of a declared package.
+    bump_popup: BumpPopup,
     /// The list of versions, for Pin to version or for a package being added.
     version_picker: VersionPicker,
     /// The requirement typed into the add input, while its version is chosen; `None` when the
@@ -103,6 +106,7 @@ impl DependenciesTablesTabs {
             add_from_source: AddFromSource::default(),
             indexes_popup: IndexesPopup::default(),
             version_picker: VersionPicker::default(),
+            bump_popup: BumpPopup::default(),
             adding_version_of: None,
             pending: None,
             group_popup: None,
@@ -120,6 +124,7 @@ impl DependenciesTablesTabs {
             self.package_add_popup.render(frame, area);
         }
         self.version_picker.render(frame, area, deps);
+        self.bump_popup.render(frame, area, deps);
         if self.pin_version_popup.is_editing() {
             self.pin_version_popup.render(frame, area);
         }
@@ -190,6 +195,7 @@ impl DependenciesTablesTabs {
             || self.group_popup.is_some()
             || self.delete_question.is_some()
             || self.version_picker.is_open()
+            || self.bump_popup.is_open()
         {
             Mode::Actions
         } else {
@@ -287,6 +293,9 @@ impl DependenciesTablesTabs {
     }
 
     fn respond(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
+        if self.bump_popup.is_open() {
+            return self.bump_popup.update(action, deps).into_iter().collect();
+        }
         if self.indexes_popup.mode().is_some() {
             return self.indexes_popup.update(action).into_iter().collect();
         }
@@ -439,6 +448,11 @@ impl DependenciesTablesTabs {
             // itself is for the list of indexes.
             Action::Deps(DepsAction::Update | DepsAction::Remove)
                 if self.show_package_control_popup => {}
+            Action::Deps(DepsAction::Bump) => {
+                if let Some(name) = self.selected_name(deps) {
+                    return self.bump(&name, deps);
+                }
+            }
             Action::Deps(DepsAction::Update) => {
                 if let Some(name) = self.selected_name(deps) {
                     return vec![Command::Upgrade { name }];
@@ -546,6 +560,7 @@ impl DependenciesTablesTabs {
                     .open(&name, &title, "Type a constraint…", deps);
                 vec![Command::ListVersions { name }]
             }
+            Some(PackageControlOption::Bump) => self.bump(&name, deps),
             Some(PackageControlOption::Update) => vec![Command::Upgrade { name }],
             Some(PackageControlOption::Remove) => self.remove(&name, deps).into_iter().collect(),
             Some(
@@ -558,6 +573,19 @@ impl DependenciesTablesTabs {
             }
             Some(PackageControlOption::Cancel) | None => Vec::new(),
         }
+    }
+
+    /// Opens the bumps of `name`, if pyproject.toml declares it, and asks for its versions. One
+    /// only installed is not bumped: that would declare a dependency of a dependency.
+    fn bump(&mut self, name: &str, deps: &DepsState) -> Vec<Command> {
+        let wanted = normalize_name(name);
+        deps.pyproject
+            .rows()
+            .iter()
+            .find(|d| normalize_name(&d.name) == wanted)
+            .map(|dep| self.bump_popup.open(dep, deps))
+            .into_iter()
+            .collect()
     }
 
     /// Removes `name` from wherever the active table lists it, if it still does.
