@@ -10,9 +10,9 @@ Claude Code reads this through the `@AGENTS.md` import in `CLAUDE.md`.
 `uview` is a terminal UI for [`uv`](https://github.com/astral-sh/uv), the Python package
 manager, written in Rust (edition 2024) on ratatui. It owns no packaging logic of its
 own — every operation is delegated to the `uv` binary as a subprocess. The exceptions,
-edits uv has no command for, are deleting an emptied dependency group (ADR-0009),
-managing the project's package indexes (ADR-0010) and creating an empty dependency
-group (ADR-0013). What uv cannot list,
+changes uv has no command for, are deleting an emptied dependency group (ADR-0009),
+managing the project's package indexes (ADR-0010), creating an empty dependency
+group (ADR-0013) and deleting the project's environment (ADR-0015). What uv cannot list,
 a package's versions, uview reads from the index over HTTP, read only (ADR-0012).
 
 Architecture decisions live in `docs/adr/`. Tasks and their status live in

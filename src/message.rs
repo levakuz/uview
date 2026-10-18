@@ -3,8 +3,8 @@
 use crossterm::event::KeyEvent;
 
 use crate::domain::{
-    DeclaredGroup, EnvDependency, Index, LockState, Membership, ProjectInfo, PyprojectDependency,
-    Source, TreeNode, VersionChange, VersionList,
+    DeclaredGroup, EnvDependency, EnvInfo, Index, LockState, Membership, ProjectInfo,
+    PyprojectDependency, PythonOption, Source, TreeNode, VersionChange, VersionList,
 };
 
 /// What the terminal sends.
@@ -52,6 +52,8 @@ pub enum DepsAction {
     OpenIndexes,
     /// Show the project's dependency groups, to create, rename or delete one.
     OpenGroups,
+    /// Show the project's environment, to make it anew, empty it or delete it.
+    OpenEnvironment,
     /// Lock the project, `upgrade` moving every package to its newest allowed version.
     Lock {
         upgrade: bool,
@@ -117,6 +119,16 @@ pub enum Command {
     Lock {
         upgrade: bool,
     },
+    /// List every Python uv can find or download.
+    ListPythons,
+    /// Make the environment anew with `python`, and install the project.
+    RecreateEnv {
+        python: PythonOption,
+    },
+    /// Empty the environment, then install the project in it again.
+    ResetEnv,
+    /// Delete the environment's directory.
+    DeleteEnv,
     /// Read the dependency tree again, each package that is behind marked when `outdated`.
     LoadTree {
         outdated: bool,
@@ -212,6 +224,14 @@ pub enum Event {
         name: String,
         loaded: Result<Vec<TreeNode>, String>,
     },
+    /// The project's environment, or `None` when there is none, from a reload that started at
+    /// `generation`.
+    EnvInfoLoaded {
+        generation: u64,
+        info: Option<EnvInfo>,
+    },
+    /// Every Python uv can find or download, or what uv said when it could not list them.
+    PythonsListed(Result<Vec<PythonOption>, String>),
     /// Whether uv.lock matches pyproject.toml, from a reload that started at `generation`.
     LockChecked {
         generation: u64,

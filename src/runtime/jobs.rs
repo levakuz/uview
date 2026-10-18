@@ -119,6 +119,7 @@ fn mutates(command: &Command) -> bool {
             | Command::PreviewVersions
             | Command::ListVersions { .. }
             | Command::LoadTree { .. }
+            | Command::ListPythons
             | Command::WhyInstalled { .. }
     )
 }
@@ -128,6 +129,12 @@ fn label(command: &Command) -> String {
     match command {
         Command::Reload => "Loading dependencies".into(),
         Command::PreviewVersions => "Reading the next versions".into(),
+        Command::ListPythons => "Listing Pythons".into(),
+        Command::RecreateEnv { python } => {
+            format!("Making the environment with Python {}", python.request())
+        }
+        Command::ResetEnv => "Emptying the environment".into(),
+        Command::DeleteEnv => "Deleting the environment".into(),
         Command::LoadTree { outdated: false } => "Reading the dependency tree".into(),
         Command::LoadTree { outdated: true } => "Checking for newer versions".into(),
         Command::WhyInstalled { name } => format!("Finding what pulls in {name}"),

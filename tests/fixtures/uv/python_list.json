@@ -1,0 +1,70 @@
+[
+  {
+    "key": "cpython-3.13.6-macos-aarch64-none",
+    "version": "3.13.6",
+    "version_parts": {
+      "major": 3,
+      "minor": 13,
+      "patch": 6
+    },
+    "path": null,
+    "symlink": null,
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250808/cpython-3.13.6%2B20250808-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "os": "macos",
+    "variant": "default",
+    "implementation": "cpython",
+    "arch": "aarch64",
+    "libc": "none"
+  },
+  {
+    "key": "cpython-3.13.6+freethreaded-macos-aarch64-none",
+    "version": "3.13.6",
+    "version_parts": {
+      "major": 3,
+      "minor": 13,
+      "patch": 6
+    },
+    "path": null,
+    "symlink": null,
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250808/cpython-3.13.6%2B20250808-aarch64-apple-darwin-freethreaded%2Bpgo%2Blto-full.tar.zst",
+    "os": "macos",
+    "variant": "freethreaded",
+    "implementation": "cpython",
+    "arch": "aarch64",
+    "libc": "none"
+  },
+  {
+    "key": "cpython-3.12.11-macos-aarch64-none",
+    "version": "3.12.11",
+    "version_parts": {
+      "major": 3,
+      "minor": 12,
+      "patch": 11
+    },
+    "path": "/home/jane/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12",
+    "symlink": null,
+    "url": null,
+    "os": "macos",
+    "variant": "default",
+    "implementation": "cpython",
+    "arch": "aarch64",
+    "libc": "none"
+  },
+  {
+    "key": "cpython-3.11.15-macos-aarch64-none",
+    "version": "3.11.15",
+    "version_parts": {
+      "major": 3,
+      "minor": 11,
+      "patch": 15
+    },
+    "path": "/home/jane/.local/share/uv/python/cpython-3.11-macos-aarch64-none/bin/python3.11",
+    "symlink": null,
+    "url": null,
+    "os": "macos",
+    "variant": "default",
+    "implementation": "cpython",
+    "arch": "aarch64",
+    "libc": "none"
+  }
+]

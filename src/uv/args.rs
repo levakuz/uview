@@ -20,6 +20,24 @@ pub fn why_args(name: &str) -> [&str; 5] {
     ["tree", "--frozen", "--invert", "--package", name]
 }
 
+/// Every Python uv can find or download, as JSON.
+pub const PYTHON_LIST: [&str; 4] = ["python", "list", "--output-format", "json"];
+
+/// `uv sync` with the environment made, or made anew, with the Python `python` names.
+pub fn sync_python_args(python: &str) -> [&str; 3] {
+    ["sync", "--python", python]
+}
+
+/// `uv python pin` arguments that write `request` to the project's `.python-version`.
+pub fn python_pin_args(request: &str) -> [&str; 3] {
+    ["python", "pin", request]
+}
+
+/// `uv venv` arguments that empty the environment at `env`, keeping its Python.
+pub fn venv_clear_args(env: &str) -> [&str; 3] {
+    ["venv", "--clear", env]
+}
+
 /// Moves every package in uv.lock to the newest version the constraints allow.
 pub const LOCK_UPGRADE: [&str; 2] = ["lock", "--upgrade"];
 

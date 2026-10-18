@@ -2,7 +2,7 @@
 
 use super::UvError;
 use crate::domain::{EnvDependency, ProjectInfo};
-use crate::domain::{LockState, TreeNode};
+use crate::domain::{LockState, PythonOption, TreeNode};
 
 /// The packages in `uv pip list --format json` output.
 pub fn pip_list(stdout: &str) -> Result<Vec<EnvDependency>, UvError> {
@@ -90,4 +90,9 @@ fn tree_line(line: &str) -> Option<TreeNode> {
         }
     }
     Some(node)
+}
+
+/// The Pythons of `uv python list --output-format json`.
+pub fn python_list(stdout: &str) -> Result<Vec<PythonOption>, UvError> {
+    serde_json::from_str(stdout).map_err(|e| UvError::Parse(e.to_string()))
 }

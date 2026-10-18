@@ -5,8 +5,8 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::domain::{
-    DeclaredGroup, EnvDependency, Index, LockState, ProjectInfo, PyprojectDependency, TreeNode,
-    VersionList,
+    DeclaredGroup, EnvDependency, EnvInfo, Index, LockState, ProjectInfo, PyprojectDependency,
+    PythonOption, TreeNode, VersionList,
 };
 use crate::message::{Event, JobId};
 
@@ -31,6 +31,10 @@ pub struct ProjectState {
     pub bumps: Loadable<Vec<String>>,
     /// Whether uv.lock matches pyproject.toml, as of the last reload.
     pub lock: Loadable<LockState>,
+    /// The project's environment, `None` when there is none, as of the last reload.
+    pub environment: Loadable<Option<EnvInfo>>,
+    /// The Pythons an environment can be made with, once asked for.
+    pub pythons: Loadable<Vec<PythonOption>>,
     /// The generation of the newest `info` shown, as for the tables.
     generation: u64,
 }
@@ -46,6 +50,14 @@ impl ProjectState {
 
     /// Takes in a reload's name and version, unless what is shown comes from a newer one: a
     /// reload from before a version change can land after the one that followed it.
+    /// Takes in a reload's word on the environment, likewise.
+    pub fn apply_environment(&mut self, generation: u64, info: Option<EnvInfo>) {
+        if generation >= self.generation {
+            self.generation = generation;
+            self.environment = Loadable::Loaded(info);
+        }
+    }
+
     /// Takes in a reload's word on uv.lock, likewise.
     pub fn apply_lock(&mut self, generation: u64, state: LockState) {
         if generation >= self.generation {

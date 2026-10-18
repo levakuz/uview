@@ -74,7 +74,9 @@ Until a table has loaded, it says so, and if it cannot load, it says why.
 
 **The right column** shows the project at the top: its name and version, as `uv version`
 reports them, in the tile's border, and its root. If uv cannot read the version, a dynamic
-one for instance, the tile shows what uv said instead. Under the root it says whether
+one for instance, the tile shows what uv said instead. Under the root is the environment:
+its path from the root, its Python, how many packages it holds and its size on disk, such as
+`.venv · Python 3.11.15 · 48 packages · 41.2 MiB`, or `no environment`. Below that it says whether
 `uv.lock` matches `pyproject.toml`, as `uv lock --check --offline` tells on each reload:
 `uv.lock up to date`, or `uv.lock out of date — press l` and `no uv.lock — press l` when there
 is something to do. Below it is the uv log: each
@@ -139,6 +141,7 @@ there. Quitting cancels the same way.
 | `g` | Manage the dependency groups: **New group…** first, then each group with its package count. Enter on a group shows its packages, with **Rename…** and **Delete group**. In the list, `n` adds a group, and `r` and `d` rename and delete the highlighted one; in a group's details they act on that group. An empty group goes at once; one with packages asks first, then removes them from that group only. Renaming moves each package, with its extras, marker and constraint, to the new name. A group that `tool.uv.default-groups` or another group's `include-group` names is kept. uv has no command for an empty group, so **New group…** writes `name = []` itself, then runs `uv lock`. |
 | `/` | Look a package up by its exact name: a card with its latest stable version, the index it comes from and, for a package from PyPI, its summary, required Python and home page. **Add …** goes on to add it, as `p` does. PyPI has no search by keyword, so the name must be exact; case and `-`/`_` do not matter. |
 | `s` | Sync the environment with `uv sync`. |
+| `e` | Manage the environment. **Make it anew with another Python…** lists every Python uv finds or can download, and runs `uv sync --python` with the one chosen. **Empty it, then install the project again** runs `uv venv --clear`, then `uv sync`. **Delete it** asks first, then removes the directory; uv has no command for this, so uview deletes it only if it holds `pyvenv.cfg` and is not the project root or above it. `s` makes it again. |
 | `r` | Read both tables again, for changes made outside uview. |
 | `v` | Change the project's version. The list shows what each bump makes, e.g. `minor → 0.5.0`, as `uv version --bump … --dry-run` says; Enter writes it with `uv version --bump`. **Set version…** takes a version typed in. |
 | `i` | Show the project's package indexes (`[[tool.uv.index]]`). Pick one, or press `d` on it, to remove it, or add one: a name, a URL, and whether it is an extra index searched alongside PyPI or the default that replaces it. uview edits pyproject.toml for this, since uv has no command for it, then runs `uv lock`. |

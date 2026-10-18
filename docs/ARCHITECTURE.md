@@ -33,7 +33,8 @@ It owns no Python or packaging logic of its own. Every operation is delegated to
 `uv` binary as a subprocess, and `uview` is responsible only for presenting state and
 turning key presses into `uv` invocations. The exceptions are edits of pyproject.toml uv has
 no command for: deleting an emptied dependency group (ADR-0009), managing the project's
-package indexes (ADR-0010) and creating an empty dependency group (ADR-0013). And uview reads package indexes over HTTP for what uv cannot list,
+package indexes (ADR-0010) and creating an empty dependency group (ADR-0013), and, outside
+pyproject.toml, deleting the project's environment (ADR-0015). And uview reads package indexes over HTTP for what uv cannot list,
 a package's versions (ADR-0012); it only reads.
 
 The design follows the Elm architecture (TEA), with messages split by direction of travel
@@ -50,7 +51,7 @@ There are five layers, plus a thin application shell and the state they share.
 | **State** | `src/state.rs` | Hold what the app knows, once: the project, the dependencies, the jobs and the latest message (ADR-0004) | Render, run anything, know about ratatui, the UI or the runtime |
 | **UI** | `src/ui/` | Render frames from the state, turn input into actions and actions into commands, hold view state | Write the state, spawn tasks, call controllers, read the filesystem |
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
-| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it, create an empty one, and add or remove an index (ADR-0009, ADR-0010, ADR-0013) | Render, hold UI state, know about ratatui, start a process |
+| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it, create an empty one, and add or remove an index (ADR-0009, ADR-0010, ADR-0013); read the environment's `pyvenv.cfg` and size, and delete it (ADR-0015) | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
 | **Index client** | `src/index/` | Read a project's page from a package index over HTTP, and parse it (ADR-0012) | Write anything, know about uv, the runtime, controllers, the UI or ratatui |
 
@@ -179,6 +180,8 @@ Above the uv tile, the project tile shows `state.project`: the name and version 
 title, `Project` until they load, and the root. When uv cannot read them, as for a dynamic
 version, the first line of what it said is dimmed above the root. The status line says
 nothing of it: the failure would recur on every reload, and is no mistake of the user's.
+Under the root, `state.project.environment` gives the environment's line: its path from the
+root, its Python, the environment table's package count and its size on disk.
 
 ## 5. Module map
 
@@ -195,6 +198,7 @@ src/
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
 ├── controllers/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
+│   ├── environment.rs      # the environment's path, Python and size; make it anew, empty it, delete it (ADR-0015)
 │   ├── groups.rs           # the groups pyproject.toml declares; creating an empty one, deleting an emptied one (ADR-0009, ADR-0013)
 │   ├── indexes.rs          # the project's [[tool.uv.index]]: list, add, remove (ADR-0010)
 │   ├── pyproject.rs        # edit pyproject.toml, then uv lock, putting it back if the lock fails
@@ -224,13 +228,14 @@ src/
         │   ├── add_from_source.rs         # the questions P asks: an index, git or a path, and its fields
         │   ├── bump_popup.rs              # b: a declared package's next patch, minor or major release
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
+        │   ├── environment_popup.rs       # e: make the environment anew with a Python, empty it or delete it
         │   ├── dependency_tree.rs         # TreeRow for uv tree's packages
         │   ├── groups_popup.rs            # g: the dependency groups, to look into, create, rename or delete
         │   ├── help.rs                    # the footer and the help overlay, from the keymap
         │   ├── indexes_popup.rs           # i: the project's indexes, adding and removing one
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
         │   ├── package_control_popup.rs   # the actions list
-        │   ├── project_tile.rs            # top right: name and version, and the project root
+        │   ├── project_tile.rs            # top right: name and version, the project root, the environment and uv.lock
         │   ├── search_popup.rs            # /: a package looked up by its name, then added
         │   ├── uv_log.rs                  # bottom right: what uv wrote, job by job
         │   ├── version_picker.rs          # Pin to version: the versions, newest first, or one typed in
@@ -379,8 +384,8 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   cannot freeze rendering.
 - At startup, before the loop begins, `App` marks both tables and the project's name and
   version `Loading`, and hands the runner `Command::Reload`. It reads `pyproject.toml`, lists
-  the environment, then reads the name and version with `uv version`, which neither locks
-  nor syncs. It sends each table's rows, or why they failed, which also goes to the status
+  the environment and reads its `pyvenv.cfg` and size, then reads the name and version with
+  `uv version`, which neither locks nor syncs. It sends each table's rows, or why they failed, which also goes to the status
   line as an `Event::Error`, and then the name and version, or what uv said. A reload after a
   mutation leaves the rows in view until the new ones land.
 - After every mutation, done, failed or cancelled, the runner counts it in its generation

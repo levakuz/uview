@@ -29,38 +29,41 @@ fn project(info: Loadable<ProjectInfo>) -> ProjectState {
 
 #[test]
 fn the_project_tile_wraps_the_root_and_leaves_the_rest_to_the_log() -> Result<(), Box<dyn Error>> {
-    let mut terminal = Terminal::new(TestBackend::new(16, 8))?;
+    let mut terminal = Terminal::new(TestBackend::new(16, 9))?;
     let mut rest = Rect::default();
     let project = project(Loadable::NotLoaded);
-    terminal.draw(|frame| rest = render_project_tile(frame, frame.area(), &project))?;
+    terminal.draw(|frame| rest = render_project_tile(frame, frame.area(), &project, None))?;
+    // The environment's line is a dim … until a reload has looked.
     assert_eq!(
-        rows(&terminal)[..4],
+        rows(&terminal)[..5],
         [
             "┌Project───────┐",
             "│/home/jane/bil│",
             "│ling-api      │",
+            "│…             │",
             "└──────────────┘",
         ]
     );
-    assert_eq!(rest, Rect::new(0, 4, 16, 4));
+    assert_eq!(rest, Rect::new(0, 5, 16, 4));
     Ok(())
 }
 
 #[test]
 fn the_project_tile_is_titled_with_the_projects_name_and_version() -> Result<(), Box<dyn Error>> {
-    let mut terminal = Terminal::new(TestBackend::new(24, 4))?;
+    let mut terminal = Terminal::new(TestBackend::new(24, 5))?;
     let project = project(Loadable::Loaded(ProjectInfo {
         name: "billing-api".into(),
         version: "0.4.2".into(),
     }));
     terminal.draw(|frame| {
-        render_project_tile(frame, frame.area(), &project);
+        render_project_tile(frame, frame.area(), &project, None);
     })?;
     assert_eq!(
-        rows(&terminal)[..3],
+        rows(&terminal)[..4],
         [
             "┌ billing-api 0.4.2 ───┐",
             "│/home/jane/billing-api│",
+            "│…                     │",
             "└──────────────────────┘",
         ]
     );
@@ -77,16 +80,16 @@ fn the_project_tile_is_titled_with_the_projects_name_and_version() -> Result<(),
 #[test]
 fn the_project_tile_says_what_uv_said_when_it_could_not_read_the_version()
 -> Result<(), Box<dyn Error>> {
-    let mut terminal = Terminal::new(TestBackend::new(27, 9))?;
+    let mut terminal = Terminal::new(TestBackend::new(27, 10))?;
     let mut rest = Rect::default();
     let project = project(Loadable::Failed(
         "error: We cannot get or set dynamic project versions in: pyproject.toml\nhint: more"
             .into(),
     ));
-    terminal.draw(|frame| rest = render_project_tile(frame, frame.area(), &project))?;
+    terminal.draw(|frame| rest = render_project_tile(frame, frame.area(), &project, None))?;
     // Wrapped at words, the first line takes a row more than its width alone needs.
     assert_eq!(
-        rows(&terminal)[..7],
+        rows(&terminal)[..8],
         [
             "┌Project──────────────────┐",
             "│error: We cannot get or  │",
@@ -94,11 +97,12 @@ fn the_project_tile_says_what_uv_said_when_it_could_not_read_the_version()
             "│versions in:             │",
             "│pyproject.toml           │",
             "│/home/jane/billing-api   │",
+            "│…                        │",
             "└─────────────────────────┘",
         ]
     );
     assert_eq!(terminal.backend().buffer()[(1, 1)].fg, Color::DarkGray);
-    assert_eq!(rest, Rect::new(0, 7, 27, 2));
+    assert_eq!(rest, Rect::new(0, 8, 27, 2));
     Ok(())
 }
 
@@ -216,12 +220,13 @@ fn the_project_tile_says_what_uv_lock_needs() -> Result<(), Box<dyn Error>> {
         project.lock = lock;
         let mut terminal = Terminal::new(TestBackend::new(48, 6))?;
         terminal.draw(|frame| {
-            render_project_tile(frame, frame.area(), &project);
+            render_project_tile(frame, frame.area(), &project, None);
         })?;
-        let row = rows(&terminal)[2]
+        // Below the root and the environment's line.
+        let row = rows(&terminal)[3]
             .trim_matches(|c| c == '│' || c == ' ')
             .to_string();
-        Ok((row, Some(terminal.backend().buffer()[(1, 2)].fg)))
+        Ok((row, Some(terminal.backend().buffer()[(1, 3)].fg)))
     };
     assert_eq!(
         line(Loadable::Loaded(LockState::Fresh))?.0,
@@ -238,7 +243,42 @@ fn the_project_tile_says_what_uv_lock_needs() -> Result<(), Box<dyn Error>> {
         line(Loadable::Loaded(LockState::Unknown))?.0,
         "uv.lock not checked: it needs the network"
     );
-    // Until a reload has checked, nothing is said: the root's row is followed by the border.
+    // Until a reload has checked, nothing is said: the environment's row is followed by the
+    // border.
     assert!(line(Loadable::NotLoaded)?.0.starts_with('└'));
+    Ok(())
+}
+
+#[test]
+fn the_project_tile_says_where_the_environment_is_and_how_big() -> Result<(), Box<dyn Error>> {
+    use uview::domain::EnvInfo;
+    let line =
+        |environment: Loadable<Option<EnvInfo>>, packages| -> Result<String, Box<dyn Error>> {
+            let mut project = project(Loadable::NotLoaded);
+            project.environment = environment;
+            let mut terminal = Terminal::new(TestBackend::new(60, 5))?;
+            terminal.draw(|frame| {
+                render_project_tile(frame, frame.area(), &project, packages);
+            })?;
+            Ok(rows(&terminal)[2]
+                .trim_matches(|c| c == '│' || c == ' ')
+                .to_string())
+        };
+    let venv = |size| EnvInfo {
+        shown_path: "../../.venv".into(),
+        python: Some("3.11.15".into()),
+        size,
+    };
+    assert_eq!(
+        line(Loadable::Loaded(Some(venv(Some(43_200_000)))), Some(48))?,
+        "../../.venv · Python 3.11.15 · 48 packages · 41.2 MiB"
+    );
+    // Quiet whatever happens.
+    assert_eq!(
+        line(Loadable::Loaded(Some(venv(None))), None)?,
+        "../../.venv · Python 3.11.15 · size unknown"
+    );
+    assert_eq!(line(Loadable::Loaded(None), None)?, "no environment");
+    assert_eq!(line(Loadable::NotLoaded, None)?, "…");
     Ok(())
 }
