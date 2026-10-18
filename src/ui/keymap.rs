@@ -192,6 +192,11 @@ const TABLE: &[Binding] = &[
         help: "Bump the project's version, or set it",
     },
     Binding {
+        keys: &[(Key::char('/'), Action::Deps(DepsAction::OpenSearch))],
+        hints: &[],
+        help: "Look a package up by its name, to add it",
+    },
+    Binding {
         keys: &[(Key::char('i'), Action::Deps(DepsAction::OpenIndexes))],
         hints: &[],
         help: "Show the project's package indexes, to add or remove one",

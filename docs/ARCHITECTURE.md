@@ -198,7 +198,7 @@ src/
 │   ├── groups.rs           # deleting an empty dependency group (ADR-0009)
 │   ├── indexes.rs          # the project's [[tool.uv.index]]: list, add, remove (ADR-0010)
 │   ├── pyproject.rs        # edit pyproject.toml, then uv lock, putting it back if the lock fails
-│   ├── versions.rs         # a package's versions from the index uv would use, newest first (ADR-0012)
+│   ├── versions.rs         # a package's versions from the index uv would use, newest first, and PyPI's description of it (ADR-0012)
 │   └── project.rs          # the project root, or why uv would refuse it; its workspace root and environment; its name and version
 ├── index/
 │   ├── mod.rs              # IndexClient trait; RealIndexClient, the only HTTP; IndexError
@@ -228,6 +228,7 @@ src/
         │   ├── input_popup.rs             # a popup with one input: the add and pin inputs
         │   ├── package_control_popup.rs   # the actions list
         │   ├── project_tile.rs            # top right: name and version, and the project root
+        │   ├── search_popup.rs            # /: a package looked up by its name, then added
         │   ├── uv_log.rs                  # bottom right: what uv wrote, job by job
         │   ├── version_picker.rs          # Pin to version: the versions, newest first, or one typed in
         │   └── version_popup.rs           # v: each bump with the version it makes, or one typed in

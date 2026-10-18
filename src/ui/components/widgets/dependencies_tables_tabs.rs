@@ -9,7 +9,8 @@ use crate::{
             indexes_popup::IndexesPopup,
             input_popup::InputPopup,
             package_control_popup::{PackageControlOption, PackageControlPopup},
-            version_picker::{Picked, VersionPicker},
+            search_popup::{SearchPopup, Searched},
+            version_picker::{First, Picked, VersionPicker},
         },
         shared::{list_popup::ListPopup, table::SharedTable},
     },
@@ -46,6 +47,8 @@ pub struct DependenciesTablesTabs {
     add_from_source: AddFromSource,
     /// The project's indexes, on `i`.
     indexes_popup: IndexesPopup,
+    /// `/`: a package looked up by name.
+    search_popup: SearchPopup,
     /// `b`'s bumps of a declared package.
     bump_popup: BumpPopup,
     /// The list of versions, for Pin to version or for a package being added.
@@ -107,6 +110,7 @@ impl DependenciesTablesTabs {
             indexes_popup: IndexesPopup::default(),
             version_picker: VersionPicker::default(),
             bump_popup: BumpPopup::default(),
+            search_popup: SearchPopup::default(),
             adding_version_of: None,
             pending: None,
             group_popup: None,
@@ -125,6 +129,7 @@ impl DependenciesTablesTabs {
         }
         self.version_picker.render(frame, area, deps);
         self.bump_popup.render(frame, area, deps);
+        self.search_popup.render(frame, area, deps);
         if self.pin_version_popup.is_editing() {
             self.pin_version_popup.render(frame, area);
         }
@@ -184,7 +189,12 @@ impl DependenciesTablesTabs {
 
     /// Where the focus is: an input, the actions list, or the table.
     pub fn mode(&self) -> Mode {
-        if let Some(mode) = self.add_from_source.mode().or(self.indexes_popup.mode()) {
+        if let Some(mode) = self
+            .add_from_source
+            .mode()
+            .or(self.indexes_popup.mode())
+            .or(self.search_popup.mode())
+        {
             mode
         } else if self.package_add_popup.is_editing()
             || self.pin_version_popup.is_editing()
@@ -293,6 +303,19 @@ impl DependenciesTablesTabs {
     }
 
     fn respond(&mut self, action: &Action, deps: &DepsState) -> Vec<Command> {
+        if self.search_popup.mode().is_some() {
+            return match self.search_popup.update(action, deps) {
+                Some(Searched::Find(name)) => vec![Command::ListVersions { name }],
+                // On into the add, as from `p`; the versions are already in.
+                Some(Searched::Add { name, requirement }) => {
+                    self.adding_version_of = Some(requirement);
+                    let title = format!("Add {name}");
+                    self.version_picker.open(&name, &title, First::Latest, deps);
+                    Vec::new()
+                }
+                None => Vec::new(),
+            };
+        }
         if self.bump_popup.is_open() {
             return self.bump_popup.update(action, deps).into_iter().collect();
         }
@@ -316,8 +339,7 @@ impl DependenciesTablesTabs {
                 if let Some((name, with_extras)) = bare_name(&requirement) {
                     self.adding_version_of = Some(with_extras);
                     let title = format!("Add {name}");
-                    self.version_picker
-                        .open(&name, &title, "Latest stable version", deps);
+                    self.version_picker.open(&name, &title, First::Latest, deps);
                     return vec![Command::ListVersions { name }];
                 }
                 self.pending = Some(Pending::Add(requirement));
@@ -442,6 +464,7 @@ impl DependenciesTablesTabs {
             Action::Deps(DepsAction::OpenAdd) => self.package_add_popup.open(),
             Action::Deps(DepsAction::OpenAddFromSource) => self.add_from_source.open(),
             Action::Deps(DepsAction::OpenIndexes) => self.indexes_popup.open(&deps.indexes),
+            Action::Deps(DepsAction::OpenSearch) => self.search_popup.open(),
             // The page's: the version is the project's, not the tables'.
             Action::Deps(DepsAction::OpenVersion) => {}
             // The keys of the actions list's Update and Remove, on the selected row; d in the list
@@ -557,7 +580,7 @@ impl DependenciesTablesTabs {
             Some(PackageControlOption::PinToVersion) => {
                 let title = format!("Pin {name}");
                 self.version_picker
-                    .open(&name, &title, "Type a constraint…", deps);
+                    .open(&name, &title, First::TypeConstraint, deps);
                 vec![Command::ListVersions { name }]
             }
             Some(PackageControlOption::Bump) => self.bump(&name, deps),

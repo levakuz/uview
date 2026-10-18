@@ -459,3 +459,35 @@ pub fn bump_constraint(declared: &str, new: &str) -> Option<Bumped> {
         new: moved,
     })
 }
+
+/// What PyPI says of a project beyond its versions.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PackageInfo {
+    pub summary: Option<String>,
+    /// The Python its latest release needs, as a PEP 440 specifier.
+    pub requires_python: Option<String>,
+    pub homepage: Option<String>,
+}
+
+/// A package's versions as its index lists them, and what PyPI says of it when PyPI is that
+/// index.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VersionList {
+    /// Newest first.
+    pub versions: Vec<VersionChoice>,
+    /// The Simple API URL of the index that answered.
+    pub index: String,
+    /// Only for a package taken from PyPI: another index's project may share its name there.
+    pub info: Option<PackageInfo>,
+}
+
+impl VersionList {
+    /// The version uv takes with none asked for: the newest that is no pre-release and suits
+    /// the project's Python.
+    pub fn latest_stable(&self) -> Option<&str> {
+        self.versions
+            .iter()
+            .find(|v| !v.pre && v.needs_python.is_none())
+            .map(|v| v.version.as_str())
+    }
+}

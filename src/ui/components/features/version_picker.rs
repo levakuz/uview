@@ -1,7 +1,7 @@
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    domain::{VersionChoice, constraint_choices},
+    domain::{VersionChoice, VersionList, constraint_choices},
     message::{Action, NavAction},
     state::{DepsState, Loadable},
     ui::components::shared::list_popup::ListPopup,
@@ -26,19 +26,40 @@ enum Step {
     },
 }
 
+/// The row above the versions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum First {
+    /// "Type a constraint…", when pinning.
+    TypeConstraint,
+    /// "Latest stable version", when adding: no version, for uv to take the newest it can.
+    Latest,
+}
+
+/// The list as it is open: for which package, under which title, with which first row.
+struct Open {
+    name: String,
+    title: String,
+    first: First,
+    step: Step,
+}
+
 /// A row of its own, then the versions of a package, newest first, as its index lists them;
 /// then, for the version chosen, `==`, `>=` and the other operators.
 #[derive(Default)]
 pub struct VersionPicker {
-    /// The package it is open for, the row above the versions, and where it is.
-    open: Option<(String, &'static str, Step)>,
+    open: Option<Open>,
 }
 
 impl VersionPicker {
     /// Opens on the versions of `name`, titled `title`, with `first` the row above them.
-    pub fn open(&mut self, name: &str, title: &str, first: &'static str, deps: &DepsState) {
+    pub fn open(&mut self, name: &str, title: &str, first: First, deps: &DepsState) {
         let list = ListPopup::new(title, rows(name, first, deps));
-        self.open = Some((name.to_string(), first, Step::Versions(list)));
+        self.open = Some(Open {
+            name: name.to_string(),
+            title: title.to_string(),
+            first,
+            step: Step::Versions(list),
+        });
     }
 
     pub fn is_open(&self) -> bool {
@@ -47,19 +68,30 @@ impl VersionPicker {
 
     /// Draws it with the versions as they are now: they arrive after it opens.
     pub fn render(&mut self, frame: &mut Frame, area: Rect, deps: &DepsState) {
-        match &mut self.open {
-            Some((name, first, Step::Versions(list))) => {
-                list.set_items(rows(name, first, deps));
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        match &mut open.step {
+            Step::Versions(list) => {
+                // PyPI's summary of it, once known, follows the title.
+                let title = match listed(&open.name, deps).and_then(|l| l.info.as_ref()) {
+                    Some(info) => match &info.summary {
+                        Some(summary) => format!("{} — {summary}", open.title),
+                        None => open.title.clone(),
+                    },
+                    None => open.title.clone(),
+                };
+                list.set_title(&title);
+                list.set_items(rows(&open.name, open.first, deps));
                 list.render(frame, area);
             }
-            Some((_, _, Step::Operator { list, .. })) => list.render(frame, area),
-            None => {}
+            Step::Operator { list, .. } => list.render(frame, area),
         }
     }
 
     /// Moves on with `action`, and says what was chosen once something is; Esc closes it.
     pub fn update(&mut self, action: &Action, deps: &DepsState) -> Option<Picked> {
-        let (name, _, step) = self.open.as_mut()?;
+        let Open { name, step, .. } = self.open.as_mut()?;
         let list = match step {
             Step::Versions(list) | Step::Operator { list, .. } => list,
         };
@@ -75,7 +107,7 @@ impl VersionPicker {
                     }
                     // A row past the first is a version only once they have loaded.
                     row => {
-                        let version = versions(name, deps)?.get(row - 1)?.version.clone();
+                        let version = listed(name, deps)?.versions.get(row - 1)?.version.clone();
                         *step = operators(name, &version);
                     }
                 },
@@ -111,7 +143,7 @@ fn operators(name: &str, version: &str) -> Step {
 }
 
 /// The versions of `name` in `deps`, once they have loaded.
-fn versions<'a>(name: &str, deps: &'a DepsState) -> Option<&'a [VersionChoice]> {
+fn listed<'a>(name: &str, deps: &'a DepsState) -> Option<&'a VersionList> {
     match &deps.versions {
         Some((listed, Loadable::Loaded(versions))) if listed == name => Some(versions),
         _ => None,
@@ -119,14 +151,22 @@ fn versions<'a>(name: &str, deps: &'a DepsState) -> Option<&'a [VersionChoice]> 
 }
 
 /// `first`, then a row per version as far as the index has said, or why it could not.
-fn rows(name: &str, first: &str, deps: &DepsState) -> Vec<String> {
-    let mut rows = vec![first.to_string()];
+fn rows(name: &str, first: First, deps: &DepsState) -> Vec<String> {
+    let first = match (
+        first,
+        listed(name, deps).and_then(VersionList::latest_stable),
+    ) {
+        (First::TypeConstraint, _) => "Type a constraint…".to_string(),
+        (First::Latest, Some(latest)) => format!("Latest stable version ({latest})"),
+        (First::Latest, None) => "Latest stable version".to_string(),
+    };
+    let mut rows = vec![first];
     match &deps.versions {
-        Some((listed, Loadable::Loaded(versions))) if listed == name => {
-            if versions.is_empty() {
+        Some((listed, Loadable::Loaded(list))) if listed == name => {
+            if list.versions.is_empty() {
                 rows.push("No versions to choose from".into());
             }
-            rows.extend(versions.iter().map(row));
+            rows.extend(list.versions.iter().map(row));
         }
         Some((listed, Loadable::Failed(reason))) if listed == name => {
             rows.push(format!("Could not list versions: {reason}"));

@@ -924,11 +924,11 @@ fn pin_to_version_lists_the_versions_and_pins_the_one_chosen()
     assert!(waiting.contains('…'));
     screen.state.deps.versions = Some((
         "six".into(),
-        Loadable::Loaded(vec![
+        Loadable::Loaded(listed(vec![
             version("2.0.0b1", true, None),
             version("1.17.0", false, Some(">=3.12")),
             version("1.16.0", false, None),
-        ]),
+        ])),
     ));
     let listed = screen.drawn()?;
     for row in ["2.0.0b1  pre", "1.17.0  needs Python >=3.12", "1.16.0"] {
@@ -975,7 +975,7 @@ fn a_list_that_failed_or_is_for_another_package_offers_typing_alone()
     // Versions of another package, from an earlier list, are not six's.
     screen.state.deps.versions = Some((
         "idna".into(),
-        Loadable::Loaded(vec![version("3.10", false, None)]),
+        Loadable::Loaded(listed(vec![version("3.10", false, None)])),
     ));
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Enter);
@@ -1018,10 +1018,10 @@ fn p_with_a_name_alone_asks_which_version_then_how_then_the_group()
     assert!(drawn.contains("Add flask") && drawn.contains("Latest stable version"));
     screen.state.deps.versions = Some((
         "flask".into(),
-        Loadable::Loaded(vec![
+        Loadable::Loaded(listed(vec![
             version("3.1.3", false, None),
             version("3.1.2", false, None),
-        ]),
+        ])),
     ));
     // 3.1.3, then `>=`, then main.
     screen.press(KeyCode::Down);
@@ -1077,7 +1077,7 @@ fn esc_in_the_version_list_gives_up_the_add() {
     screen.press(KeyCode::Enter);
     screen.state.deps.versions = Some((
         "six".into(),
-        Loadable::Loaded(vec![version("1.17.0", false, None)]),
+        Loadable::Loaded(listed(vec![version("1.17.0", false, None)])),
     ));
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
@@ -1104,7 +1104,9 @@ fn bump_screen(name: &str, constraint: &str, installed: &str, versions: &[&str])
     }]);
     screen.state.deps.versions = Some((
         name.into(),
-        Loadable::Loaded(versions.iter().map(|v| version(v, false, None)).collect()),
+        Loadable::Loaded(listed(
+            versions.iter().map(|v| version(v, false, None)).collect(),
+        )),
     ));
     screen
 }
@@ -1208,4 +1210,126 @@ fn bump_is_in_the_actions_of_a_declared_package() {
             constraint: "==0.25.2".into()
         }]
     );
+}
+
+/// The versions an index listed, from PyPI with no description.
+fn listed(versions: Vec<uview::domain::VersionChoice>) -> uview::domain::VersionList {
+    uview::domain::VersionList {
+        versions,
+        index: "https://pypi.org/simple".into(),
+        info: None,
+    }
+}
+
+/// The versions of httpx as PyPI lists them, with its description.
+fn httpx_from_pypi() -> uview::domain::VersionList {
+    uview::domain::VersionList {
+        versions: vec![
+            version("1.0.dev6", true, None),
+            version("0.28.1", false, None),
+            version("0.28.0", false, None),
+        ],
+        index: "https://pypi.org/simple".into(),
+        info: Some(uview::domain::PackageInfo {
+            summary: Some("The next generation HTTP client.".into()),
+            requires_python: Some(">=3.8".into()),
+            homepage: Some("https://github.com/encode/httpx".into()),
+        }),
+    }
+}
+
+#[test]
+fn p_shows_what_pypi_says_and_the_latest_stable_version() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut screen = Screen::with(&["six"]);
+    screen.type_requirement("httpx");
+    screen.press(KeyCode::Enter);
+    screen.state.deps.versions = Some(("httpx".into(), Loadable::Loaded(httpx_from_pypi())));
+    let mut terminal = Terminal::new(TestBackend::new(80, 16))?;
+    terminal.draw(|frame| screen.page.render(frame, frame.area(), &screen.state))?;
+    let drawn: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(drawn.contains("Add httpx — The next generation HTTP client."));
+    // The pre-release above it is not what uv takes unasked.
+    assert!(drawn.contains("Latest stable version (0.28.1)"));
+    Ok(())
+}
+
+#[test]
+fn slash_looks_a_package_up_and_adds_it() -> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('/'));
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.type_text("httpx");
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::ListVersions {
+            name: "httpx".into()
+        }]
+    );
+    assert!(screen.drawn()?.contains("Looking up httpx…"));
+    screen.state.deps.versions = Some(("httpx".into(), Loadable::Loaded(httpx_from_pypi())));
+    let mut terminal = Terminal::new(TestBackend::new(80, 16))?;
+    terminal.draw(|frame| screen.page.render(frame, frame.area(), &screen.state))?;
+    let card: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    for row in [
+        "httpx 0.28.1",
+        "Add httpx…",
+        "The next generation HTTP client.",
+        "Requires Python >=3.8",
+        "https://github.com/encode/httpx",
+        "From https://pypi.org/simple",
+    ] {
+        assert!(card.contains(row), "{row}");
+    }
+    // Add: on into the add, the latest stable version highlighted, then the group.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "httpx".into(),
+            membership: Membership::Project,
+        }]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_search_takes_a_name_alone_and_says_when_there_is_none()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Char('/'));
+    screen.type_text("httpx>=1");
+    // Refused, kept as typed.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    // Esc closes the search.
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    screen.press(KeyCode::Char('/'));
+    screen.type_text("nosuch");
+    screen.press(KeyCode::Enter);
+    screen.state.deps.versions = Some((
+        "nosuch".into(),
+        Loadable::Failed("nosuch is not on https://pypi.org/simple".into()),
+    ));
+    assert!(screen.drawn()?.contains("nosuch is not on"));
+    // Nothing to add.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    Ok(())
 }

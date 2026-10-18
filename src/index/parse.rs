@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use crate::domain::normalize_name;
+use crate::domain::{PackageInfo, normalize_name};
 use crate::index::{IndexError, Page};
 
 /// One file of a release, as the page lists it.
@@ -140,4 +140,46 @@ fn unescape(text: &str) -> String {
         .replace("&#x27;", "'")
         .replace("&#39;", "'")
         .replace("&amp;", "&")
+}
+
+#[derive(Deserialize)]
+struct PypiJson {
+    info: PypiInfo,
+}
+
+#[derive(Deserialize)]
+struct PypiInfo {
+    summary: Option<String>,
+    requires_python: Option<String>,
+    home_page: Option<String>,
+    project_urls: Option<std::collections::HashMap<String, String>>,
+}
+
+/// What PyPI's JSON API says of a project, from its answer `body`. Empty strings, which PyPI
+/// sends for what a project left out, count as nothing.
+pub fn pypi_project(body: &str) -> Result<PackageInfo, IndexError> {
+    let json: PypiJson =
+        serde_json::from_str(body).map_err(|e| IndexError::Parse(e.to_string()))?;
+    let given = |value: Option<String>| {
+        value
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let urls = json.info.project_urls.unwrap_or_default();
+    let homepage = [
+        "Homepage",
+        "homepage",
+        "Home",
+        "Documentation",
+        "Source",
+        "Repository",
+    ]
+    .iter()
+    .find_map(|key| given(urls.get(*key).cloned()))
+    .or_else(|| given(json.info.home_page));
+    Ok(PackageInfo {
+        summary: given(json.info.summary),
+        requires_python: given(json.info.requires_python),
+        homepage,
+    })
 }

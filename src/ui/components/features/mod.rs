@@ -6,6 +6,7 @@ pub mod indexes_popup;
 pub mod input_popup;
 pub mod package_control_popup;
 pub mod project_tile;
+pub mod search_popup;
 pub mod uv_log;
 pub mod version_picker;
 pub mod version_popup;

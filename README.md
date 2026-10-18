@@ -125,11 +125,12 @@ there. Quitting cancels the same way.
 | `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
-| `p` | Add a package from the default index. Typed as a name alone, such as `flask[dotenv]`, it then lists the package's versions as **Pin to version** does: **Latest stable version**, highlighted, adds it with no version, so uv takes the newest stable release the project can use, and a version asks how to pin it. Typed with a version, a marker or a URL, it skips the list. Then choose its group. |
+| `p` | Add a package from the default index. Typed as a name alone, such as `flask[dotenv]`, it then lists the package's versions as **Pin to version** does, titled with PyPI's summary of it when it comes from PyPI: **Latest stable version**, highlighted, adds it with no version, so uv takes the newest stable release the project can use, and a version asks how to pin it. Typed with a version, a marker or a URL, it skips the list. Then choose its group. |
 | `P` | Add a package from another index (the package is pinned to it), a git repository (`URL@branch`, `@tag` or `@commit`) or a local path (editable unless you say otherwise), then choose its group. |
 | `u` | Update the selected package, as **Update** in its actions does. |
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |
 | `b` | Bump the selected package, as **Bump** in its actions does. |
+| `/` | Look a package up by its exact name: a card with its latest stable version, the index it comes from and, for a package from PyPI, its summary, required Python and home page. **Add …** goes on to add it, as `p` does. PyPI has no search by keyword, so the name must be exact; case and `-`/`_` do not matter. |
 | `s` | Sync the environment with `uv sync`. |
 | `r` | Read both tables again, for changes made outside uview. |
 | `v` | Change the project's version. The list shows what each bump makes, e.g. `minor → 0.5.0`, as `uv version --bump … --dry-run` says; Enter writes it with `uv version --bump`. **Set version…** takes a version typed in. |
