@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Paragraph, Wrap},
 };
 
+use crate::domain::LockState;
 use crate::state::{Loadable, ProjectState};
 
 /// Draws the project tile at the top of `column`, as tall as its wrapped text needs, and
@@ -27,6 +28,9 @@ pub fn render_project_tile(frame: &mut Frame, column: Rect, project: &ProjectSta
         text.push_line(Line::raw(reason.lines().next().unwrap_or_default()).dark_gray());
     }
     text.push_line(project.root.as_str());
+    if let Some(line) = lock_line(&project.lock) {
+        text.push_line(line);
+    }
     let block = Block::bordered()
         .title(title)
         .border_style(Style::new().dark_gray());
@@ -40,4 +44,18 @@ pub fn render_project_tile(frame: &mut Frame, column: Rect, project: &ProjectSta
     .areas(column);
     frame.render_widget(paragraph, tile);
     rest
+}
+
+/// What the tile says of uv.lock, once a reload has checked it: dim when there is nothing to
+/// do, yellow with the key to press when there is.
+fn lock_line(lock: &Loadable<LockState>) -> Option<Line<'static>> {
+    let Loadable::Loaded(state) = lock else {
+        return None;
+    };
+    Some(match state {
+        LockState::Fresh => Line::raw("uv.lock up to date").dark_gray(),
+        LockState::Stale => Line::raw("uv.lock out of date — press l").yellow(),
+        LockState::Missing => Line::raw("no uv.lock — press l").yellow(),
+        LockState::Unknown => Line::raw("uv.lock not checked: it needs the network").dark_gray(),
+    })
 }

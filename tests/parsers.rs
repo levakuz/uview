@@ -123,3 +123,39 @@ fn the_fixed_argvs_are_as_uv_takes_them() {
     assert_eq!(VERSION, ["version", "--output-format", "json"]);
     assert_eq!(upgrade_args("six"), ["sync", "--upgrade-package", "six"]);
 }
+
+#[test]
+fn uv_lock_check_tells_fresh_stale_missing_and_unknown() {
+    use std::process::ExitStatus;
+    use uview::domain::LockState;
+    use uview::uv::args::{LOCK_CHECK, LOCK_UPGRADE};
+    let failed = |stderr: &str| -> Result<String, UvError> {
+        Err(UvError::Failed {
+            command: "lock --check --offline".into(),
+            status: ExitStatus::default(),
+            stderr: stderr.into(),
+        })
+    };
+    // As uv 0.8.9 words them.
+    assert_eq!(parse::lock_state(&Ok(String::new())), LockState::Fresh);
+    assert_eq!(
+        parse::lock_state(&failed(
+            "Resolved 3 packages in 8ms\\nThe lockfile at `uv.lock` needs to be updated, but `--locked` was provided. To update the lockfile, run `uv lock`."
+        )),
+        LockState::Stale
+    );
+    assert_eq!(
+        parse::lock_state(&failed(
+            "error: Unable to find lockfile at `uv.lock`. To create a lockfile, run `uv lock` or `uv sync`."
+        )),
+        LockState::Missing
+    );
+    assert_eq!(
+        parse::lock_state(&failed(
+            "  × No solution found when resolving dependencies:\\n      hint: Packages were unavailable because the network was disabled."
+        )),
+        LockState::Unknown
+    );
+    assert_eq!(LOCK_CHECK, ["lock", "--check", "--offline"]);
+    assert_eq!(LOCK_UPGRADE, ["lock", "--upgrade"]);
+}

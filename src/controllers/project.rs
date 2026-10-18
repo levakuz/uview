@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use crate::domain::{Bump, ProjectInfo, VersionChange};
+use crate::domain::{Bump, LockState, ProjectInfo, VersionChange};
 use crate::uv::{UvClient, UvError, args, parse};
 
 /// The nearest directory at or above `start` that holds a pyproject.toml: where uv, started
@@ -143,6 +143,26 @@ pub async fn preview_bumps(uv: &impl UvClient) -> Result<Vec<String>, UvError> {
         versions.push(parse::version(&out)?.version);
     }
     Ok(versions)
+}
+
+/// Whether uv.lock matches pyproject.toml, as uv says without the network. A cancel is not an
+/// answer.
+pub async fn check_lock(uv: &impl UvClient) -> Result<LockState, UvError> {
+    match uv.run(&args::LOCK_CHECK).await {
+        Err(UvError::Cancelled) => Err(UvError::Cancelled),
+        checked => Ok(parse::lock_state(&checked)),
+    }
+}
+
+/// Locks the project with `uv lock`, or with `uv lock --upgrade` to move every package to the
+/// newest version its constraints allow.
+pub async fn lock(uv: &impl UvClient, upgrade: bool) -> Result<(), UvError> {
+    if upgrade {
+        uv.run(&args::LOCK_UPGRADE).await?;
+    } else {
+        uv.run(&args::LOCK).await?;
+    }
+    Ok(())
 }
 
 /// Makes `change` to the project's version, and returns the new one.

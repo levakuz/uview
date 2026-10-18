@@ -193,6 +193,21 @@ const TABLE: &[Binding] = &[
         hints: &[],
         help: "Bump the project's version, or set it",
     },
+    // One row of the help.
+    Binding {
+        keys: &[
+            (
+                Key::char('l'),
+                Action::Deps(DepsAction::Lock { upgrade: false }),
+            ),
+            (
+                Key::char('L'),
+                Action::Deps(DepsAction::Lock { upgrade: true }),
+            ),
+        ],
+        hints: &[],
+        help: "Lock with uv lock (l), or upgrade every package in it (L)",
+    },
     Binding {
         keys: &[(Key::char('g'), Action::Deps(DepsAction::OpenGroups))],
         hints: &[],
