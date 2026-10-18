@@ -175,39 +175,3 @@ fn the_highlighted_row_has_no_colours_of_its_own_to_turn_into_blocks()
     assert_eq!(buffer[(3, 2)].fg, Color::DarkGray);
     Ok(())
 }
-
-#[test]
-fn the_highlighted_row_s_fold_marker_is_green() -> Result<(), Box<dyn std::error::Error>> {
-    use ratatui::{Terminal, backend::TestBackend};
-    let node = |depth: usize, name: &str| TreeNode {
-        depth,
-        name: name.into(),
-        version: "1.0".into(),
-        ..TreeNode::default()
-    };
-    let rows = vec![node(0, "acme"), node(1, "jinja2"), node(2, "markupsafe")];
-    let mut view = TreeView::default();
-    view.down(&rows);
-    let mut terminal = Terminal::new(TestBackend::new(40, 5))?;
-    terminal.draw(|frame| {
-        view.render(
-            frame,
-            frame.area(),
-            &rows,
-            Line::raw("Tree"),
-            Default::default(),
-        );
-    })?;
-    let buffer = terminal.backend().buffer();
-    // jinja2, highlighted, at depth 1: its ▾ at x = 3 is drawn green on the highlight, the
-    // reversed cell's background being the glyph's colour.
-    let arrow = &buffer[(3, 2)];
-    assert_eq!(arrow.symbol(), "▾");
-    assert_eq!(arrow.bg, Color::Green);
-    assert!(arrow.modifier.contains(Modifier::REVERSED));
-    // The rest of the row, and the root's marker, are not green.
-    assert_ne!(buffer[(5, 2)].bg, Color::Green);
-    assert_eq!(buffer[(1, 1)].symbol(), "▾");
-    assert_ne!(buffer[(1, 1)].bg, Color::Green);
-    Ok(())
-}

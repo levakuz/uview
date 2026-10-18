@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style, Stylize},
+    style::{Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListState, Paragraph, Wrap},
 };
@@ -197,11 +197,6 @@ impl TreeView {
                 if selected == Some(i) {
                     for span in &mut spans {
                         span.style = Style::new().add_modifier(span.style.add_modifier);
-                    }
-                    // Its fold marker, green: reversed, a cell shows its background as the
-                    // glyph's colour, so the arrow, not its cell, turns green.
-                    if Self::has_children(rows, i) {
-                        spans[1].style = Style::new().bg(Color::Green);
                     }
                 }
                 Line::from(spans)
