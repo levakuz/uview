@@ -237,9 +237,9 @@ src/
             └── dependencies_tables_tabs.rs # tables behind tabs in their border, popups; turns their results into commands
 ```
 
-**Planned, not yet written.** `controllers/python.rs`,
-`ui/pages/home.rs`, `ui/pages/python.rs`. An earlier revision of the agent instructions
-listed these as if they existed; they do not. This document is now the single description
+**Planned, not yet written.** `controllers/python.rs`. An earlier revision of the agent
+instructions also listed `ui/pages/home.rs` and `ui/pages/python.rs`; there will be no such
+pages, since new views are tabs and tiles on the one page (ADR-0014). This document is now the single description
 of the module tree, and `AGENTS.md` points here rather than repeating it.
 
 ## 6. UI component taxonomy
@@ -734,15 +734,13 @@ widget touches `state.deps`, not `state.python`.
 > Decision record, including why this lands in Sprint 1 rather than Sprint 4:
 > [ADR-0004](adr/0004-introduce-appstate-ahead-of-need.md).
 
-### 13.8 Navigation as a stack
+### 13.8 One page; new views are tabs and tiles
 
-```rust
-pages: Vec<Box<dyn Component>>,   // the last one is active
-```
-
-A stack rather than a single field, because "go back" is then free and modals compose
-naturally with pages. Global keys — quit, help, cancel job — are handled above the stack
-so every page inherits them without repeating the match.
+An earlier revision planned a stack of pages, `Vec<Box<dyn Component>>`, with a home page
+listing the sections. It is dropped (ADR-0014): the app keeps one page, and a new view joins
+the screen that is there. The dependency tree is a third tab of the tables block,
+`pyproject.toml • Environment • Tree` (#27); the environment's details are in the project
+tile, or a tab of it (#29). Global keys — quit, help, cancel job — stay above the page.
 
 ### 13.9 Errors
 
@@ -787,7 +785,7 @@ src/
 ├── main.rs
 ├── lib.rs
 ├── app/
-│   ├── mod.rs           # App: the select! loop, the page stack
+│   ├── mod.rs           # App: the select! loop, the page
 │   ├── state.rs         # AppState and its per-domain sub-structs
 │   └── dispatch.rs      # Action routing; no recursion, an explicit work queue
 ├── message.rs           # Input / Action / Command / Event
@@ -834,7 +832,7 @@ an issue.
 | 6 | `runtime/` + job queue + cancellation | Progress, interruption, safe mutation | #13, #10 |
 | 7 | Streamed child output | Build and sync become usable | **#65** |
 | 8 | `AppState` extracted from widgets | Coherent data across pages | **#43** |
-| 9 | Page stack + `keymap.rs` | Multi-page app; modal input stops sprawling | #26, #14 |
+| 9 | `keymap.rs`; ~~page stack~~, dropped for tabs and tiles on one page (ADR-0014) | Modal input stops sprawling | #14 |
 | 10 | `domain::Requirement` | Extras, sources, groups | #18, #19, #17 |
 | 11 | Dirty-flag rendering, input thread | Idle cost, input latency | #32 |
 
@@ -842,8 +840,8 @@ Steps 1–4 are Sprint 0 work and should land in that order; nothing after step 
 starting before the seam exists.
 
 Steps 9, 10 and 11 have no issue of their own: they are acceptance criteria inside the
-feature issues that need them (#26 requires the page stack, #18 requires a real requirement
-type, #32 requires dirty-flag rendering). That is deliberate — they are not separable pieces
+feature issues that need them (#18 requires a real requirement type, #32 requires dirty-flag
+rendering; the page stack #26 required is dropped, ADR-0014). That is deliberate — they are not separable pieces
 of work. Steps 4, 5 and 8 do have their own issues, because each is a refactor no single
 feature justifies on its own yet every later feature depends on. Step 7 has one too, #65,
 split out of #13 so that #13 stayed reviewable.
