@@ -1,5 +1,5 @@
 use crate::{
-    domain::{EnvDependency, Membership, PyprojectDependency, Source},
+    domain::{EnvDependency, Membership, PyprojectDependency, Source, bare_name},
     message::{Action, Command, DepsAction, NavAction},
     state::{DepsState, Loadable},
     ui::components::{
@@ -45,8 +45,11 @@ pub struct DependenciesTablesTabs {
     add_from_source: AddFromSource,
     /// The project's indexes, on `i`.
     indexes_popup: IndexesPopup,
-    /// Pin to version's list of versions.
+    /// The list of versions, for Pin to version or for a package being added.
     version_picker: VersionPicker,
+    /// The requirement typed into the add input, while its version is chosen; `None` when the
+    /// list is pinning.
+    adding_version_of: Option<String>,
     /// What waits on a group to be chosen.
     pending: Option<Pending>,
     /// The groups `pending` can be done to; past them, a new group.
@@ -100,6 +103,7 @@ impl DependenciesTablesTabs {
             add_from_source: AddFromSource::default(),
             indexes_popup: IndexesPopup::default(),
             version_picker: VersionPicker::default(),
+            adding_version_of: None,
             pending: None,
             group_popup: None,
             emptied: Vec::new(),
@@ -298,6 +302,15 @@ impl DependenciesTablesTabs {
             if let Action::Nav(nav) = action
                 && let Some(requirement) = self.package_add_popup.update(nav)
             {
+                // A name alone asks which version; one typed with a version, a marker or a URL
+                // goes on to its group as it is.
+                if let Some((name, with_extras)) = bare_name(&requirement) {
+                    self.adding_version_of = Some(with_extras);
+                    let title = format!("Add {name}");
+                    self.version_picker
+                        .open(&name, &title, "Latest: let uv choose", deps);
+                    return vec![Command::ListVersions { name }];
+                }
                 self.pending = Some(Pending::Add(requirement));
                 self.group_popup = Some(group_choices(deps, &[], "Add to group"));
             }
@@ -340,14 +353,30 @@ impl DependenciesTablesTabs {
             return Vec::new();
         }
         if self.version_picker.is_open() {
-            match self.version_picker.update(action, deps) {
-                Some(Picked::Typed) => self.pin_version_popup.open(),
-                Some(Picked::Constraint(constraint)) => {
+            let picked = self.version_picker.update(action, deps);
+            match (picked, self.adding_version_of.clone()) {
+                (Some(Picked::First), None) => self.pin_version_popup.open(),
+                (Some(Picked::Constraint(constraint)), None) => {
                     if let Some(name) = self.target.clone() {
                         return vec![Command::Pin { name, constraint }];
                     }
                 }
-                None => {}
+                // Adding: "Latest" leaves the requirement as typed, for uv to choose; a version
+                // joins it. Then its group.
+                (Some(picked), Some(requirement)) => {
+                    let requirement = match picked {
+                        Picked::First => requirement,
+                        Picked::Constraint(constraint) => format!("{requirement}{constraint}"),
+                    };
+                    self.adding_version_of = None;
+                    self.pending = Some(Pending::Add(requirement));
+                    self.group_popup = Some(group_choices(deps, &[], "Add to group"));
+                }
+                (None, _) => {}
+            }
+            // Esc gave up on the add too.
+            if !self.version_picker.is_open() && self.group_popup.is_none() {
+                self.adding_version_of = None;
             }
             return Vec::new();
         }
@@ -512,7 +541,9 @@ impl DependenciesTablesTabs {
         match self.package_control_popup.selected() {
             // The versions are asked for as the list opens, and fill it when they arrive.
             Some(PackageControlOption::PinToVersion) => {
-                self.version_picker.open(&name, deps);
+                let title = format!("Pin {name}");
+                self.version_picker
+                    .open(&name, &title, "Type a constraint…", deps);
                 vec![Command::ListVersions { name }]
             }
             Some(PackageControlOption::Update) => vec![Command::Upgrade { name }],

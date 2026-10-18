@@ -306,3 +306,23 @@ pub fn constraint_choices(version: &str) -> Vec<(String, String)> {
     choices.retain(|(constraint, _)| pep440_rs::VersionSpecifier::from_str(constraint).is_ok());
     choices
 }
+
+/// `requirement` as a project name and that name with its extras, when it is nothing more: no
+/// version, marker or URL. `flask[dotenv]` gives `("flask", "flask[dotenv]")`.
+pub fn bare_name(requirement: &str) -> Option<(String, String)> {
+    let requirement = requirement.trim();
+    let (name, extras) = match requirement.split_once('[') {
+        Some((name, extras)) => (name, Some(extras)),
+        None => (requirement, None),
+    };
+    let name_is_bare = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    let extras_are_bare = extras.is_none_or(|extras| {
+        extras
+            .strip_suffix(']')
+            .is_some_and(|inner| !inner.contains(['[', ']']))
+    });
+    (name_is_bare && extras_are_bare).then(|| (name.to_string(), requirement.to_string()))
+}

@@ -348,3 +348,22 @@ fn a_version_can_be_pinned_with_each_operator_pep_440_allows_for_it() {
     assert!(local.contains(&"==2.4.0+cpu".to_string()));
     assert!(!local.contains(&"~=2.4.0+cpu".to_string()));
 }
+
+#[test]
+fn only_a_name_alone_asks_for_its_version() {
+    use uview::domain::bare_name;
+    assert_eq!(bare_name(" six "), Some(("six".into(), "six".into())));
+    assert_eq!(
+        bare_name("flask[dotenv]"),
+        Some(("flask".into(), "flask[dotenv]".into()))
+    );
+    for typed in [
+        "httpx>=0.27",
+        "pkg @ git+https://example.com/pkg",
+        "tomli; python_version < '3.11'",
+        "flask[dotenv",
+        "",
+    ] {
+        assert_eq!(bare_name(typed), None, "{typed}");
+    }
+}
