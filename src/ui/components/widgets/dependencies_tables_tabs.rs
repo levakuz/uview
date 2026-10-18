@@ -308,7 +308,7 @@ impl DependenciesTablesTabs {
                     self.adding_version_of = Some(with_extras);
                     let title = format!("Add {name}");
                     self.version_picker
-                        .open(&name, &title, "Latest: let uv choose", deps);
+                        .open(&name, &title, "Latest stable version", deps);
                     return vec![Command::ListVersions { name }];
                 }
                 self.pending = Some(Pending::Add(requirement));

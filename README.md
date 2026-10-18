@@ -124,7 +124,7 @@ there. Quitting cancels the same way.
 | `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
-| `p` | Add a package from the default index. Typed as a name alone, such as `flask[dotenv]`, it then lists the package's versions as **Pin to version** does: **Latest: let uv choose**, highlighted, adds it with no version for uv to pick, and a version asks how to pin it. Typed with a version, a marker or a URL, it skips the list. Then choose its group. |
+| `p` | Add a package from the default index. Typed as a name alone, such as `flask[dotenv]`, it then lists the package's versions as **Pin to version** does: **Latest stable version**, highlighted, adds it with no version, so uv takes the newest stable release the project can use, and a version asks how to pin it. Typed with a version, a marker or a URL, it skips the list. Then choose its group. |
 | `P` | Add a package from another index (the package is pinned to it), a git repository (`URL@branch`, `@tag` or `@commit`) or a local path (editable unless you say otherwise), then choose its group. |
 | `u` | Update the selected package, as **Update** in its actions does. |
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |

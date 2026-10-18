@@ -129,7 +129,7 @@ fn the_group_list_offers_the_projects_groups_then_a_new_one() {
     // main, dev, test: the second is dev.
     screen.type_requirement("ruff");
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     assert_eq!(
@@ -142,7 +142,7 @@ fn the_group_list_offers_the_projects_groups_then_a_new_one() {
     // Past the last group: a new one, typed in.
     screen.type_requirement("mypy");
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     for _ in 0..5 {
         screen.press(KeyCode::Down);
@@ -167,14 +167,14 @@ fn esc_while_choosing_a_group_adds_nothing() {
     let mut screen = Screen::with(&["six"]);
     screen.type_requirement("httpx");
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Esc);
     assert_eq!(screen.page.mode(), Mode::Table);
     // Nor from the new group's input.
     screen.type_requirement("httpx");
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
@@ -183,7 +183,7 @@ fn esc_while_choosing_a_group_adds_nothing() {
     // The next add starts afresh.
     screen.type_requirement("ruff");
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -521,7 +521,7 @@ fn an_empty_group_is_offered_too() {
     screen.state.deps.empty_groups = vec!["docs".into()];
     screen.type_requirement("mkdocs");
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     assert_eq!(
@@ -683,7 +683,7 @@ fn u_and_d_do_nothing_without_a_row_or_over_a_popup() {
     screen.press(KeyCode::Char('u'));
     assert!(screen.press(KeyCode::Char('d')).is_empty());
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -805,7 +805,7 @@ fn d_in_the_list_of_indexes_removes_the_highlighted_one_at_once() {
     // In the group list, d does nothing either.
     screen.type_requirement("ruff");
     screen.press(KeyCode::Enter);
-    // "Latest: let uv choose".
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     assert!(screen.press(KeyCode::Char('d')).is_empty());
     assert_eq!(screen.page.mode(), Mode::Actions);
@@ -1014,7 +1014,7 @@ fn p_with_a_name_alone_asks_which_version_then_how_then_the_group()
         }]
     );
     let drawn = screen.drawn()?;
-    assert!(drawn.contains("Add flask") && drawn.contains("Latest: let uv choose"));
+    assert!(drawn.contains("Add flask") && drawn.contains("Latest stable version"));
     screen.state.deps.versions = Some((
         "flask".into(),
         Loadable::Loaded(vec![
