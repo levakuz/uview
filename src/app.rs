@@ -8,6 +8,7 @@ use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
 use crate::controllers::project::ProjectPaths;
+use crate::index::RealIndexClient;
 use crate::message::{Action, Command, Event, Input, NavAction};
 use crate::runtime::jobs::JobRunner;
 use crate::state::{AppState, Loadable, Message, ProjectState};
@@ -30,7 +31,7 @@ pub struct App {
     /// What the app knows. Only `receive` and Esc change it.
     state: AppState,
     /// Runs the commands the page returns.
-    runner: JobRunner<RealUvClient>,
+    runner: JobRunner<RealUvClient, RealIndexClient>,
     /// Where the runner reports what commands produced.
     events_rx: mpsc::UnboundedReceiver<Event>,
 }
@@ -47,7 +48,12 @@ impl App {
                 project: ProjectState::new(paths.root.display().to_string()),
                 ..AppState::default()
             },
-            runner: JobRunner::new(Arc::new(RealUvClient::new(&paths.root)), paths, events_tx),
+            runner: JobRunner::new(
+                Arc::new(RealUvClient::new(&paths.root)),
+                Arc::new(RealIndexClient::new()),
+                paths,
+                events_tx,
+            ),
             events_rx,
         }
     }
@@ -171,6 +177,9 @@ impl App {
                 self.state.project.apply_info(generation, loaded);
             }
             Event::VersionsPreviewed(loaded) => self.state.project.bumps = loaded.into(),
+            Event::VersionsListed { name, loaded } => {
+                self.state.deps.versions = Some((name, loaded.into()));
+            }
             // What the tables show may be stale. Not worth reading again on the way out.
             Event::ProjectMutated => {
                 // The next bumps may differ; `v` asks again.

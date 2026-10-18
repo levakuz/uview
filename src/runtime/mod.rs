@@ -4,6 +4,7 @@
 pub mod jobs;
 
 use tokio::sync::mpsc::UnboundedSender;
+use tokio_util::sync::CancellationToken;
 
 use crate::controllers::dependencies::{
     add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
@@ -12,22 +13,46 @@ use crate::controllers::dependencies::{
 use crate::controllers::groups::{delete_group, empty_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{ProjectPaths, load_project_info, preview_bumps, set_version};
+use crate::controllers::versions::list_versions;
 use crate::domain::Membership;
+use crate::index::IndexClient;
 use crate::message::{Command, Event};
 use crate::uv::{UvClient, UvError};
+
+/// What a job runs with: `uv`, the index client, and the job's cancel.
+struct Clients<'a, U, I> {
+    uv: &'a U,
+    index: &'a I,
+    cancel: &'a CancellationToken,
+}
 
 /// Runs `command` against `uv` and reports how it went. `generation` is the project's as the job
 /// starts, which a reload reports its rows with. A mutation does not reload the tables: the app
 /// does, when the job runner reports that the project changed. `paths` says where the
 /// project's files are.
-async fn run(
+async fn run<U: UvClient, I: IndexClient>(
     command: Command,
-    uv: &impl UvClient,
+    clients: &Clients<'_, U, I>,
     paths: &ProjectPaths,
     events: &UnboundedSender<Event>,
     generation: u64,
 ) {
+    let uv = clients.uv;
     let outcome = match command {
+        // What the index says is the list's to show, not the status line's. A cancel ends the
+        // request; uv is not involved to end it.
+        Command::ListVersions { name } => {
+            let listed = tokio::select! {
+                biased;
+                () = clients.cancel.cancelled() => Err("cancelled".to_string()),
+                listed = list_versions(clients.index, &paths.pyproject, &name) => listed,
+            };
+            let _ = events.send(Event::VersionsListed {
+                name,
+                loaded: listed,
+            });
+            return;
+        }
         Command::Reload => return reload(uv, paths, events, generation).await,
         // What uv says is the list's to show, not the status line's.
         Command::PreviewVersions => {

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use serde::Deserialize;
 
@@ -243,4 +244,85 @@ pub fn version_problem(version: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// `name` as PEP 503 normalizes a project name: lower case, each run of `-`, `_` and `.` one
+/// dash. Indexes and uv compare names this way.
+pub fn normalize_name(name: &str) -> String {
+    name.split(['-', '_', '.'])
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase()
+}
+
+/// A version a package can be pinned to, as the version list shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VersionChoice {
+    pub version: String,
+    /// An alpha, beta, release candidate or dev release.
+    pub pre: bool,
+    /// What its files need when none supports the project's oldest Python, e.g. `>=3.12`.
+    pub needs_python: Option<String>,
+}
+
+/// The constraints a pin to `version` can take, each with what it means, `==` first. One that
+/// PEP 440 does not allow for this version, such as `~=` on `1` or on a local version, is left out.
+pub fn constraint_choices(version: &str) -> Vec<(String, String)> {
+    let mut choices = vec![
+        (format!("=={version}"), "exactly this version".to_string()),
+        (format!(">={version}"), "this version or newer".to_string()),
+    ];
+    // A release series needs at least two parts, and means little for a pre-release.
+    if let Ok(parsed) = pep440_rs::Version::from_str(version)
+        && !parsed.any_prerelease()
+        && let Some((_, series)) = parsed.release().split_last()
+        && let Some((&last, head)) = series.split_last()
+    {
+        let join = |parts: &[u64]| {
+            parts
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(".")
+        };
+        let next = join(&[head, &[last + 1]].concat());
+        let series = join(series);
+        choices.push((
+            format!("~={version}"),
+            format!("compatible: >={version}, <{next}"),
+        ));
+        choices.push((format!("=={series}.*"), format!("any {series}.x release")));
+    }
+    choices.extend(
+        [
+            (">", "newer than this"),
+            ("<=", "this version or older"),
+            ("<", "older than this"),
+            ("!=", "any version but this"),
+        ]
+        .map(|(op, means)| (format!("{op}{version}"), means.to_string())),
+    );
+    choices.retain(|(constraint, _)| pep440_rs::VersionSpecifier::from_str(constraint).is_ok());
+    choices
+}
+
+/// `requirement` as a project name and that name with its extras, when it is nothing more: no
+/// version, marker or URL. `flask[dotenv]` gives `("flask", "flask[dotenv]")`.
+pub fn bare_name(requirement: &str) -> Option<(String, String)> {
+    let requirement = requirement.trim();
+    let (name, extras) = match requirement.split_once('[') {
+        Some((name, extras)) => (name, Some(extras)),
+        None => (requirement, None),
+    };
+    let name_is_bare = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    let extras_are_bare = extras.is_none_or(|extras| {
+        extras
+            .strip_suffix(']')
+            .is_some_and(|inner| !inner.contains(['[', ']']))
+    });
+    (name_is_bare && extras_are_bare).then(|| (name.to_string(), requirement.to_string()))
 }

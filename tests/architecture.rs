@@ -12,6 +12,8 @@ struct Rule {
     /// This `.rs` file, or every one under this directory, is checked. It must exist, so a
     /// module move cannot silently turn a rule into a no-op.
     scope: &'static str,
+    /// Files under these paths, within the scope, are not checked.
+    except: &'static [&'static str],
     forbidden: &'static [&'static str],
     source: &'static str,
 }
@@ -20,18 +22,21 @@ const RULES: &[Rule] = &[
     Rule {
         name: "controllers-no-ratatui",
         scope: "src/controllers",
+        except: &[],
         forbidden: &["ratatui"],
         source: "ARCHITECTURE.md §2",
     },
     Rule {
         name: "controllers-no-process",
         scope: "src/controllers",
+        except: &[],
         forbidden: &["process::Command"],
         source: "ADR-0002",
     },
     Rule {
         name: "uv-bottom-layer",
         scope: "src/uv",
+        except: &[],
         forbidden: &[
             "ratatui",
             "controllers",
@@ -44,24 +49,28 @@ const RULES: &[Rule] = &[
     Rule {
         name: "runtime-no-ui",
         scope: "src/runtime",
+        except: &[],
         forbidden: &["ratatui", "crate::ui"],
         source: "ARCHITECTURE.md §2, ADR-0001",
     },
     Rule {
         name: "state-data-only",
         scope: "src/state.rs",
+        except: &[],
         forbidden: &["ratatui", "crate::ui", "crate::runtime", "controllers"],
         source: "ARCHITECTURE.md §2, ADR-0004",
     },
     Rule {
         name: "shared-no-domain",
         scope: "src/ui/components/shared",
+        except: &[],
         forbidden: &["PyprojectDependency", "EnvDependency", "controllers"],
         source: "ARCHITECTURE.md §6",
     },
     Rule {
         name: "ui-no-spawn",
         scope: "src/ui",
+        except: &[],
         forbidden: &[
             "tokio::spawn",
             ".spawn(",
@@ -72,14 +81,37 @@ const RULES: &[Rule] = &[
         source: "ARCHITECTURE.md §2, ADR-0001, ADR-0002",
     },
     Rule {
+        name: "index-bottom-layer",
+        scope: "src/index",
+        except: &[],
+        forbidden: &[
+            "ratatui",
+            "controllers",
+            "crate::ui",
+            "crate::runtime",
+            "crate::message",
+            "crate::uv",
+        ],
+        source: "ARCHITECTURE.md §2, ADR-0012",
+    },
+    Rule {
+        name: "only-index-requests",
+        scope: "src",
+        except: &["src/index/"],
+        forbidden: &["reqwest"],
+        source: "ADR-0012",
+    },
+    Rule {
         name: "no-working-directory",
         scope: "src",
+        except: &[],
         forbidden: &["set_current_dir", "\"./"],
         source: "ADR-0011",
     },
     Rule {
         name: "no-tests-in-src",
         scope: "src",
+        except: &[],
         forbidden: &["#[test]", "#[cfg(test)]"],
         source: "AGENTS.md, Testing",
     },
@@ -114,6 +146,9 @@ fn architecture_rules_hold() {
                 .unwrap_or(&file)
                 .to_string_lossy()
                 .replace('\\', "/");
+            if rule.except.iter().any(|except| path.starts_with(except)) {
+                continue;
+            }
             let text = match fs::read_to_string(&file) {
                 Ok(text) => text,
                 Err(e) => {

@@ -88,7 +88,7 @@ Press `Space` or `Enter` on a package to open its actions:
 
 | Action | What it does |
 |---|---|
-| Pin to version | Asks for a constraint, then writes it to `pyproject.toml` with `uv add` in every group the package is declared in, and syncs. `1.2.3` becomes `==1.2.3`; `>=2.0` and `<3` are kept as typed. A package that is installed but not declared is added as a main dependency. |
+| Pin to version | Lists the versions the package's index has, newest first: pre-releases marked `pre`, a release that needs a newer Python than the project supports marked with what it needs, yanked releases left out. The index is the one uv would use: the package's pinned index, else the project's indexes, then PyPI. Choosing one then asks how to pin it: `==` (highlighted), `>=`, `~=` (compatible: `>=1.17.0, <1.18`), `==1.17.*` (that series), `>`, `<=`, `<` or `!=`, each shown with what it means; only those PEP 440 allows for that version are offered. **Type a constraint…**, first in the list, asks for a constraint instead, then writes it to `pyproject.toml` with `uv add` in every group the package is declared in, and syncs. `1.2.3` becomes `==1.2.3`; `>=2.0` and `<3` are kept as typed. A package that is installed but not declared is added as a main dependency. |
 | Update | Runs `uv sync --upgrade-package`: the newest version the constraints allow. |
 | Remove | **pyproject.toml table:** runs `uv remove` for every group and extra the package is in, which syncs: the package leaves the environment too, with any dependency nothing else needs.<br>**Environment table:** runs `uv pip uninstall` on the environment only. `pyproject.toml` and `uv.lock` are untouched, so a declared package comes back with the next sync, which every other action runs. |
 | Cancel | Closes the list. |
@@ -124,7 +124,7 @@ there. Quitting cancels the same way.
 | `Space`, `Enter` | Open the actions for the selected package. In the actions list, run the highlighted one. |
 | `Enter` | In an input, confirm what you typed: a version for **Pin to version**, or a package to add. |
 | `Esc` | Close a popup or cancel input, and dismiss the message on the bottom line. |
-| `p` | Add a package from the default index, then choose its group. |
+| `p` | Add a package from the default index. Typed as a name alone, such as `flask[dotenv]`, it then lists the package's versions as **Pin to version** does: **Latest stable version**, highlighted, adds it with no version, so uv takes the newest stable release the project can use, and a version asks how to pin it. Typed with a version, a marker or a URL, it skips the list. Then choose its group. |
 | `P` | Add a package from another index (the package is pinned to it), a git repository (`URL@branch`, `@tag` or `@commit`) or a local path (editable unless you say otherwise), then choose its group. |
 | `u` | Update the selected package, as **Update** in its actions does. |
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |

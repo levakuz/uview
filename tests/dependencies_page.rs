@@ -52,9 +52,13 @@ impl Screen {
 fn enter_and_space_open_the_actions_and_run_the_highlighted_one() {
     for key in [KeyCode::Char(' '), KeyCode::Enter] {
         let mut screen = Screen::with(&["six"]);
-        // On a row: open the actions list. In the list: run Pin to version, which opens the
-        // version input.
+        // On a row: open the actions list. In the list: run Pin to version, which lists the
+        // versions. In that list: "Type a constraint…", which opens the input.
         assert!(screen.press(key).is_empty());
+        assert_eq!(
+            screen.press(key),
+            [Command::ListVersions { name: "six".into() }]
+        );
         assert!(screen.press(key).is_empty());
         assert_eq!(screen.page.mode(), Mode::Input, "{key:?}");
     }
@@ -63,8 +67,9 @@ fn enter_and_space_open_the_actions_and_run_the_highlighted_one() {
 #[test]
 fn a_typed_version_is_pinned() {
     let mut screen = Screen::with(&["six"]);
-    screen.press(KeyCode::Enter);
-    screen.press(KeyCode::Enter);
+    for _ in 0..3 {
+        screen.press(KeyCode::Enter);
+    }
     screen.press(KeyCode::Char('1'));
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -124,6 +129,8 @@ fn the_group_list_offers_the_projects_groups_then_a_new_one() {
     // main, dev, test: the second is dev.
     screen.type_requirement("ruff");
     screen.press(KeyCode::Enter);
+    // "Latest stable version".
+    screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -134,6 +141,8 @@ fn the_group_list_offers_the_projects_groups_then_a_new_one() {
     );
     // Past the last group: a new one, typed in.
     screen.type_requirement("mypy");
+    screen.press(KeyCode::Enter);
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     for _ in 0..5 {
         screen.press(KeyCode::Down);
@@ -158,10 +167,14 @@ fn esc_while_choosing_a_group_adds_nothing() {
     let mut screen = Screen::with(&["six"]);
     screen.type_requirement("httpx");
     screen.press(KeyCode::Enter);
+    // "Latest stable version".
+    screen.press(KeyCode::Enter);
     screen.press(KeyCode::Esc);
     assert_eq!(screen.page.mode(), Mode::Table);
     // Nor from the new group's input.
     screen.type_requirement("httpx");
+    screen.press(KeyCode::Enter);
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Enter);
@@ -169,6 +182,8 @@ fn esc_while_choosing_a_group_adds_nothing() {
     assert_eq!(screen.page.mode(), Mode::Table);
     // The next add starts afresh.
     screen.type_requirement("ruff");
+    screen.press(KeyCode::Enter);
+    // "Latest stable version".
     screen.press(KeyCode::Enter);
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -182,16 +197,17 @@ fn esc_while_choosing_a_group_adds_nothing() {
 #[test]
 fn enter_alone_cannot_pin() {
     let mut screen = Screen::with(&["six"]);
-    // The version input opens empty: a third Enter, as from a held key, runs nothing.
-    for _ in 0..3 {
-        assert!(screen.press(KeyCode::Enter).is_empty());
-    }
-    // A version abandoned with Esc does not come back for the next Enter, Enter, Enter.
+    // The version input opens empty: one more Enter, as from a held key, pins nothing.
+    let pins = |screen: &mut Screen| {
+        (0..4)
+            .flat_map(|_| screen.press(KeyCode::Enter))
+            .any(|command| matches!(command, Command::Pin { .. }))
+    };
+    assert!(!pins(&mut screen));
+    // A version abandoned with Esc does not come back for the next Enters.
     screen.press(KeyCode::Char('1'));
     screen.press(KeyCode::Esc);
-    for _ in 0..3 {
-        assert!(screen.press(KeyCode::Enter).is_empty());
-    }
+    assert!(!pins(&mut screen));
 }
 
 #[test]
@@ -505,6 +521,8 @@ fn an_empty_group_is_offered_too() {
     screen.state.deps.empty_groups = vec!["docs".into()];
     screen.type_requirement("mkdocs");
     screen.press(KeyCode::Enter);
+    // "Latest stable version".
+    screen.press(KeyCode::Enter);
     screen.press(KeyCode::Down);
     assert_eq!(
         screen.press(KeyCode::Enter),
@@ -665,6 +683,8 @@ fn u_and_d_do_nothing_without_a_row_or_over_a_popup() {
     screen.press(KeyCode::Char('u'));
     assert!(screen.press(KeyCode::Char('d')).is_empty());
     screen.press(KeyCode::Enter);
+    // "Latest stable version".
+    screen.press(KeyCode::Enter);
     assert_eq!(
         screen.press(KeyCode::Enter),
         [Command::Add {
@@ -785,6 +805,8 @@ fn d_in_the_list_of_indexes_removes_the_highlighted_one_at_once() {
     // In the group list, d does nothing either.
     screen.type_requirement("ruff");
     screen.press(KeyCode::Enter);
+    // "Latest stable version".
+    screen.press(KeyCode::Enter);
     assert!(screen.press(KeyCode::Char('d')).is_empty());
     assert_eq!(screen.page.mode(), Mode::Actions);
 }
@@ -861,4 +883,208 @@ fn each_bump_shows_the_version_it_makes_once_uv_has_said() -> Result<(), Box<dyn
         assert!(shown.contains(row), "{row}");
     }
     Ok(())
+}
+
+fn version(version: &str, pre: bool, needs_python: Option<&str>) -> uview::domain::VersionChoice {
+    uview::domain::VersionChoice {
+        version: version.into(),
+        pre,
+        needs_python: needs_python.map(String::from),
+    }
+}
+
+impl Screen {
+    /// What the page draws, as text, in the left pane's width at 80 columns.
+    fn drawn(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+        let mut terminal = Terminal::new(TestBackend::new(48, 16))?;
+        terminal.draw(|frame| self.page.render(frame, frame.area(), &self.state))?;
+        Ok(terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect())
+    }
+}
+
+#[test]
+fn pin_to_version_lists_the_versions_and_pins_the_one_chosen()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = Screen::with(&["six"]);
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::ListVersions { name: "six".into() }]
+    );
+    // Until the index answers.
+    let waiting = screen.drawn()?;
+    assert!(waiting.contains("Pin six") && waiting.contains("Type a constraint…"));
+    assert!(waiting.contains('…'));
+    screen.state.deps.versions = Some((
+        "six".into(),
+        Loadable::Loaded(vec![
+            version("2.0.0b1", true, None),
+            version("1.17.0", false, Some(">=3.12")),
+            version("1.16.0", false, None),
+        ]),
+    ));
+    let listed = screen.drawn()?;
+    for row in ["2.0.0b1  pre", "1.17.0  needs Python >=3.12", "1.16.0"] {
+        assert!(listed.contains(row), "{row}");
+    }
+    // The third row is 1.17.0; then how to pin it, `==` first, so Enter twice pins it exactly.
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    let operators = screen.drawn()?;
+    assert!(operators.contains("Pin six to 1.17.0"));
+    assert!(operators.contains("==1.17.0  exactly this version"));
+    assert!(operators.contains("~=1.17.0  compatible: >=1.17.0, <1.18"));
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "six".into(),
+            constraint: "==1.17.0".into()
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // The second operator is `>=`.
+    for _ in 0..2 {
+        screen.press(KeyCode::Enter);
+    }
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "six".into(),
+            constraint: ">=1.17.0".into()
+        }]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_list_that_failed_or_is_for_another_package_offers_typing_alone()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = Screen::with(&["six"]);
+    // Versions of another package, from an earlier list, are not six's.
+    screen.state.deps.versions = Some((
+        "idna".into(),
+        Loadable::Loaded(vec![version("3.10", false, None)]),
+    ));
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Enter);
+    assert!(!screen.drawn()?.contains("3.10"));
+    // Nothing to choose past "Type a constraint…" while it waits.
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.state.deps.versions = Some((
+        "six".into(),
+        Loadable::Failed("no answer: timed out".into()),
+    ));
+    assert!(
+        screen
+            .drawn()?
+            .contains("Could not list versions: no answer")
+    );
+    // Typing still works.
+    screen.press(KeyCode::Up);
+    screen.press(KeyCode::Enter);
+    assert_eq!(screen.page.mode(), Mode::Input);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    Ok(())
+}
+
+#[test]
+fn p_with_a_name_alone_asks_which_version_then_how_then_the_group()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = Screen::with(&["six"]);
+    screen.type_requirement("flask[dotenv]");
+    // The versions are those of flask; the extras stay with the requirement.
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::ListVersions {
+            name: "flask".into()
+        }]
+    );
+    let drawn = screen.drawn()?;
+    assert!(drawn.contains("Add flask") && drawn.contains("Latest stable version"));
+    screen.state.deps.versions = Some((
+        "flask".into(),
+        Loadable::Loaded(vec![
+            version("3.1.3", false, None),
+            version("3.1.2", false, None),
+        ]),
+    ));
+    // 3.1.3, then `>=`, then main.
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert!(screen.drawn()?.contains("Add to group"));
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "flask[dotenv]>=3.1.3".into(),
+            membership: Membership::Project,
+        }]
+    );
+    assert_eq!(screen.page.mode(), Mode::Table);
+    Ok(())
+}
+
+#[test]
+fn latest_leaves_the_version_to_uv_and_a_typed_one_skips_the_list() {
+    let mut screen = Screen::with(&["six"]);
+    screen.type_requirement("ruff");
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "ruff".into(),
+            membership: Membership::Project,
+        }]
+    );
+    // Typed with a version: straight to the group.
+    screen.type_requirement("httpx>=0.27");
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Add {
+            requirement: "httpx>=0.27".into(),
+            membership: Membership::Project,
+        }]
+    );
+}
+
+#[test]
+fn esc_in_the_version_list_gives_up_the_add() {
+    let mut screen = Screen::with(&["six"]);
+    screen.type_requirement("ruff");
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // Pin to version afterwards is a pin, not the add's leftover.
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Enter);
+    screen.state.deps.versions = Some((
+        "six".into(),
+        Loadable::Loaded(vec![version("1.17.0", false, None)]),
+    ));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::Pin {
+            name: "six".into(),
+            constraint: "==1.17.0".into()
+        }]
+    );
 }

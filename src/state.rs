@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::domain::{EnvDependency, Index, ProjectInfo, PyprojectDependency};
+use crate::domain::{EnvDependency, Index, ProjectInfo, PyprojectDependency, VersionChoice};
 use crate::message::{Event, JobId};
 
 /// Everything the app knows, by domain. It carries no behaviour; a domain that needs some
@@ -60,6 +60,8 @@ pub struct DepsState {
     pub deletable_groups: Vec<String>,
     /// The project's `[[tool.uv.index]]` entries, as of the pyproject load.
     pub indexes: Vec<Index>,
+    /// The versions of the package named, as last listed for the version list.
+    pub versions: Option<(String, Loadable<Vec<VersionChoice>>)>,
     /// The generation of the newest load shown: how many mutations had ended as it started.
     generation: u64,
 }

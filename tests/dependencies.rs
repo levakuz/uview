@@ -13,6 +13,7 @@ use uview::controllers::dependencies::{
 };
 use uview::controllers::project::{ProjectPaths, preview_bumps, set_version};
 use uview::domain::{Bump, Membership, ProjectInfo, PyprojectDependency, VersionChange};
+use uview::index::{IndexClient, IndexError, Page, project_url};
 use uview::message::{Command, Event, JobId};
 use uview::runtime::jobs::JobRunner;
 use uview::state::{DepsState, JobsState, LOG_LINES, Loadable, LogLine, ProjectState};
@@ -97,6 +98,29 @@ struct CountsDrop<'a>(&'a AtomicUsize);
 impl Drop for CountsDrop<'_> {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Stands in for package indexes: serves the pages it was given by URL, answers any other with
+/// "no such package", and records each URL it was asked for.
+#[derive(Default)]
+struct FakeIndex {
+    pages: Vec<(String, Page)>,
+    asked: Mutex<Vec<String>>,
+}
+
+impl IndexClient for FakeIndex {
+    async fn project_page(&self, index: &str, name: &str) -> Result<Page, IndexError> {
+        let url = project_url(index, name);
+        self.asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(url.clone());
+        self.pages
+            .iter()
+            .find(|(served, _)| *served == url)
+            .map(|(_, page)| page.clone())
+            .ok_or(IndexError::NotFound)
     }
 }
 
@@ -388,7 +412,12 @@ async fn add_runs_uv_add_alone() -> Result<(), UvError> {
 async fn an_add_to_a_group_says_which() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Add {
         requirement: "pytest".into(),
         membership: Membership::Group("dev".into()),
@@ -415,7 +444,12 @@ fn move_six() -> Command {
 async fn a_move_adds_to_the_new_group_then_removes_from_the_old() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(move_six());
     let events = events_until(&mut received, finished(1)).await?;
     assert_eq!(
@@ -433,7 +467,12 @@ async fn a_move_adds_to_the_new_group_then_removes_from_the_old() -> Result<(), 
 async fn a_move_whose_add_fails_removes_nothing() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::returning([Err(UvError::Parse("no".into()))]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(move_six());
     events_until(&mut received, finished(1)).await?;
     assert_eq!(uv.calls().len(), 1);
@@ -447,7 +486,12 @@ async fn a_move_whose_remove_fails_says_where_the_package_is() -> Result<(), Box
         Err(UvError::Parse("no".into())),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(move_six());
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(
@@ -465,7 +509,12 @@ async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<
         Err(UvError::Parse("no".into())),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Upgrade { name: "six".into() });
     runner.execute(Command::Add {
         requirement: "httpx".into(),
@@ -489,7 +538,12 @@ async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<
 async fn a_reload_carries_how_many_mutations_had_ended() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     let generation = |events: &[Event]| {
         events.iter().find_map(|event| match event {
             Event::PyprojectLoaded { generation, .. } => Some(*generation),
@@ -511,7 +565,12 @@ async fn a_reload_carries_how_many_mutations_had_ended() -> Result<(), Box<dyn E
 async fn sync_runs_plain_uv_sync() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::default());
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Sync);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(notice("Synced the environment")));
@@ -530,7 +589,12 @@ async fn a_failed_load_reaches_its_table_and_the_status_line() -> Result<(), Box
         "bad json".into(),
     ))]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     let reason = "could not read `uv` output: bad json";
@@ -555,7 +619,12 @@ async fn a_missing_environment_loads_empty_without_asking_uv() -> Result<(), Box
         env: project().root.join("no-such-venv"),
         ..project()
     };
-    let mut runner = JobRunner::new(Arc::clone(&uv), missing, events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        missing,
+        events,
+    );
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(
@@ -579,7 +648,12 @@ async fn a_reload_reads_the_projects_name_and_version() -> Result<(), Box<dyn Er
         Ok(r#"{"package_name": "acme-api", "version": "0.4.2", "commit_info": null}"#.into()),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(
@@ -608,7 +682,12 @@ async fn a_version_uv_cannot_read_is_told_to_the_project_tile_alone() -> Result<
         }),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     // What uv said, without the command around it, and not on the status line.
@@ -629,7 +708,12 @@ async fn a_version_uv_cannot_read_is_told_to_the_project_tile_alone() -> Result<
 async fn a_cancelled_load_is_not_left_loading() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::hanging_on("pip"));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Reload);
     events_until(&mut received, started(1)).await?;
     runner.cancel();
@@ -654,7 +738,12 @@ async fn a_cancelled_load_is_not_left_loading() -> Result<(), Box<dyn Error>> {
 async fn a_mutation_waits_for_the_one_running_and_a_read_does_not() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::hanging_on("add"));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Add {
         requirement: "httpx".into(),
         membership: Membership::Project,
@@ -673,7 +762,12 @@ async fn a_mutation_waits_for_the_one_running_and_a_read_does_not() -> Result<()
 async fn cancel_stops_the_running_job_and_drops_the_waiting() -> Result<(), Box<dyn Error>> {
     let uv = Arc::new(FakeUvClient::hanging_on("add"));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Add {
         requirement: "httpx".into(),
         membership: Membership::Project,
@@ -708,7 +802,12 @@ async fn a_jobs_uv_lines_arrive_in_order_as_its_output() -> Result<(), Box<dyn E
         ..FakeUvClient::default()
     });
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Upgrade { name: "six".into() });
     let events = events_until(&mut received, finished(1)).await?;
     let output: Vec<&str> = events
@@ -732,7 +831,12 @@ async fn a_reload_writes_nothing_to_the_log() -> Result<(), Box<dyn Error>> {
         ..FakeUvClient::default()
     });
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::Reload);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(
@@ -904,7 +1008,12 @@ async fn a_preview_is_a_read_and_a_change_a_mutation() -> Result<(), Box<dyn Err
         version_json("0.5.0"),
     ]));
     let (events, mut received) = unbounded_channel();
-    let mut runner = JobRunner::new(Arc::clone(&uv), project(), events);
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
     runner.execute(Command::PreviewVersions);
     let events = events_until(&mut received, finished(1)).await?;
     assert!(events.iter().any(|e| matches!(
@@ -932,4 +1041,51 @@ fn a_version_read_before_a_change_is_discarded() {
     // A reload from before the bump lands late.
     project.apply_info(0, info("0.4.2"));
     assert!(matches!(&project.info, Loadable::Loaded(i) if i.version == "0.5.0"));
+}
+
+/// An index that never answers, like one behind a dead connection.
+struct Silent;
+
+impl IndexClient for Silent {
+    async fn project_page(&self, _: &str, _: &str) -> Result<Page, IndexError> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn listing_versions_is_a_read_and_a_cancel_ends_it() -> Result<(), Box<dyn Error>> {
+    let six = r#"{"files": [{"filename": "six-1.17.0-py2.py3-none-any.whl", "yanked": false}]}"#;
+    let index = FakeIndex {
+        pages: vec![(
+            "https://pypi.org/simple/six/".into(),
+            Page {
+                json: true,
+                body: six.into(),
+            },
+        )],
+        ..FakeIndex::default()
+    };
+    let uv = Arc::new(FakeUvClient::default());
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), Arc::new(index), project(), events);
+    runner.execute(Command::ListVersions { name: "six".into() });
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::VersionsListed { name, loaded: Ok(v) } if name == "six" && v[0].version == "1.17.0"
+    )));
+    assert!(!events.iter().any(|e| matches!(e, Event::ProjectMutated)));
+    assert!(uv.calls().is_empty());
+
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(Arc::clone(&uv), Arc::new(Silent), project(), events);
+    runner.execute(Command::ListVersions { name: "six".into() });
+    events_until(&mut received, started(1)).await?;
+    runner.cancel();
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::VersionsListed { loaded: Err(r), .. } if r == "cancelled"
+    )));
+    Ok(())
 }

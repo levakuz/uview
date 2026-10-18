@@ -33,7 +33,8 @@ It owns no Python or packaging logic of its own. Every operation is delegated to
 `uv` binary as a subprocess, and `uview` is responsible only for presenting state and
 turning key presses into `uv` invocations. The exceptions are two edits of pyproject.toml uv has
 no command for: deleting an emptied dependency group (ADR-0009) and managing the project's
-package indexes (ADR-0010).
+package indexes (ADR-0010). And uview reads package indexes over HTTP for what uv cannot list,
+a package's versions (ADR-0012); it only reads.
 
 The design follows the Elm architecture (TEA), with messages split by direction of travel
 (§4): the keymap turns input into actions, components turn actions into commands, and
@@ -41,7 +42,7 @@ the runtime performs the commands and reports what came of them as events.
 
 ## 2. Layers
 
-There are four layers, plus a thin application shell and the state they share.
+There are five layers, plus a thin application shell and the state they share.
 
 | Layer | Location | Responsibility | Must not |
 |---|---|---|---|
@@ -51,9 +52,10 @@ There are four layers, plus a thin application shell and the state they share.
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
 | **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it, and add or remove an index (ADR-0009, ADR-0010) | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
+| **Index client** | `src/index/` | Read a project's page from a package index over HTTP, and parse it (ADR-0012) | Write anything, know about uv, the runtime, controllers, the UI or ratatui |
 
 The rule that matters: **controllers never import ratatui, UI code never invokes `uv` or a
-controller, and only `src/uv/` starts a process.** The UI and the controllers never meet: a
+controller, only `src/uv/` starts a process, and only `src/index/` makes a request.** The UI and the controllers never meet: a
 component returns commands, and the runtime runs them. The runtime is the only code that
 spawns tasks. Components read `AppState`; only `App` writes it, from the runtime's events
 (ADR-0007).
@@ -196,7 +198,11 @@ src/
 │   ├── groups.rs           # deleting an empty dependency group (ADR-0009)
 │   ├── indexes.rs          # the project's [[tool.uv.index]]: list, add, remove (ADR-0010)
 │   ├── pyproject.rs        # edit pyproject.toml, then uv lock, putting it back if the lock fails
+│   ├── versions.rs         # a package's versions from the index uv would use, newest first (ADR-0012)
 │   └── project.rs          # the project root, or why uv would refuse it; its workspace root and environment; its name and version
+├── index/
+│   ├── mod.rs              # IndexClient trait; RealIndexClient, the only HTTP; IndexError
+│   └── parse.rs            # a Simple API page, JSON or HTML, into files and versions, pure
 ├── uv/
 │   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
 │   ├── args.rs             # the argv of each operation, pure
@@ -222,6 +228,7 @@ src/
         │   ├── package_control_popup.rs   # the actions list
         │   ├── project_tile.rs            # top right: name and version, and the project root
         │   ├── uv_log.rs                  # bottom right: what uv wrote, job by job
+        │   ├── version_picker.rs          # Pin to version: the versions, newest first, or one typed in
         │   └── version_popup.rs           # v: each bump with the version it makes, or one typed in
         └── widgets/
             └── dependencies_tables_tabs.rs # tables behind tabs in their border, popups; turns their results into commands
@@ -433,11 +440,14 @@ this document into a failing test, using only the standard library:
 | `state-data-only` | `src/state.rs` references neither ratatui, the UI, the runtime nor a controller (§2, ADR-0004) |
 | `shared-no-domain` | nothing under `src/ui/components/shared/` names a domain type or a controller (§6) |
 | `ui-no-spawn` | nothing under `src/ui/` spawns a task or a process, calls a controller or names the uv layer (§2, ADR-0001, ADR-0002) |
+| `index-bottom-layer` | nothing under `src/index/` references ratatui, a controller, the runtime, the messages, the UI or the uv layer (§2, ADR-0012) |
+| `only-index-requests` | nothing under `src/` but `src/index/` uses `reqwest` (ADR-0012) |
+| `no-working-directory` | nothing under `src/` changes the working directory or names a path relative to it (ADR-0011) |
 | `no-tests-in-src` | no `#[test]` or `#[cfg(test)]` under `src/` (this section) |
 
 Known violations sit in an allowlist, each with the issue that removes it; it is empty
 today. The list is a ratchet: the test fails on any new violation, and also when an allowlisted file stops
-violating, so the entry must be deleted. Each rule's directory must exist, so moving a
+violating, so the entry must be deleted. A rule can leave out paths within its scope, as `only-index-requests` leaves out `src/index/`. Each rule's directory must exist, so moving a
 module — `controllers/` becoming `runtime/` in the migration path — fails the
 test until its rules are updated in the same PR. The matching is textual, and its limits
 are noted in the file.

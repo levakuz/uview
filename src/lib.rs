@@ -1,5 +1,6 @@
 pub mod controllers;
 pub mod domain;
+pub mod index;
 pub mod message;
 pub mod runtime;
 pub mod state;

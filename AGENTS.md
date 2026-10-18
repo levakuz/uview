@@ -11,7 +11,8 @@ Claude Code reads this through the `@AGENTS.md` import in `CLAUDE.md`.
 manager, written in Rust (edition 2024) on ratatui. It owns no packaging logic of its
 own — every operation is delegated to the `uv` binary as a subprocess. The two
 exceptions, edits uv has no command for, are deleting an emptied dependency group
-(ADR-0009) and managing the project's package indexes (ADR-0010).
+(ADR-0009) and managing the project's package indexes (ADR-0010). What uv cannot list,
+a package's versions, uview reads from the index over HTTP, read only (ADR-0012).
 
 Architecture decisions live in `docs/adr/`. Tasks and their status live in
 [GitHub issues](https://github.com/levakuz/uview/issues).

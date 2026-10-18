@@ -6,7 +6,7 @@ use std::path::Path;
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use crate::controllers::pyproject::edit_then_lock;
-use crate::domain::{Index, IndexKind, index_problem};
+use crate::domain::{Index, IndexKind, index_problem, normalize_name};
 use crate::uv::{UvClient, UvError};
 
 /// The `[[tool.uv.index]]` entries of `pyproject`, in file order.
@@ -111,6 +111,31 @@ pub fn without_index(pyproject: &str, index: &Index) -> Result<String, String> {
         .ok_or("the index is no longer there")?;
     indexes.remove(position);
     Ok(doc.to_string())
+}
+
+/// The name of the index `[tool.uv.sources]` pins `package` to in `pyproject`, as a table or the
+/// first of a list of them, if it pins it to one.
+pub fn pinned_index(pyproject: &str, package: &str) -> Option<String> {
+    let doc: DocumentMut = pyproject.parse().ok()?;
+    let sources = doc
+        .get("tool")?
+        .get("uv")?
+        .get("sources")?
+        .as_table_like()?;
+    let wanted = normalize_name(package);
+    let (_, source) = sources
+        .iter()
+        .find(|(name, _)| normalize_name(name) == wanted)?;
+    let index_of = |table: &dyn toml_edit::TableLike| {
+        table.get("index").and_then(Item::as_str).map(String::from)
+    };
+    match source {
+        Item::Value(Value::Array(list)) => list
+            .iter()
+            .filter_map(Value::as_inline_table)
+            .find_map(|t| t.get("index").and_then(Value::as_str).map(String::from)),
+        other => other.as_table_like().and_then(index_of),
+    }
 }
 
 /// The packages `[tool.uv.sources]` pins to the index `name`, as a table or in a list of them.
