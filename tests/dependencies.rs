@@ -1101,3 +1101,75 @@ async fn listing_versions_is_a_read_and_a_cancel_ends_it() -> Result<(), Box<dyn
     )));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_reload_checks_the_lock_and_l_locks_as_a_mutation() -> Result<(), Box<dyn Error>> {
+    let stale = UvError::Failed {
+        command: "lock --check --offline".into(),
+        status: ExitStatus::default(),
+        stderr: "The lockfile at `uv.lock` needs to be updated".into(),
+    };
+    // pip list, version, then the check.
+    let uv = Arc::new(FakeUvClient::returning([
+        Ok("[]".into()),
+        version_json("0.1.0"),
+        Err(stale),
+    ]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
+    runner.execute(Command::Reload);
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::LockChecked {
+            state: uview::domain::LockState::Stale,
+            ..
+        }
+    )));
+    assert_eq!(uv.calls()[2], ["lock", "--check", "--offline"]);
+    runner.execute(Command::Lock { upgrade: true });
+    let events = events_until(&mut received, finished(2)).await?;
+    assert!(events.iter().any(notice(
+        "Moved every package in uv.lock to its newest allowed version"
+    )));
+    assert!(events.iter().any(|e| matches!(e, Event::ProjectMutated)));
+    assert_eq!(uv.calls()[3], ["lock", "--upgrade"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lock_that_fails_points_to_the_log() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::returning([Err(UvError::Failed {
+        command: "lock".into(),
+        status: ExitStatus::default(),
+        stderr: "  × No solution found when resolving dependencies:".into(),
+    })]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
+    runner.execute(Command::Lock { upgrade: false });
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Error(r) if r == "uv could not lock the project; the uv log says why"
+    )));
+    Ok(())
+}
+
+#[test]
+fn a_lock_check_from_before_a_change_is_discarded() {
+    use uview::domain::LockState;
+    let mut project = ProjectState::new("/acme".into());
+    project.apply_lock(1, LockState::Fresh);
+    project.apply_lock(0, LockState::Stale);
+    assert!(matches!(project.lock, Loadable::Loaded(LockState::Fresh)));
+}

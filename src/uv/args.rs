@@ -6,6 +6,11 @@ use crate::domain::{Membership, Source, VersionChange, index_name};
 /// as `uv pip install`ed ones, are uninstalled.
 pub const SYNC: [&str; 1] = ["sync"];
 pub const LOCK: [&str; 1] = ["lock"];
+/// Asks whether uv.lock is up to date, never waiting on the network: a check on every reload
+/// must not hang on one.
+pub const LOCK_CHECK: [&str; 3] = ["lock", "--check", "--offline"];
+/// Moves every package in uv.lock to the newest version the constraints allow.
+pub const LOCK_UPGRADE: [&str; 2] = ["lock", "--upgrade"];
 
 /// `uv add` arguments adding from `source` to `membership`. An index is named, so that uv pins
 /// the package to it in `[tool.uv.sources]`; a bare `--index` would add it for every package.

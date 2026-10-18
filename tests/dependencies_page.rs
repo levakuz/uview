@@ -1646,3 +1646,19 @@ fn r_and_n_outside_the_list_of_groups_keep_their_meaning() {
     assert!(screen.press(KeyCode::Char('n')).is_empty());
     assert_eq!(screen.page.mode(), Mode::Actions);
 }
+
+#[test]
+fn l_locks_and_shift_l_upgrades_every_package_in_the_lock() {
+    let mut screen = Screen::with(&["six"]);
+    assert_eq!(
+        screen.press(KeyCode::Char('l')),
+        [Command::Lock { upgrade: false }]
+    );
+    assert_eq!(
+        screen.press(KeyCode::Char('L')),
+        [Command::Lock { upgrade: true }]
+    );
+    // Typed, in an input.
+    screen.press(KeyCode::Char('p'));
+    assert!(screen.press(KeyCode::Char('l')).is_empty());
+}

@@ -12,7 +12,9 @@ use crate::controllers::dependencies::{
 };
 use crate::controllers::groups::{create_group, delete_group, empty_groups, load_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
-use crate::controllers::project::{ProjectPaths, load_project_info, preview_bumps, set_version};
+use crate::controllers::project::{
+    ProjectPaths, check_lock, load_project_info, lock, preview_bumps, set_version,
+};
 use crate::controllers::versions::list_versions;
 use crate::domain::Membership;
 use crate::index::IndexClient;
@@ -65,6 +67,20 @@ async fn run<U: UvClient, I: IndexClient>(
             }
             return;
         }
+        // uv's resolution output, which says why, is in the log; its first line seldom does.
+        Command::Lock { upgrade } => match lock(uv, upgrade).await {
+            Ok(()) if upgrade => {
+                Ok("Moved every package in uv.lock to its newest allowed version".into())
+            }
+            Ok(()) => Ok("Locked".into()),
+            Err(UvError::Failed { .. }) => {
+                let _ = events.send(Event::Error(
+                    "uv could not lock the project; the uv log says why".into(),
+                ));
+                return;
+            }
+            Err(e) => Err(e),
+        },
         Command::SetVersion(change) => set_version(uv, &change)
             .await
             .map(|version| format!("The version is now {version}")),
@@ -188,6 +204,9 @@ async fn reload(
         generation,
         loaded: info,
     });
+    if let Ok(state) = check_lock(uv).await {
+        let _ = events.send(Event::LockChecked { generation, state });
+    }
 }
 
 /// Where an add goes, as its notice and label say it: nothing for the main dependencies.

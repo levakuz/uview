@@ -74,7 +74,10 @@ Until a table has loaded, it says so, and if it cannot load, it says why.
 
 **The right column** shows the project at the top: its name and version, as `uv version`
 reports them, in the tile's border, and its root. If uv cannot read the version, a dynamic
-one for instance, the tile shows what uv said instead. Below it is the uv log: each
+one for instance, the tile shows what uv said instead. Under the root it says whether
+`uv.lock` matches `pyproject.toml`, as `uv lock --check --offline` tells on each reload:
+`uv.lock up to date`, or `uv.lock out of date — press l` and `no uv.lock — press l` when there
+is something to do. Below it is the uv log: each
 operation's name, then the lines uv printed while it ran.
 
 **The bottom lines.** The first shows what is running and the latest error or notice. The
@@ -130,6 +133,7 @@ there. Quitting cancels the same way.
 | `u` | Update the selected package, as **Update** in its actions does. |
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |
 | `b` | Bump the selected package, as **Bump** in its actions does. |
+| `l` / `L` | Lock the project with `uv lock`, or with `uv lock --upgrade`, which moves every package in `uv.lock` to the newest version the constraints allow. If uv cannot resolve, the uv log says why. |
 | `g` | Manage the dependency groups: **New group…** first, then each group with its package count. Enter on a group shows its packages, with **Rename…** and **Delete group**. In the list, `n` adds a group, and `r` and `d` rename and delete the highlighted one; in a group's details they act on that group. An empty group goes at once; one with packages asks first, then removes them from that group only. Renaming moves each package, with its extras, marker and constraint, to the new name. A group that `tool.uv.default-groups` or another group's `include-group` names is kept. uv has no command for an empty group, so **New group…** writes `name = []` itself, then runs `uv lock`. |
 | `/` | Look a package up by its exact name: a card with its latest stable version, the index it comes from and, for a package from PyPI, its summary, required Python and home page. **Add …** goes on to add it, as `p` does. PyPI has no search by keyword, so the name must be exact; case and `-`/`_` do not matter. |
 | `s` | Sync the environment with `uv sync`. |

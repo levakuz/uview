@@ -3,8 +3,8 @@
 use crossterm::event::KeyEvent;
 
 use crate::domain::{
-    DeclaredGroup, EnvDependency, Index, Membership, ProjectInfo, PyprojectDependency, Source,
-    VersionChange, VersionList,
+    DeclaredGroup, EnvDependency, Index, LockState, Membership, ProjectInfo, PyprojectDependency,
+    Source, VersionChange, VersionList,
 };
 
 /// What the terminal sends.
@@ -52,6 +52,10 @@ pub enum DepsAction {
     OpenIndexes,
     /// Show the project's dependency groups, to create, rename or delete one.
     OpenGroups,
+    /// Lock the project, `upgrade` moving every package to its newest allowed version.
+    Lock {
+        upgrade: bool,
+    },
     /// Look a package up by name, to add it.
     OpenSearch,
     /// Show the project's version, to bump it or set it.
@@ -95,6 +99,11 @@ pub enum Command {
     AddFrom {
         source: Source,
         membership: Membership,
+    },
+    /// Lock the project with `uv lock`, or move every package to its newest allowed version
+    /// with `uv lock --upgrade`.
+    Lock {
+        upgrade: bool,
     },
     /// Find out what each bump would make the project's version, writing nothing.
     PreviewVersions,
@@ -170,6 +179,11 @@ pub enum Event {
     ProjectLoaded {
         generation: u64,
         loaded: Result<ProjectInfo, String>,
+    },
+    /// Whether uv.lock matches pyproject.toml, from a reload that started at `generation`.
+    LockChecked {
+        generation: u64,
+        state: LockState,
     },
     /// What each bump would make the version, in `Bump::ALL`'s order, or why uv could not say.
     VersionsPreviewed(Result<Vec<String>, String>),

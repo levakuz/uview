@@ -207,3 +207,38 @@ fn a_word_wider_than_the_log_is_broken_inside() {
     assert_eq!(wrap("        a b", 10), ["a b"]);
     assert_eq!(wrap("", 10), [""]);
 }
+
+#[test]
+fn the_project_tile_says_what_uv_lock_needs() -> Result<(), Box<dyn Error>> {
+    use uview::domain::LockState;
+    let line = |lock: Loadable<LockState>| -> Result<(String, Option<Color>), Box<dyn Error>> {
+        let mut project = project(Loadable::NotLoaded);
+        project.lock = lock;
+        let mut terminal = Terminal::new(TestBackend::new(48, 6))?;
+        terminal.draw(|frame| {
+            render_project_tile(frame, frame.area(), &project);
+        })?;
+        let row = rows(&terminal)[2]
+            .trim_matches(|c| c == '│' || c == ' ')
+            .to_string();
+        Ok((row, Some(terminal.backend().buffer()[(1, 2)].fg)))
+    };
+    assert_eq!(
+        line(Loadable::Loaded(LockState::Fresh))?.0,
+        "uv.lock up to date"
+    );
+    let (stale, colour) = line(Loadable::Loaded(LockState::Stale))?;
+    assert_eq!(stale, "uv.lock out of date — press l");
+    assert_eq!(colour, Some(Color::Yellow));
+    assert_eq!(
+        line(Loadable::Loaded(LockState::Missing))?.0,
+        "no uv.lock — press l"
+    );
+    assert_eq!(
+        line(Loadable::Loaded(LockState::Unknown))?.0,
+        "uv.lock not checked: it needs the network"
+    );
+    // Until a reload has checked, nothing is said: the root's row is followed by the border.
+    assert!(line(Loadable::NotLoaded)?.0.starts_with('└'));
+    Ok(())
+}

@@ -506,6 +506,9 @@ impl DependenciesTablesTabs {
                 }
             }
             Action::Deps(DepsAction::Sync) => return vec![Command::Sync],
+            Action::Deps(DepsAction::Lock { upgrade }) => {
+                return vec![Command::Lock { upgrade: *upgrade }];
+            }
             Action::Deps(DepsAction::Refresh) => return vec![Command::Reload],
             // Confirm and Type only mean something in an input; Quit, Cancel and Help belong to
             // the app.

@@ -177,6 +177,9 @@ impl App {
                 self.state.project.apply_info(generation, loaded);
             }
             Event::VersionsPreviewed(loaded) => self.state.project.bumps = loaded.into(),
+            Event::LockChecked { generation, state } => {
+                self.state.project.apply_lock(generation, state);
+            }
             Event::VersionsListed { name, loaded } => {
                 self.state.deps.versions = Some((name, loaded.into()));
             }

@@ -126,6 +126,8 @@ fn label(command: &Command) -> String {
         Command::PreviewVersions => "Reading the next versions".into(),
         Command::ListVersions { name } => format!("Listing the versions of {name}"),
         Command::SetVersion(_) => "Setting the version".into(),
+        Command::Lock { upgrade: false } => "Locking".into(),
+        Command::Lock { upgrade: true } => "Upgrading every package in uv.lock".into(),
         Command::Sync => "Syncing the environment".into(),
         Command::Add {
             requirement,
