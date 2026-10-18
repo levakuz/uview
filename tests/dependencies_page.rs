@@ -1333,3 +1333,237 @@ fn a_search_takes_a_name_alone_and_says_when_there_is_none()
     assert_eq!(screen.page.mode(), Mode::Table);
     Ok(())
 }
+
+/// six in main; pytest in dev and test; ruff in dev; lint empty; docs empty and a default group.
+fn groups_screen() -> Screen {
+    let mut screen = Screen::with(&[]);
+    let dep = |name: &str, constraint: &str, groups: &[&str]| PyprojectDependency {
+        version_constraint: constraint.into(),
+        groups: groups
+            .iter()
+            .map(|g| match *g {
+                "main" => Membership::Project,
+                g => Membership::Group(g.into()),
+            })
+            .collect(),
+        ..package(name)
+    };
+    screen.state.deps.pyproject = Loadable::Loaded(vec![
+        dep("six", "", &["main"]),
+        dep("pytest", ">=8", &["dev", "test"]),
+        dep("ruff", "==0.6.9", &["dev"]),
+    ]);
+    let group = |name: &str, named_by: Option<&str>| uview::domain::DeclaredGroup {
+        name: name.into(),
+        named_by: named_by.map(String::from),
+    };
+    screen.state.deps.groups = vec![
+        group("dev", None),
+        group("test", None),
+        group("lint", None),
+        group("docs", Some("named in tool.uv.default-groups")),
+    ];
+    screen
+}
+
+#[test]
+fn g_lists_the_groups_and_d_deletes_an_empty_one_at_once() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut screen = groups_screen();
+    screen.press(KeyCode::Char('g'));
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    let mut terminal = Terminal::new(TestBackend::new(80, 16))?;
+    terminal.draw(|frame| screen.page.render(frame, frame.area(), &screen.state))?;
+    let drawn: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    for row in [
+        "dev   2 packages",
+        "test  1 package",
+        "lint  empty",
+        "docs  empty  · named in tool.uv.default-groups",
+        "New group…",
+    ] {
+        assert!(drawn.contains(row), "{row}");
+    }
+    // lint is the third.
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    assert_eq!(
+        screen.press(KeyCode::Char('d')),
+        [Command::DeleteGroup {
+            name: "lint".into()
+        }]
+    );
+    // docs is a default group: it stays.
+    screen.press(KeyCode::Char('g'));
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
+    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    Ok(())
+}
+
+#[test]
+fn a_group_with_packages_is_deleted_only_once_confirmed() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut screen = groups_screen();
+    screen.press(KeyCode::Char('g'));
+    // dev's details: its actions, then its packages.
+    screen.press(KeyCode::Enter);
+    let details = screen.drawn()?;
+    for row in [
+        "dev — 2 packages",
+        "Rename…",
+        "Delete group",
+        "pytest>=8",
+        "ruff==0.6.9",
+    ] {
+        assert!(details.contains(row), "{row}");
+    }
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert!(
+        screen
+            .drawn()?
+            .contains("Delete dev and remove its 2 packages from it?")
+    );
+    // Each package leaves dev alone, then dev goes.
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [
+            Command::RemoveFromProject {
+                name: "pytest".into(),
+                groups: vec![Membership::Group("dev".into())],
+            },
+            Command::RemoveFromProject {
+                name: "ruff".into(),
+                groups: vec![Membership::Group("dev".into())],
+            },
+            Command::DeleteGroup { name: "dev".into() },
+        ]
+    );
+    // A reload that sees dev empty before it is deleted asks nothing.
+    screen.state.deps.deletable_groups = vec!["dev".into()];
+    assert_eq!(screen.press(KeyCode::Char('r')), [Command::Reload]);
+    Ok(())
+}
+
+#[test]
+fn keep_and_esc_leave_the_groups_as_they_are() {
+    let mut screen = groups_screen();
+    screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Down);
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Table);
+    // Esc goes back from the details to the list, then closes.
+    screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    screen.press(KeyCode::Esc);
+    assert_eq!(screen.page.mode(), Mode::Table);
+}
+
+#[test]
+fn a_rename_moves_each_package_then_deletes_the_old_group() {
+    let mut screen = groups_screen();
+    screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Enter);
+    assert_eq!(screen.page.mode(), Mode::Input);
+    // test is taken, as uv compares names.
+    screen.type_text("Test");
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Input);
+    for _ in 0..4 {
+        screen.press(KeyCode::Backspace);
+    }
+    screen.type_text("tools");
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [
+            Command::Add {
+                requirement: "pytest>=8".into(),
+                membership: Membership::Group("tools".into()),
+            },
+            Command::Add {
+                requirement: "ruff==0.6.9".into(),
+                membership: Membership::Group("tools".into()),
+            },
+            Command::RemoveFromProject {
+                name: "pytest".into(),
+                groups: vec![Membership::Group("dev".into())],
+            },
+            Command::RemoveFromProject {
+                name: "ruff".into(),
+                groups: vec![Membership::Group("dev".into())],
+            },
+            Command::DeleteGroup { name: "dev".into() },
+        ]
+    );
+    // An empty group: the new name is made, the old one deleted.
+    screen.press(KeyCode::Char('g'));
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Down);
+    screen.press(KeyCode::Enter);
+    screen.press(KeyCode::Enter);
+    screen.type_text("linters");
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [
+            Command::CreateGroup {
+                name: "linters".into()
+            },
+            Command::DeleteGroup {
+                name: "lint".into()
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_new_group_is_created_empty_and_a_named_one_offers_nothing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut screen = groups_screen();
+    screen.press(KeyCode::Char('g'));
+    for _ in 0..4 {
+        screen.press(KeyCode::Down);
+    }
+    screen.press(KeyCode::Enter);
+    screen.type_text("my group");
+    // Refused, as uv would.
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    for _ in 0..8 {
+        screen.press(KeyCode::Backspace);
+    }
+    screen.type_text("site");
+    assert_eq!(
+        screen.press(KeyCode::Enter),
+        [Command::CreateGroup {
+            name: "site".into()
+        }]
+    );
+    // docs is named by default-groups: its details say why, and do nothing.
+    screen.press(KeyCode::Char('g'));
+    for _ in 0..3 {
+        screen.press(KeyCode::Down);
+    }
+    screen.press(KeyCode::Enter);
+    assert!(
+        screen
+            .drawn()?
+            .contains("Kept: named in tool.uv.default-groups")
+    );
+    assert!(screen.press(KeyCode::Enter).is_empty());
+    assert_eq!(screen.page.mode(), Mode::Actions);
+    Ok(())
+}

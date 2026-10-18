@@ -107,3 +107,78 @@ async fn a_failed_lock_puts_the_group_back() -> Result<(), Box<dyn Error>> {
     std::fs::remove_dir_all(path.parent().ok_or("no parent")?)?;
     Ok(())
 }
+
+const WITH_REFERENCES: &str = r#"[project]
+name = "demo"
+dependencies = []
+
+[dependency-groups]
+test = ["pytest>=8"]
+dev = [{ include-group = "test" }, "ruff"]
+docs = []
+
+[tool.uv]
+default-groups = ["docs"]
+"#;
+
+#[test]
+fn the_groups_are_listed_in_file_order_with_what_names_them() {
+    use uview::controllers::groups::declared_groups;
+    use uview::domain::DeclaredGroup;
+    let group = |name: &str, named_by: Option<&str>| DeclaredGroup {
+        name: name.into(),
+        named_by: named_by.map(String::from),
+    };
+    assert_eq!(
+        declared_groups(WITH_REFERENCES),
+        [
+            group("test", Some("included by group dev")),
+            group("dev", None),
+            group("docs", Some("named in tool.uv.default-groups")),
+        ]
+    );
+    assert!(declared_groups("[project]\nname = \"demo\"\n").is_empty());
+}
+
+#[test]
+fn an_empty_group_is_added_and_the_rest_kept_as_written() -> Result<(), String> {
+    use uview::controllers::groups::with_group;
+    let after = with_group(PYPROJECT, "docs")?;
+    assert_eq!(
+        after,
+        PYPROJECT.replace("lint = []\n", "lint = []\ndocs = []\n")
+    );
+    // Without a [dependency-groups] table, one is made.
+    let bare = "[project]\nname = \"demo\"\n";
+    assert_eq!(
+        with_group(bare, "lint")?,
+        format!("{bare}\n[dependency-groups]\nlint = []\n")
+    );
+    // A name uv would refuse, or one taken as uv compares them.
+    for refused in ["my group", "-lint", "lint-", "", "Lint", "LINT"] {
+        assert!(with_group(PYPROJECT, refused).is_err(), "{refused}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn creating_a_group_relocks_and_a_failed_lock_puts_the_file_back()
+-> Result<(), Box<dyn Error>> {
+    use uview::controllers::groups::create_group;
+    let path = scratch("create")?;
+    let ok = Lock {
+        fails: false,
+        calls: Mutex::default(),
+    };
+    create_group(&ok, &path, "docs").await?;
+    assert!(std::fs::read_to_string(&path)?.contains("docs = []"));
+    let failing = Lock {
+        fails: true,
+        calls: Mutex::default(),
+    };
+    let before = std::fs::read_to_string(&path)?;
+    assert!(create_group(&failing, &path, "site").await.is_err());
+    assert_eq!(std::fs::read_to_string(&path)?, before);
+    std::fs::remove_dir_all(path.parent().ok_or("no parent")?)?;
+    Ok(())
+}

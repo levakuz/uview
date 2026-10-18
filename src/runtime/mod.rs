@@ -10,7 +10,7 @@ use crate::controllers::dependencies::{
     add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
     remove_dep_from_pyproject, sync_exact, uninstall_from_env, upgrade_env_dep,
 };
-use crate::controllers::groups::{delete_group, empty_groups};
+use crate::controllers::groups::{create_group, delete_group, empty_groups, load_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{ProjectPaths, load_project_info, preview_bumps, set_version};
 use crate::controllers::versions::list_versions;
@@ -94,6 +94,9 @@ async fn run<U: UvClient, I: IndexClient>(
         Command::RemoveIndex(index) => remove_index(uv, &paths.pyproject, &index)
             .await
             .map(|()| format!("Removed index {}", index_label(&index))),
+        Command::CreateGroup { name } => create_group(uv, &paths.pyproject, &name)
+            .await
+            .map(|()| format!("Created group {name}")),
         Command::DeleteGroup { name } => delete_group(uv, &paths.pyproject, &name)
             .await
             .map(|()| format!("Deleted group {name}")),
@@ -162,6 +165,7 @@ async fn reload(
         empty_groups,
         deletable_groups,
         indexes: load_indexes(&paths.pyproject).await,
+        groups: load_groups(&paths.pyproject).await,
     });
     let env = load_env_deps(uv, &paths.env).await;
     // A cancel is the runner's to report.

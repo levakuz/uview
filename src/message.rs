@@ -3,8 +3,8 @@
 use crossterm::event::KeyEvent;
 
 use crate::domain::{
-    EnvDependency, Index, Membership, ProjectInfo, PyprojectDependency, Source, VersionChange,
-    VersionList,
+    DeclaredGroup, EnvDependency, Index, Membership, ProjectInfo, PyprojectDependency, Source,
+    VersionChange, VersionList,
 };
 
 /// What the terminal sends.
@@ -50,6 +50,8 @@ pub enum DepsAction {
     OpenAddFromSource,
     /// Show the project's indexes, to add or remove one.
     OpenIndexes,
+    /// Show the project's dependency groups, to create, rename or delete one.
+    OpenGroups,
     /// Look a package up by name, to add it.
     OpenSearch,
     /// Show the project's version, to bump it or set it.
@@ -105,6 +107,10 @@ pub enum Command {
     },
     /// Remove an index from `[[tool.uv.index]]`, then `uv lock`.
     RemoveIndex(Index),
+    /// Add the empty dependency group `name` to pyproject.toml, then `uv lock`.
+    CreateGroup {
+        name: String,
+    },
     /// Delete the empty dependency group `name` from pyproject.toml, then `uv lock`.
     DeleteGroup {
         name: String,
@@ -146,6 +152,8 @@ pub enum Event {
         deletable_groups: Vec<String>,
         /// The project's `[[tool.uv.index]]` entries, in file order.
         indexes: Vec<Index>,
+        /// The project's dependency groups, in file order.
+        groups: Vec<DeclaredGroup>,
     },
     /// The Environment table's rows, or why they could not be listed, likewise.
     EnvLoaded {

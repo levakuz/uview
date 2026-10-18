@@ -192,6 +192,11 @@ const TABLE: &[Binding] = &[
         help: "Bump the project's version, or set it",
     },
     Binding {
+        keys: &[(Key::char('g'), Action::Deps(DepsAction::OpenGroups))],
+        hints: &[],
+        help: "Manage the dependency groups: create, rename, delete",
+    },
+    Binding {
         keys: &[(Key::char('/'), Action::Deps(DepsAction::OpenSearch))],
         hints: &[],
         help: "Look a package up by its name, to add it",
