@@ -10,6 +10,7 @@ use crate::controllers::dependencies::{
     add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
     remove_dep_from_pyproject, sync_exact, uninstall_from_env, upgrade_env_dep,
 };
+use crate::controllers::environment::{delete_env, list_pythons, load_env_info, recreate, reset};
 use crate::controllers::groups::{create_group, delete_group, empty_groups, load_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{
@@ -57,6 +58,31 @@ async fn run<U: UvClient, I: IndexClient>(
             return;
         }
         Command::Reload => return reload(uv, paths, events, generation).await,
+        Command::ListPythons => {
+            let listed = list_pythons(uv).await;
+            if !matches!(listed, Err(UvError::Cancelled)) {
+                let _ = events.send(Event::PythonsListed(listed.map_err(|e| said(&e))));
+            }
+            return;
+        }
+        Command::RecreateEnv { python } => recreate(uv, &python, &paths.root).await.map(|pinned| {
+            let made = format!("Made the environment anew with Python {}", python.request());
+            if pinned {
+                format!("{made}, and pinned it in .python-version")
+            } else {
+                made
+            }
+        }),
+        Command::ResetEnv => reset(uv, &paths.env)
+            .await
+            .map(|()| "Emptied the environment and installed the project again".into()),
+        Command::DeleteEnv => match delete_env(&paths.env, &paths.root).await {
+            Ok(()) => Ok("Deleted the environment; s makes it again".into()),
+            Err(reason) => {
+                let _ = events.send(Event::Error(reason));
+                return;
+            }
+        },
         Command::LoadTree { outdated } => {
             return send_tree(uv, events, generation, outdated).await;
         }
@@ -198,6 +224,10 @@ async fn reload(
         groups: load_groups(&paths.pyproject).await,
     });
     let env = load_env_deps(uv, &paths.env).await;
+    let _ = events.send(Event::EnvInfoLoaded {
+        generation,
+        info: load_env_info(paths).await,
+    });
     // A cancel is the runner's to report.
     if let Err(e) = &env
         && !matches!(e, UvError::Cancelled)

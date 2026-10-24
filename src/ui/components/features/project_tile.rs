@@ -6,13 +6,19 @@ use ratatui::{
     widgets::{Block, Paragraph, Wrap},
 };
 
-use crate::domain::LockState;
+use crate::domain::{EnvInfo, LockState};
 use crate::state::{Loadable, ProjectState};
 
 /// Draws the project tile at the top of `column`, as tall as its wrapped text needs, and
 /// returns the rest of the column. The project's name and version are its title once uv has
-/// read them. If it could not, what uv said shows dimmed above the root.
-pub fn render_project_tile(frame: &mut Frame, column: Rect, project: &ProjectState) -> Rect {
+/// read them. If it could not, what uv said shows dimmed above the root. `packages` is how many
+/// the environment holds, once listed.
+pub fn render_project_tile(
+    frame: &mut Frame,
+    column: Rect,
+    project: &ProjectState,
+    packages: Option<usize>,
+) -> Rect {
     let title = match &project.info {
         // White, as the tabs are: a title is otherwise as dim as the border.
         Loadable::Loaded(info) => Line::from(vec![
@@ -28,6 +34,7 @@ pub fn render_project_tile(frame: &mut Frame, column: Rect, project: &ProjectSta
         text.push_line(Line::raw(reason.lines().next().unwrap_or_default()).dark_gray());
     }
     text.push_line(project.root.as_str());
+    text.push_line(environment_line(&project.environment, packages));
     if let Some(line) = lock_line(&project.lock) {
         text.push_line(line);
     }
@@ -58,4 +65,46 @@ fn lock_line(lock: &Loadable<LockState>) -> Option<Line<'static>> {
         LockState::Missing => Line::raw("no uv.lock — press l").yellow(),
         LockState::Unknown => Line::raw("uv.lock not checked: it needs the network").dark_gray(),
     })
+}
+
+/// The environment as the tile says it, dim: `.venv · Python 3.11.15 · 48 packages · 41.2 MiB`.
+/// Quiet whatever happens: `…` while it loads, `no environment` without one, `size unknown`
+/// when it could not be measured.
+fn environment_line(
+    environment: &Loadable<Option<EnvInfo>>,
+    packages: Option<usize>,
+) -> Line<'static> {
+    let info = match environment {
+        Loadable::Loaded(Some(info)) => info,
+        Loadable::Loaded(None) => return Line::raw("no environment").dark_gray(),
+        _ => return Line::raw("…").dark_gray(),
+    };
+    let mut parts = vec![info.shown_path.clone()];
+    parts.extend(
+        info.python
+            .as_ref()
+            .map(|python| format!("Python {python}")),
+    );
+    parts.extend(packages.map(|n| match n {
+        1 => "1 package".to_string(),
+        n => format!("{n} packages"),
+    }));
+    parts.push(info.size.map_or("size unknown".into(), human_size));
+    Line::raw(parts.join(" · ")).dark_gray()
+}
+
+/// `bytes` in binary units with one decimal, as `41.2 MiB`.
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit + 1 < UNITS.len() {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
 }

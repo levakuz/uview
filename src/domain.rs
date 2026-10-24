@@ -552,3 +552,41 @@ pub struct TreeNode {
     /// Its subtree is shown in full elsewhere in the tree, so not here.
     pub repeated: bool,
 }
+
+/// The project's environment, as the project tile and `e` show it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EnvInfo {
+    /// Where it is, relative to the project's root when it can be, as `../../.venv` for a
+    /// workspace member's.
+    pub shown_path: String,
+    /// Its Python's version, as `pyvenv.cfg` records it.
+    pub python: Option<String>,
+    /// Its apparent size in bytes, symlinks not followed; `None` when it could not be measured.
+    pub size: Option<u64>,
+}
+
+/// A Python uv can make an environment with, as `uv python list` reports it.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct PythonOption {
+    /// What `--python` takes to mean this one, e.g. `cpython-3.12.11-macos-aarch64-none`.
+    pub key: String,
+    pub version: String,
+    pub implementation: String,
+    /// `default`, or the build it is, e.g. `freethreaded`; older uv does not say.
+    #[serde(default)]
+    pub variant: String,
+    /// Where it is installed; `None` for one uv would download.
+    pub path: Option<String>,
+}
+
+impl PythonOption {
+    /// What `uv python pin` takes for it, and what reads as it: `3.12.11`, `3.13.6t` for the
+    /// free-threaded build, `pypy@3.10.16`.
+    pub fn request(&self) -> String {
+        match (self.implementation.as_str(), self.variant.as_str()) {
+            ("cpython", "freethreaded") => format!("{}t", self.version),
+            ("cpython", _) => self.version.clone(),
+            (implementation, _) => format!("{implementation}@{}", self.version),
+        }
+    }
+}

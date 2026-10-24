@@ -214,6 +214,11 @@ const TABLE: &[Binding] = &[
         help: "Lock with uv lock (l), or upgrade every package in it (L)",
     },
     Binding {
+        keys: &[(Key::char('e'), Action::Deps(DepsAction::OpenEnvironment))],
+        hints: &[],
+        help: "Make the environment anew, empty it or delete it",
+    },
+    Binding {
         keys: &[(Key::char('g'), Action::Deps(DepsAction::OpenGroups))],
         hints: &[],
         help: "Manage the dependency groups: create, rename, delete",

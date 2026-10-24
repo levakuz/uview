@@ -88,7 +88,11 @@ impl App {
                     Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
                         .areas(main);
                 self.page.render(frame, left, &self.state);
-                let log = render_project_tile(frame, right, &self.state.project);
+                let packages = match &self.state.deps.env {
+                    Loadable::Loaded(rows) => Some(rows.len()),
+                    _ => None,
+                };
+                let log = render_project_tile(frame, right, &self.state.project, packages);
                 render_uv_log(frame, log, &self.state.jobs);
                 let activity = self
                     .state
@@ -180,6 +184,10 @@ impl App {
             Event::WhyLoaded { name, loaded } => {
                 self.state.deps.why = Some((name, loaded.into()));
             }
+            Event::EnvInfoLoaded { generation, info } => {
+                self.state.project.apply_environment(generation, info);
+            }
+            Event::PythonsListed(loaded) => self.state.project.pythons = loaded.into(),
             Event::LockChecked { generation, state } => {
                 self.state.project.apply_lock(generation, state);
             }
