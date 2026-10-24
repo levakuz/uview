@@ -4,6 +4,7 @@ use ratatui::layout::Rect;
 use crate::message::{Action, Command, DepsAction};
 use crate::state::AppState;
 use crate::ui::Component;
+use crate::ui::components::features::build_popup::BuildPopup;
 use crate::ui::components::features::environment_popup::EnvironmentPopup;
 use crate::ui::components::features::version_popup::VersionPopup;
 use crate::ui::components::widgets::dependencies_tables_tabs::DependenciesTablesTabs;
@@ -15,6 +16,8 @@ pub struct DependenciesPage {
     version_popup: VersionPopup,
     /// The project's environment, on `e`.
     environment_popup: EnvironmentPopup,
+    /// What a build wrote, once it has.
+    build_popup: BuildPopup,
 }
 
 impl DependenciesPage {
@@ -23,6 +26,7 @@ impl DependenciesPage {
             dependencies_tabs: DependenciesTablesTabs::new(),
             version_popup: VersionPopup::default(),
             environment_popup: EnvironmentPopup::default(),
+            build_popup: BuildPopup::default(),
         }
     }
 
@@ -31,6 +35,7 @@ impl DependenciesPage {
         self.version_popup
             .mode()
             .or(self.environment_popup.mode())
+            .or(self.build_popup.mode())
             .unwrap_or_else(|| self.dependencies_tabs.mode())
     }
 }
@@ -40,6 +45,9 @@ impl Component for DependenciesPage {
         self.dependencies_tabs.render(frame, area, &state.deps);
         self.version_popup.render(frame, area, &state.project);
         self.environment_popup.render(frame, area, &state.project);
+        // Over the bare table or tree alone: it waits for whatever else is open.
+        let idle = matches!(self.mode(), Mode::Table | Mode::Tree);
+        self.build_popup.render(frame, area, &state.project, idle);
     }
 
     fn update(&mut self, action: &Action, state: &AppState) -> Vec<Command> {
@@ -48,6 +56,9 @@ impl Component for DependenciesPage {
         }
         if self.environment_popup.mode().is_some() {
             return self.environment_popup.update(action, &state.project);
+        }
+        if self.build_popup.mode().is_some() {
+            return self.build_popup.update(action);
         }
         if let Action::Deps(DepsAction::OpenEnvironment) = action {
             self.environment_popup.open(&state.project);

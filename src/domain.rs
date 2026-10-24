@@ -1,4 +1,5 @@
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use serde::Deserialize;
@@ -563,6 +564,22 @@ pub struct EnvInfo {
     pub python: Option<String>,
     /// Its apparent size in bytes, symlinks not followed; `None` when it could not be measured.
     pub size: Option<u64>,
+}
+
+/// A file `uv build` wrote: an sdist or a wheel.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Artifact {
+    pub path: PathBuf,
+    pub size: u64,
+}
+
+impl Artifact {
+    /// Its file name, as `dist/` lists it.
+    pub fn name(&self) -> String {
+        self.path
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
+    }
 }
 
 /// A Python uv can make an environment with, as `uv python list` reports it.
