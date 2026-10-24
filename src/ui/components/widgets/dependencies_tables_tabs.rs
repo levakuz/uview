@@ -603,7 +603,9 @@ impl DependenciesTablesTabs {
             Action::Deps(DepsAction::OpenSearch) => self.search_popup.open(),
             Action::Deps(DepsAction::OpenGroups) => self.groups_popup.open(deps),
             // The page's: the version is the project's, not the tables'.
-            Action::Deps(DepsAction::OpenVersion | DepsAction::OpenEnvironment) => {}
+            Action::Deps(
+                DepsAction::OpenVersion | DepsAction::OpenEnvironment | DepsAction::Publish,
+            ) => {}
             // Keys of the list of groups, which handles them itself.
             Action::Deps(DepsAction::Rename | DepsAction::New) => {}
             // The keys of the actions list's Update and Remove, on the selected row; d in the list

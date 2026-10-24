@@ -111,6 +111,8 @@ pub struct Index {
     pub name: Option<String>,
     pub url: String,
     pub kind: IndexKind,
+    /// Where `uv publish --index <name>` uploads to, if anywhere.
+    pub publish_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -564,6 +566,53 @@ pub struct EnvInfo {
     pub python: Option<String>,
     /// Its apparent size in bytes, symlinks not followed; `None` when it could not be measured.
     pub size: Option<u64>,
+}
+
+/// Where `uv publish` uploads.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PublishTarget {
+    PyPi,
+    TestPyPi,
+    /// A project index with a `publish-url`.
+    Index {
+        name: String,
+        publish_url: String,
+    },
+}
+
+impl PublishTarget {
+    pub const PYPI_UPLOAD: &str = "https://upload.pypi.org/legacy/";
+    pub const TEST_PYPI_UPLOAD: &str = "https://test.pypi.org/legacy/";
+
+    /// PyPI, TestPyPI, then each of `indexes` that has a name and a `publish-url`.
+    pub fn all(indexes: &[Index]) -> Vec<Self> {
+        let named = indexes.iter().filter_map(|index| {
+            Some(Self::Index {
+                name: index.name.clone()?,
+                publish_url: index.publish_url.clone()?,
+            })
+        });
+        [Self::PyPi, Self::TestPyPi]
+            .into_iter()
+            .chain(named)
+            .collect()
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            Self::PyPi => "PyPI",
+            Self::TestPyPi => "TestPyPI",
+            Self::Index { name, .. } => name,
+        }
+    }
+
+    pub fn upload_url(&self) -> &str {
+        match self {
+            Self::PyPi => Self::PYPI_UPLOAD,
+            Self::TestPyPi => Self::TEST_PYPI_UPLOAD,
+            Self::Index { publish_url, .. } => publish_url,
+        }
+    }
 }
 
 /// A file `uv build` wrote: an sdist or a wheel.

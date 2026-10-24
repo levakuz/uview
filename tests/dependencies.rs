@@ -877,6 +877,46 @@ async fn a_build_streams_to_the_log_and_says_what_it_wrote() -> Result<(), Box<d
 }
 
 #[tokio::test]
+async fn a_publish_says_where_it_went_or_points_at_the_log() -> Result<(), Box<dyn Error>> {
+    let failed = UvError::Failed {
+        command: "publish".into(),
+        status: ExitStatus::default(),
+        stderr: "  Caused by: Missing credentials for https://test.pypi.org/legacy/".into(),
+    };
+    let uv = Arc::new(FakeUvClient::returning([Ok(String::new()), Err(failed)]));
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
+    let files = vec![uview::domain::Artifact {
+        path: PathBuf::from("/home/jane/api/dist/demo-0.1.0.tar.gz"),
+        size: 3,
+    }];
+    let publish = || Command::Publish {
+        target: uview::domain::PublishTarget::TestPyPi,
+        files: files.clone(),
+    };
+    runner.execute(publish());
+    let events = events_until(&mut received, finished(1)).await?;
+    assert!(
+        events
+            .iter()
+            .any(notice("Published demo-0.1.0.tar.gz to TestPyPI"))
+    );
+    assert_eq!(uv.calls()[0][0], "publish");
+    runner.execute(publish());
+    let events = events_until(&mut received, finished(2)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Error(m) if m == "uv could not publish to TestPyPI; the uv log says why"
+    )));
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_reload_writes_nothing_to_the_log() -> Result<(), Box<dyn Error>> {
     // What a read writes is an error, shown where it reads into. A dynamic version's would come
     // back after every mutation.

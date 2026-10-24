@@ -219,9 +219,12 @@ const TABLE: &[Binding] = &[
         help: "Make the environment anew, empty it or delete it",
     },
     Binding {
-        keys: &[(Key::char('B'), Action::Deps(DepsAction::Build))],
+        keys: &[
+            (Key::char('B'), Action::Deps(DepsAction::Build)),
+            (Key::char('U'), Action::Deps(DepsAction::Publish)),
+        ],
         hints: &[],
-        help: "Build the sdist and wheel with uv build",
+        help: "Build with uv build (B), or publish the last build (U)",
     },
     Binding {
         keys: &[(Key::char('g'), Action::Deps(DepsAction::OpenGroups))],

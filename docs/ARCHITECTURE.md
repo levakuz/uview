@@ -202,6 +202,7 @@ src/
 │   ├── environment.rs      # the environment's path, Python and size; make it anew, empty it, delete it (ADR-0015)
 │   ├── groups.rs           # the groups pyproject.toml declares; creating an empty one, deleting an emptied one (ADR-0009, ADR-0013)
 │   ├── indexes.rs          # the project's [[tool.uv.index]]: list, add, remove (ADR-0010)
+│   ├── publish.rs          # uv publish of what the last build wrote; where uv will find credentials
 │   ├── pyproject.rs        # edit pyproject.toml, then uv lock, putting it back if the lock fails
 │   ├── versions.rs         # a package's versions from the index uv would use, newest first, and PyPI's description of it (ADR-0012)
 │   └── project.rs          # the project root, or why uv would refuse it; its workspace root and environment; its name and version
@@ -209,7 +210,7 @@ src/
 │   ├── mod.rs              # IndexClient trait; RealIndexClient, the only HTTP; IndexError
 │   └── parse.rs            # a Simple API page, JSON or HTML, into files and versions, pure
 ├── uv/
-│   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn; UvError
+│   ├── mod.rs              # UvClient trait; RealUvClient, the only process spawn, which scrubs publish credentials from uv's lines; UvError
 │   ├── args.rs             # the argv of each operation, pure
 │   └── parse.rs            # uv output into domain types, pure
 └── ui/
@@ -227,7 +228,7 @@ src/
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
         │   ├── add_from_source.rs         # the questions P asks: an index, git or a path, and its fields
-        │   ├── build_popup.rs             # what a build wrote to dist/, once it succeeds
+        │   ├── build_popup.rs             # what a build wrote to dist/, once it succeeds; U: publishing it
         │   ├── bump_popup.rs              # b: a declared package's next patch, minor or major release
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── environment_popup.rs       # e: make the environment anew with a Python, empty it or delete it

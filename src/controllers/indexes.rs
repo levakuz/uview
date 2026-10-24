@@ -31,6 +31,10 @@ pub fn list_indexes(pyproject: &str) -> Vec<Index> {
                 } else {
                     IndexKind::Extra
                 },
+                publish_url: table
+                    .get("publish-url")
+                    .and_then(Item::as_str)
+                    .map(String::from),
             })
         })
         .collect()

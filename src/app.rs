@@ -8,6 +8,7 @@ use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
 use crate::controllers::project::ProjectPaths;
+use crate::controllers::publish::credentials;
 use crate::index::RealIndexClient;
 use crate::message::{Action, Command, Event, Input, NavAction};
 use crate::runtime::jobs::JobRunner;
@@ -39,13 +40,15 @@ pub struct App {
 impl App {
     pub fn new(paths: ProjectPaths) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded_channel();
+        let mut project = ProjectState::new(paths.root.display().to_string());
+        project.credentials = credentials(|key| std::env::var(key).ok());
         Self {
             page: DependenciesPage::new(),
             should_quit: false,
             help: false,
             help_scroll: 0,
             state: AppState {
-                project: ProjectState::new(paths.root.display().to_string()),
+                project,
                 ..AppState::default()
             },
             runner: JobRunner::new(

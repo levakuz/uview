@@ -46,6 +46,11 @@ impl ListPopup {
         frame.render_stateful_widget(list, popup_area, &mut self.state);
     }
 
+    /// Highlights the item at `i`.
+    pub fn select(&mut self, i: usize) {
+        self.state.select(Some(i));
+    }
+
     pub fn up(&mut self) {
         self.state.select_previous();
     }

@@ -47,7 +47,7 @@ impl Component for DependenciesPage {
         self.environment_popup.render(frame, area, &state.project);
         // Over the bare table or tree alone: it waits for whatever else is open.
         let idle = matches!(self.mode(), Mode::Table | Mode::Tree);
-        self.build_popup.render(frame, area, &state.project, idle);
+        self.build_popup.render(frame, area, state, idle);
     }
 
     fn update(&mut self, action: &Action, state: &AppState) -> Vec<Command> {
@@ -58,7 +58,11 @@ impl Component for DependenciesPage {
             return self.environment_popup.update(action, &state.project);
         }
         if self.build_popup.mode().is_some() {
-            return self.build_popup.update(action);
+            return self.build_popup.update(action, state);
+        }
+        if let Action::Deps(DepsAction::Publish) = action {
+            self.build_popup.open_publish(state);
+            return Vec::new();
         }
         if let Action::Deps(DepsAction::OpenEnvironment) = action {
             self.environment_popup.open(&state.project);

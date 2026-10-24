@@ -38,6 +38,8 @@ pub struct ProjectState {
     /// What the last build wrote, and how many builds have succeeded.
     pub built: Vec<Artifact>,
     pub builds: u64,
+    /// Where `uv publish` will take credentials from: a variable's name, or `keyring`.
+    pub credentials: Option<&'static str>,
     /// The generation of the newest `info` shown, as for the tables.
     generation: u64,
 }

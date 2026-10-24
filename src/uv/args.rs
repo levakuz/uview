@@ -1,6 +1,8 @@
 //! `uv` argument lists, built without spawning or awaiting anything.
 
-use crate::domain::{Membership, Source, VersionChange, index_name};
+use std::path::PathBuf;
+
+use crate::domain::{Membership, PublishTarget, Source, VersionChange, index_name};
 
 /// Brings the environment exactly in line with the lockfile: packages it does not list, such
 /// as `uv pip install`ed ones, are uninstalled.
@@ -35,6 +37,23 @@ pub fn build_args(all_packages: bool) -> &'static [&'static str] {
     } else {
         &["build"]
     }
+}
+
+/// `uv publish` arguments that upload `files` to `target`. Credentials are uv's to find.
+pub fn publish_args(target: &PublishTarget, files: &[PathBuf]) -> Vec<String> {
+    let mut args = vec!["publish".to_string()];
+    match target {
+        PublishTarget::PyPi => {}
+        PublishTarget::TestPyPi => {
+            args.extend([
+                "--publish-url".into(),
+                PublishTarget::TEST_PYPI_UPLOAD.into(),
+            ]);
+        }
+        PublishTarget::Index { name, .. } => args.extend(["--index".into(), name.clone()]),
+    }
+    args.extend(files.iter().map(|file| file.to_string_lossy().into_owned()));
+    args
 }
 
 /// `uv python pin` arguments that write `request` to the project's `.python-version`.

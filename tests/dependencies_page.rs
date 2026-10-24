@@ -700,6 +700,7 @@ fn corp() -> uview::domain::Index {
         name: Some("corp".into()),
         url: "https://corp.example.com/simple/".into(),
         kind: uview::domain::IndexKind::Default,
+        publish_url: None,
     }
 }
 
@@ -787,6 +788,7 @@ fn d_in_the_list_of_indexes_removes_the_highlighted_one_at_once() {
         name: None,
         url: "https://mirror.example.com/simple/".into(),
         kind: uview::domain::IndexKind::Extra,
+        publish_url: None,
     };
     screen.state.deps.indexes = vec![corp(), other.clone()];
     screen.press(KeyCode::Char('i'));
