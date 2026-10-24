@@ -378,7 +378,9 @@ removed from uv's environment, as that root already accounts for it.
 There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::UnboundedChannel<Event>`.
 
 - The **event loop is synchronous** and blocking. `App::run` is `async` but never awaits
-  inside the loop; `event::poll(50ms)` blocks the thread.
+  inside the loop; `event::poll(50ms)` blocks the thread. It draws only when something
+  changed: a key, a resize or an event from the runtime. While a job runs it also draws every
+  80 ms, for the spinner and the seconds a `Loading…` table counts (docs/performance.md).
 - **Only the runtime spawns.** `JobRunner` (`runtime/jobs.rs`) turns each command into a job
   with an id and a label, and reports it as `JobQueued`, `JobStarted` and `JobFinished`. A
   read, `Reload`, runs in a task of its own at once. A mutation goes to a single task that
@@ -387,8 +389,9 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   cannot freeze rendering.
 - At startup, before the loop begins, `App` marks both tables and the project's name and
   version `Loading`, and hands the runner `Command::Reload`. It reads `pyproject.toml`, lists
-  the environment and reads its `pyvenv.cfg` and size, then reads the name and version with
-  `uv version`, which neither locks nor syncs. It sends each table's rows, or why they failed, which also goes to the status
+  the environment, then reads the name and version with `uv version`, which neither locks nor
+  syncs, checks the lock and reads the tree. Last, it reads the environment's `pyvenv.cfg` and
+  measures its size, a walk of every file that nothing else waits on. It sends each table's rows, or why they failed, which also goes to the status
   line as an `Event::Error`, and then the name and version, or what uv said. A reload after a
   mutation leaves the rows in view until the new ones land.
 - After every mutation, done, failed or cancelled, the runner counts it in its generation
