@@ -197,6 +197,7 @@ src/
 │   ├── mod.rs              # what each command does, and the reload
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
 ├── controllers/
+│   ├── build.rs            # uv build, every member's at a virtual workspace root; the files it wrote to dist/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
 │   ├── environment.rs      # the environment's path, Python and size; make it anew, empty it, delete it (ADR-0015)
 │   ├── groups.rs           # the groups pyproject.toml declares; creating an empty one, deleting an emptied one (ADR-0009, ADR-0013)
@@ -226,6 +227,7 @@ src/
         │   └── status_bar.rs # the bottom line owned by App: spinner, error/notice
         ├── features/       # concrete, tied to this domain
         │   ├── add_from_source.rs         # the questions P asks: an index, git or a path, and its fields
+        │   ├── build_popup.rs             # what a build wrote to dist/, once it succeeds
         │   ├── bump_popup.rs              # b: a declared package's next patch, minor or major release
         │   ├── dependencies_table.rs      # TableRow impls for the two dep types
         │   ├── environment_popup.rs       # e: make the environment anew with a Python, empty it or delete it

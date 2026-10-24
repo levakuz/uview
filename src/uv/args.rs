@@ -28,6 +28,15 @@ pub fn sync_python_args(python: &str) -> [&str; 3] {
     ["sync", "--python", python]
 }
 
+/// `uv build`: the project's sdist and wheel, or every workspace member's when `all_packages`.
+pub fn build_args(all_packages: bool) -> &'static [&'static str] {
+    if all_packages {
+        &["build", "--all-packages"]
+    } else {
+        &["build"]
+    }
+}
+
 /// `uv python pin` arguments that write `request` to the project's `.python-version`.
 pub fn python_pin_args(request: &str) -> [&str; 3] {
     ["python", "pin", request]

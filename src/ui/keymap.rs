@@ -219,6 +219,11 @@ const TABLE: &[Binding] = &[
         help: "Make the environment anew, empty it or delete it",
     },
     Binding {
+        keys: &[(Key::char('B'), Action::Deps(DepsAction::Build))],
+        hints: &[],
+        help: "Build the sdist and wheel with uv build",
+    },
+    Binding {
         keys: &[(Key::char('g'), Action::Deps(DepsAction::OpenGroups))],
         hints: &[],
         help: "Manage the dependency groups: create, rename, delete",

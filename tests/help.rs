@@ -94,7 +94,7 @@ fn the_footer_lists_the_keys_that_work_where_the_focus_is() -> Result<(), Box<dy
 
 #[test]
 fn the_help_lists_every_binding_by_where_it_works() -> Result<(), Box<dyn Error>> {
-    // The screen above the footer, at 80x24: the top, then scrolled as far as it goes.
+    // The screen above the footer, at 80x24: the top, then each scroll as far as it goes.
     let mut terminal = Terminal::new(TestBackend::new(80, 23))?;
     let mut scroll = 0;
     terminal.draw(|frame| render_help(frame, frame.area(), &mut scroll))?;
@@ -108,7 +108,11 @@ fn the_help_lists_every_binding_by_where_it_works() -> Result<(), Box<dyn Error>
     scroll += 5;
     terminal.draw(|frame| render_help(frame, frame.area(), &mut scroll))?;
     assert_eq!(scroll, last);
-    rows.extend(self::rows(&terminal));
+    for at in 1..=last {
+        scroll = at;
+        terminal.draw(|frame| render_help(frame, frame.area(), &mut scroll))?;
+        rows.extend(self::rows(&terminal));
+    }
     let text = rows.join("\n");
     for (place, bindings) in keymap::groups() {
         assert!(text.contains(place), "{place}");

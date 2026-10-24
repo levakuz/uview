@@ -188,6 +188,10 @@ impl App {
                 self.state.project.apply_environment(generation, info);
             }
             Event::PythonsListed(loaded) => self.state.project.pythons = loaded.into(),
+            Event::Built(artifacts) => {
+                self.state.project.built = artifacts;
+                self.state.project.builds += 1;
+            }
             Event::LockChecked { generation, state } => {
                 self.state.project.apply_lock(generation, state);
             }

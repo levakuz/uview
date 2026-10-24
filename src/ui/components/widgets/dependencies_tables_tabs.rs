@@ -626,6 +626,7 @@ impl DependenciesTablesTabs {
                 }
             }
             Action::Deps(DepsAction::Sync) => return vec![Command::Sync],
+            Action::Deps(DepsAction::Build) => return vec![Command::Build],
             Action::Deps(DepsAction::Lock { upgrade }) => {
                 return vec![Command::Lock { upgrade: *upgrade }];
             }

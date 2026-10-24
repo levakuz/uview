@@ -829,6 +829,54 @@ async fn a_jobs_uv_lines_arrive_in_order_as_its_output() -> Result<(), Box<dyn E
 }
 
 #[tokio::test]
+async fn a_build_streams_to_the_log_and_says_what_it_wrote() -> Result<(), Box<dyn Error>> {
+    let failed = UvError::Failed {
+        command: "build".into(),
+        status: ExitStatus::default(),
+        stderr: "  × Failed to build".into(),
+    };
+    let uv = Arc::new(FakeUvClient {
+        results: Mutex::new([Ok(String::new()), Err(failed)].into()),
+        stderr: vec!["Building source distribution (uv build backend)..."],
+        ..FakeUvClient::default()
+    });
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
+    runner.execute(Command::Build);
+    let events = events_until(&mut received, finished(1)).await?;
+    assert_eq!(uv.calls()[0], ["build"]);
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::JobOutput(JobId(1), line) if line.starts_with("Building source distribution")
+    )));
+    // The tests' project has no dist/.
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Built(built) if built.is_empty()))
+    );
+    assert!(
+        events
+            .iter()
+            .any(notice("uv build wrote nothing new to dist/"))
+    );
+    // A failed build's why is the backend's, in the log.
+    runner.execute(Command::Build);
+    let events = events_until(&mut received, finished(2)).await?;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Error(m) if m == "uv could not build the project; the uv log says why"
+    )));
+    assert!(!events.iter().any(|e| matches!(e, Event::Built(_))));
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_reload_writes_nothing_to_the_log() -> Result<(), Box<dyn Error>> {
     // What a read writes is an error, shown where it reads into. A dynamic version's would come
     // back after every mutation.

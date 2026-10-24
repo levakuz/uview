@@ -5,8 +5,8 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::domain::{
-    DeclaredGroup, EnvDependency, EnvInfo, Index, LockState, ProjectInfo, PyprojectDependency,
-    PythonOption, TreeNode, VersionList,
+    Artifact, DeclaredGroup, EnvDependency, EnvInfo, Index, LockState, ProjectInfo,
+    PyprojectDependency, PythonOption, TreeNode, VersionList,
 };
 use crate::message::{Event, JobId};
 
@@ -35,6 +35,9 @@ pub struct ProjectState {
     pub environment: Loadable<Option<EnvInfo>>,
     /// The Pythons an environment can be made with, once asked for.
     pub pythons: Loadable<Vec<PythonOption>>,
+    /// What the last build wrote, and how many builds have succeeded.
+    pub built: Vec<Artifact>,
+    pub builds: u64,
     /// The generation of the newest `info` shown, as for the tables.
     generation: u64,
 }

@@ -6,11 +6,14 @@ pub mod jobs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
+use crate::controllers::build::{build, built_notice, dist_dir};
 use crate::controllers::dependencies::{
     add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
     remove_dep_from_pyproject, sync_exact, uninstall_from_env, upgrade_env_dep,
 };
-use crate::controllers::environment::{delete_env, list_pythons, load_env_info, recreate, reset};
+use crate::controllers::environment::{
+    delete_env, list_pythons, load_env_info, recreate, relative_to, reset,
+};
 use crate::controllers::groups::{create_group, delete_group, empty_groups, load_groups};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{
@@ -116,6 +119,22 @@ async fn run<U: UvClient, I: IndexClient>(
             Err(UvError::Failed { .. }) => {
                 let _ = events.send(Event::Error(
                     "uv could not lock the project; the uv log says why".into(),
+                ));
+                return;
+            }
+            Err(e) => Err(e),
+        },
+        // The backend's output, which says why, is in the log.
+        Command::Build => match build(uv, paths).await {
+            Ok(built) => {
+                let notice =
+                    built_notice(&built, &relative_to(&dist_dir(&paths.root), &paths.root));
+                let _ = events.send(Event::Built(built));
+                Ok(notice)
+            }
+            Err(UvError::Failed { .. }) => {
+                let _ = events.send(Event::Error(
+                    "uv could not build the project; the uv log says why".into(),
                 ));
                 return;
             }

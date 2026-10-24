@@ -3,7 +3,7 @@
 use crossterm::event::KeyEvent;
 
 use crate::domain::{
-    DeclaredGroup, EnvDependency, EnvInfo, Index, LockState, Membership, ProjectInfo,
+    Artifact, DeclaredGroup, EnvDependency, EnvInfo, Index, LockState, Membership, ProjectInfo,
     PyprojectDependency, PythonOption, Source, TreeNode, VersionChange, VersionList,
 };
 
@@ -54,6 +54,8 @@ pub enum DepsAction {
     OpenGroups,
     /// Show the project's environment, to make it anew, empty it or delete it.
     OpenEnvironment,
+    /// Build the project's sdist and wheel.
+    Build,
     /// Lock the project, `upgrade` moving every package to its newest allowed version.
     Lock {
         upgrade: bool,
@@ -119,6 +121,8 @@ pub enum Command {
     Lock {
         upgrade: bool,
     },
+    /// Build the project's sdist and wheel with `uv build`.
+    Build,
     /// List every Python uv can find or download.
     ListPythons,
     /// Make the environment anew with `python`, and install the project.
@@ -230,6 +234,8 @@ pub enum Event {
         generation: u64,
         info: Option<EnvInfo>,
     },
+    /// The files a build wrote to `dist/`.
+    Built(Vec<Artifact>),
     /// Every Python uv can find or download, or what uv said when it could not list them.
     PythonsListed(Result<Vec<PythonOption>, String>),
     /// Whether uv.lock matches pyproject.toml, from a reload that started at `generation`.

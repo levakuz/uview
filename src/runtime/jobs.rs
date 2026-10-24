@@ -130,6 +130,7 @@ fn label(command: &Command) -> String {
         Command::Reload => "Loading dependencies".into(),
         Command::PreviewVersions => "Reading the next versions".into(),
         Command::ListPythons => "Listing Pythons".into(),
+        Command::Build => "Building the project".into(),
         Command::RecreateEnv { python } => {
             format!("Making the environment with Python {}", python.request())
         }
