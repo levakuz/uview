@@ -4,7 +4,7 @@ use crossterm::event::KeyEvent;
 
 use crate::domain::{
     Artifact, DeclaredGroup, EnvDependency, EnvInfo, Index, LockState, Membership, ProjectInfo,
-    PyprojectDependency, PythonOption, Source, TreeNode, VersionChange, VersionList,
+    PublishTarget, PyprojectDependency, PythonOption, Source, TreeNode, VersionChange, VersionList,
 };
 
 /// What the terminal sends.
@@ -56,6 +56,8 @@ pub enum DepsAction {
     OpenEnvironment,
     /// Build the project's sdist and wheel.
     Build,
+    /// Publish what the last build wrote.
+    Publish,
     /// Lock the project, `upgrade` moving every package to its newest allowed version.
     Lock {
         upgrade: bool,
@@ -123,6 +125,11 @@ pub enum Command {
     },
     /// Build the project's sdist and wheel with `uv build`.
     Build,
+    /// Upload `files` to `target` with `uv publish`.
+    Publish {
+        target: PublishTarget,
+        files: Vec<Artifact>,
+    },
     /// List every Python uv can find or download.
     ListPythons,
     /// Make the environment anew with `python`, and install the project.

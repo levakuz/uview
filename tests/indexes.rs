@@ -36,6 +36,7 @@ fn index(name: Option<&str>, url: &str, kind: IndexKind) -> Index {
         name: name.map(String::from),
         url: url.into(),
         kind,
+        publish_url: None,
     }
 }
 

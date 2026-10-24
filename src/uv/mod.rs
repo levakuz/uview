@@ -81,14 +81,32 @@ pub trait UvClient: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct RealUvClient {
     dir: PathBuf,
+    /// The credentials `uv publish` reads from the environment, kept out of every line uv writes.
+    secrets: Vec<String>,
 }
 
 impl RealUvClient {
     /// A client that runs `uv` in `dir`, as a shell in it would. uview's own working directory
     /// is left alone.
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        let secrets = ["UV_PUBLISH_TOKEN", "UV_PUBLISH_PASSWORD"]
+            .into_iter()
+            .filter_map(|key| std::env::var(key).ok())
+            .filter(|value| !value.is_empty())
+            .collect();
+        Self {
+            dir: dir.into(),
+            secrets,
+        }
     }
+}
+
+/// `line` with each of `secrets` in it replaced by `****`. uv prints no credentials; this is
+/// in case it ever does.
+pub fn scrub(line: &str, secrets: &[String]) -> String {
+    secrets.iter().fold(line.to_string(), |line, secret| {
+        line.replace(secret.as_str(), "****")
+    })
 }
 
 impl UvClient for RealUvClient {
@@ -128,8 +146,13 @@ impl UvClient for RealUvClient {
             .map_err(UvError::Spawn)?;
         let pid = child.id();
         let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
-        let output =
-            async { tokio::try_join!(child.wait(), read_all(stdout), read_lines(stderr, on_line)) };
+        let output = async {
+            tokio::try_join!(
+                child.wait(),
+                read_all(stdout),
+                read_lines(stderr, on_line, &self.secrets)
+            )
+        };
         tokio::pin!(output);
         let (status, stdout, stderr) = tokio::select! {
             biased;
@@ -163,11 +186,12 @@ async fn read_all(pipe: Option<impl AsyncRead + Unpin>) -> std::io::Result<Vec<u
     Ok(all)
 }
 
-/// Everything `pipe` holds until it closes, handing each line that is not blank to `on_line`,
-/// trimmed, as it arrives.
+/// Everything `pipe` holds until it closes, `secrets` scrubbed, handing each line that is not
+/// blank to `on_line`, trimmed, as it arrives.
 async fn read_lines(
     pipe: Option<impl AsyncRead + Unpin>,
     on_line: &(dyn Fn(&str) + Sync),
+    secrets: &[String],
 ) -> std::io::Result<String> {
     let mut all = String::new();
     let Some(pipe) = pipe else {
@@ -175,7 +199,7 @@ async fn read_lines(
     };
     let mut lines = BufReader::new(pipe).split(b'\n');
     while let Some(line) = lines.next_segment().await? {
-        let line = String::from_utf8_lossy(&line);
+        let line = scrub(&String::from_utf8_lossy(&line), secrets);
         // The indent stays: uv lines up its error blocks with it.
         if !line.trim().is_empty() {
             on_line(line.trim_end());

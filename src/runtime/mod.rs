@@ -20,6 +20,7 @@ use crate::controllers::project::{
     ProjectPaths, check_lock, load_project_info, load_tree, lock, preview_bumps, set_version,
     why_installed,
 };
+use crate::controllers::publish::{publish, published_notice};
 use crate::controllers::versions::list_versions;
 use crate::domain::Membership;
 use crate::index::IndexClient;
@@ -136,6 +137,18 @@ async fn run<U: UvClient, I: IndexClient>(
                 let _ = events.send(Event::Error(
                     "uv could not build the project; the uv log says why".into(),
                 ));
+                return;
+            }
+            Err(e) => Err(e),
+        },
+        // Why, a missing credential or a file the index already has, is in the log.
+        Command::Publish { target, files } => match publish(uv, &target, &files).await {
+            Ok(()) => Ok(published_notice(&files, &target)),
+            Err(UvError::Failed { .. }) => {
+                let _ = events.send(Event::Error(format!(
+                    "uv could not publish to {}; the uv log says why",
+                    target.label()
+                )));
                 return;
             }
             Err(e) => Err(e),

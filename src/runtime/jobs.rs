@@ -131,6 +131,7 @@ fn label(command: &Command) -> String {
         Command::PreviewVersions => "Reading the next versions".into(),
         Command::ListPythons => "Listing Pythons".into(),
         Command::Build => "Building the project".into(),
+        Command::Publish { target, .. } => format!("Publishing to {}", target.label()),
         Command::RecreateEnv { python } => {
             format!("Making the environment with Python {}", python.request())
         }
