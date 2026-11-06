@@ -21,10 +21,13 @@ fn render_message(frame: &mut Frame, area: Rect, message: &Message) {
     frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
+/// How long the spinner shows each of its frames.
+pub const SPINNER_FRAME: Duration = Duration::from_millis(80);
+
 /// The frame of a spinner that has turned for `elapsed`.
 pub fn spinner(elapsed: Duration) -> char {
     const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-    FRAMES[(elapsed.as_millis() / 80 % 10) as usize]
+    FRAMES[(elapsed.as_millis() / SPINNER_FRAME.as_millis() % 10) as usize]
 }
 
 /// The bottom line: what is running, if anything, then the latest message.

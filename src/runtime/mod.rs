@@ -256,10 +256,6 @@ async fn reload(
         groups: load_groups(&paths.pyproject).await,
     });
     let env = load_env_deps(uv, &paths.env).await;
-    let _ = events.send(Event::EnvInfoLoaded {
-        generation,
-        info: load_env_info(paths).await,
-    });
     // A cancel is the runner's to report.
     if let Err(e) = &env
         && !matches!(e, UvError::Cancelled)
@@ -284,6 +280,11 @@ async fn reload(
         let _ = events.send(Event::LockChecked { generation, state });
     }
     send_tree(uv, events, generation, false).await;
+    // Last: measuring a large environment walks thousands of files, which nothing else waits on.
+    let _ = events.send(Event::EnvInfoLoaded {
+        generation,
+        info: load_env_info(paths).await,
+    });
 }
 
 /// Where an add goes, as its notice and label say it: nothing for the main dependencies.

@@ -17,7 +17,7 @@ use crate::ui::Component;
 use crate::ui::components::features::help::{render_footer, render_help};
 use crate::ui::components::features::project_tile::render_project_tile;
 use crate::ui::components::features::uv_log::render_uv_log;
-use crate::ui::components::shared::status_bar::{render_status_line, spinner};
+use crate::ui::components::shared::status_bar::{SPINNER_FRAME, render_status_line, spinner};
 use crate::ui::keymap::{self, Mode};
 use crate::ui::pages::dependencies::DependenciesPage;
 use crate::uv::RealUvClient;
@@ -78,59 +78,78 @@ impl App {
 
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let clock = Instant::now();
+        // Drawn only when something changed: a key, a resize or an event. While a job runs, the
+        // spinner turns, and the `Loading…` of a table counts its seconds, so it is drawn on time.
+        let mut changed = true;
+        let mut drawn = Instant::now();
         loop {
             let mode = self.mode();
-            terminal.draw(|frame| {
-                let [screen, footer] =
-                    Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
-                        .areas(frame.area());
-                let [main, status] =
-                    Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(screen);
-                // The tables get the larger share: their names should not be cut.
-                let [left, right] =
-                    Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
-                        .areas(main);
-                self.page.render(frame, left, &self.state);
-                let packages = match &self.state.deps.env {
-                    Loadable::Loaded(rows) => Some(rows.len()),
-                    _ => None,
-                };
-                let log = render_project_tile(frame, right, &self.state.project, packages);
-                render_uv_log(frame, log, &self.state.jobs);
-                let activity = self
-                    .state
-                    .jobs
-                    .summary()
-                    .map(|summary| format!("{} {summary}", spinner(clock.elapsed())));
-                render_status_line(
-                    frame,
-                    status,
-                    activity.as_deref(),
-                    self.state.message.as_ref(),
-                );
-                render_footer(frame, footer, mode);
-                if self.help {
-                    render_help(frame, screen, &mut self.help_scroll);
-                }
-            })?;
+            let animating = !self.state.jobs.is_idle() && drawn.elapsed() >= SPINNER_FRAME;
+            if changed || animating {
+                changed = false;
+                drawn = Instant::now();
+                self.draw(terminal, mode, clock)?;
+            }
 
-            if event::poll(Duration::from_millis(50))?
-                && let event::Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-                && let Some(action) = keymap::action_for(mode, &Input::Key(key))
-            {
-                self.dispatch(action);
+            if event::poll(Duration::from_millis(50))? {
+                match event::read()? {
+                    event::Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        changed = true;
+                        if let Some(action) = keymap::action_for(mode, &Input::Key(key)) {
+                            self.dispatch(action);
+                        }
+                    }
+                    event::Event::Resize(..) => changed = true,
+                    _ => {}
+                }
             }
 
             // Take in what commands produced
             while let Ok(event) = self.events_rx.try_recv() {
                 self.receive(event);
+                changed = true;
             }
 
             if self.should_quit && self.state.jobs.is_idle() {
                 break;
             }
         }
+        Ok(())
+    }
+
+    fn draw(&mut self, terminal: &mut DefaultTerminal, mode: Mode, clock: Instant) -> Result<()> {
+        terminal.draw(|frame| {
+            let [screen, footer] =
+                Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
+            let [main, status] =
+                Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(screen);
+            // The tables get the larger share: their names should not be cut.
+            let [left, right] =
+                Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
+                    .areas(main);
+            self.page.render(frame, left, &self.state);
+            let packages = match &self.state.deps.env {
+                Loadable::Loaded(rows) => Some(rows.len()),
+                _ => None,
+            };
+            let log = render_project_tile(frame, right, &self.state.project, packages);
+            render_uv_log(frame, log, &self.state.jobs);
+            let activity = self
+                .state
+                .jobs
+                .summary()
+                .map(|summary| format!("{} {summary}", spinner(clock.elapsed())));
+            render_status_line(
+                frame,
+                status,
+                activity.as_deref(),
+                self.state.message.as_ref(),
+            );
+            render_footer(frame, footer, mode);
+            if self.help {
+                render_help(frame, screen, &mut self.help_scroll);
+            }
+        })?;
         Ok(())
     }
 
