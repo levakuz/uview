@@ -35,21 +35,20 @@ async fn main() -> Result<()> {
     // as it was started in (ADR-0011).
     let configured = std::env::var("UV_PROJECT_ENVIRONMENT").ok();
     let paths = controllers::project::ProjectPaths::at(root, configured.as_deref());
-    let (theme, problem) = choose_theme();
+    let config = config::config_path(|key| std::env::var(key).ok(), cfg!(windows));
+    let (theme, problem) = choose_theme(config.as_deref());
     set_theme(theme);
-    let mut app = app::App::new(paths, problem);
+    let mut app = app::App::new(paths, config, problem);
     app.run().await
 }
 
-/// The theme to draw with, from the settings file and the terminal, and what is wrong with the
-/// file, if anything: a file uview cannot use is reported, never fatal.
-fn choose_theme() -> (Theme, Option<String>) {
-    let path = config::config_path(|key| std::env::var(key).ok(), cfg!(windows));
+/// The theme to draw with, from the settings file at `path` and the terminal, and what is wrong
+/// with the file, if anything: a file uview cannot use is reported, never fatal.
+fn choose_theme(path: Option<&Path>) -> (Theme, Option<String>) {
     let name = path
-        .as_deref()
         .and_then(Path::file_name)
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-    let (config, mut problems) = match path.as_deref().map(std::fs::read_to_string) {
+    let (config, mut problems) = match path.map(std::fs::read_to_string) {
         Some(Ok(text)) => match config::parse(&text) {
             Ok(read) => read,
             Err(e) => (Config::default(), vec![e]),

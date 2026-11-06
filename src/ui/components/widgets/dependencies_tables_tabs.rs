@@ -634,12 +634,13 @@ impl DependenciesTablesTabs {
                 return vec![Command::Lock { upgrade: *upgrade }];
             }
             Action::Deps(DepsAction::Refresh) => return vec![Command::Reload],
-            // Confirm and Type only mean something in an input; Quit, Cancel and Help belong to
-            // the app.
+            // Confirm and Type only mean something in an input; Quit, Cancel, Help and the
+            // settings file belong to the app.
             Action::Nav(NavAction::Confirm | NavAction::Type(_))
             | Action::Quit
             | Action::Cancel
-            | Action::Help => {}
+            | Action::Help
+            | Action::WriteConfig => {}
         }
         Vec::new()
     }

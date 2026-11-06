@@ -20,8 +20,7 @@ The theme also has to suit the terminal's background, which most terminals tell 
 
 ## Decision
 
-We will read one optional settings file, which uview never writes, from where uv keeps
-`uv.toml`: `$XDG_CONFIG_HOME/uview/config.toml`, else `~/.config/uview/config.toml` on macOS
+We will read one optional settings file from where uv keeps `uv.toml`: `$XDG_CONFIG_HOME/uview/config.toml`, else `~/.config/uview/config.toml` on macOS
 and Linux, and `%APPDATA%\uview\config.toml` on Windows. `UVIEW_CONFIG_FILE` names another
 file instead.
 
@@ -29,6 +28,9 @@ It is TOML. `theme` chooses the built-in theme, `dark` or `light`, and `[colors]
 role's colour as ratatui parses it: a name, `reset`, `0`–`255` or `#rrggbb`. A key that means
 nothing, or a colour that does not parse, is reported on the status line; uview starts anyway,
 with the theme's colour for anything it could not read.
+
+uview writes the file only when asked, with `C`: a template with every line commented out and
+each role at the colour it draws with, and never over a file that is there.
 
 Without `theme`, uview asks the terminal for its background before it takes over the screen,
 with `terminal-colorsaurus`, and starts dark if the terminal does not answer.

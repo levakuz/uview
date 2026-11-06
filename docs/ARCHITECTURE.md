@@ -188,7 +188,7 @@ root, its Python, the environment table's package count and its size on disk.
 ```
 src/
 ├── main.rs                 # tokio entry point; finds the project root, or offers uv init; resolves its paths; chooses the theme
-├── config.rs               # the user's settings file (ADR-0016): where it is, the theme it chooses, its colours
+├── config.rs               # the user's settings file (ADR-0016): where it is, the theme it chooses, its colours; the template C writes
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, the help
 ├── message.rs              # Input / Action / Command / Event

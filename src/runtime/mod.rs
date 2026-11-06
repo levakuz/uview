@@ -6,6 +6,7 @@ pub mod jobs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
+use crate::config::{shown, write_new};
 use crate::controllers::build::{build, built_notice, dist_dir};
 use crate::controllers::dependencies::{
     add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
@@ -125,6 +126,22 @@ async fn run<U: UvClient, I: IndexClient>(
             }
             Err(e) => Err(e),
         },
+        // A file that is there is the user's: it is never written over.
+        Command::WriteConfig { path, contents } => {
+            let file = shown(&path, std::env::var("HOME").ok().as_deref());
+            match write_new(&path, &contents).await {
+                Ok(()) => Ok(format!(
+                    "Wrote {file}: uncomment a line, then restart uview"
+                )),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(format!(
+                    "{file} is there already: edit it, then restart uview"
+                )),
+                Err(e) => {
+                    let _ = events.send(Event::Error(format!("could not write {file}: {e}")));
+                    return;
+                }
+            }
+        }
         // The backend's output, which says why, is in the log.
         Command::Build => match build(uv, paths).await {
             Ok(built) => {

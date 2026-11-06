@@ -227,6 +227,11 @@ const TABLE: &[Binding] = &[
         help: "Build with uv build (B), or publish the last build (U)",
     },
     Binding {
+        keys: &[(Key::char('C'), Action::WriteConfig)],
+        hints: &[],
+        help: "Write a settings file for the colours, if there is none",
+    },
+    Binding {
         keys: &[(Key::char('g'), Action::Deps(DepsAction::OpenGroups))],
         hints: &[],
         help: "Manage the dependency groups: create, rename, delete",

@@ -199,3 +199,80 @@ fn what_cannot_be_read_is_said_and_the_rest_kept() -> Result<(), String> {
     assert!(parse("theme = \n").is_err());
     Ok(())
 }
+
+#[test]
+fn the_template_changes_nothing_until_a_line_is_uncommented() -> Result<(), String> {
+    use uview::config::template;
+    let current = Theme {
+        success: Color::Rgb(0x2e, 0x7d, 0x32),
+        ..Theme::LIGHT
+    };
+    let text = template(&current);
+    // As written, every line is a comment.
+    assert_eq!(parse(&text)?, (Config::default(), Vec::new()));
+    // Uncommented, each role is at the colour it was written from, and nothing is unknown.
+    let uncommented: String = text
+        .lines()
+        .map(|line| {
+            line.strip_prefix("# ")
+                .filter(|l| l.contains(" = "))
+                .unwrap_or(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (config, unknown) = parse(&uncommented)?;
+    assert!(unknown.is_empty());
+    assert_eq!(config.theme, Some(Base::Light));
+    let (theme, problems) = themed(Theme::DARK, &config.colors);
+    assert!(problems.is_empty());
+    assert_eq!(theme, current);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_settings_file_that_is_there_is_never_written_over()
+-> Result<(), Box<dyn std::error::Error>> {
+    use uview::config::write_new;
+    let dir = std::env::temp_dir().join(format!("uview-config-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join("uview").join("config.toml");
+    write_new(&path, "theme = \"light\"\n").await?;
+    assert_eq!(std::fs::read_to_string(&path)?, "theme = \"light\"\n");
+    let again = write_new(&path, "theme = \"dark\"\n").await;
+    assert!(again.is_err_and(|e| e.kind() == std::io::ErrorKind::AlreadyExists));
+    assert_eq!(std::fs::read_to_string(&path)?, "theme = \"light\"\n");
+    std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
+#[test]
+fn shift_c_asks_for_a_settings_file_in_the_tables_and_the_tree() {
+    use crossterm::event::{KeyCode, KeyEvent};
+    use uview::message::{Action, Input};
+    use uview::ui::keymap::{Mode, action_for};
+    let c = Input::Key(KeyEvent::from(KeyCode::Char('C')));
+    for mode in [Mode::Table, Mode::Tree] {
+        assert_eq!(action_for(mode, &c), Some(Action::WriteConfig), "{mode:?}");
+    }
+    // In an input, it is typed.
+    assert!(matches!(
+        action_for(Mode::Input, &c),
+        Some(Action::Nav(uview::message::NavAction::Type(_)))
+    ));
+}
+
+#[test]
+fn the_file_is_shown_from_home() {
+    use std::path::Path;
+    use uview::config::shown;
+    let path = Path::new("/home/jane/.config/uview/config.toml");
+    assert_eq!(
+        shown(path, Some("/home/jane")),
+        "~/.config/uview/config.toml"
+    );
+    assert_eq!(
+        shown(path, Some("/home/jo")),
+        "/home/jane/.config/uview/config.toml"
+    );
+    assert_eq!(shown(path, None), "/home/jane/.config/uview/config.toml");
+}

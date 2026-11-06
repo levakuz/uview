@@ -143,6 +143,7 @@ there. Quitting cancels the same way.
 | `s` | Sync the environment with `uv sync`. |
 | `B` | Build the project's sdist and wheel with `uv build`; at a workspace root without a `[project]` of its own, every member's, with `--all-packages`. The uv log shows the build as it runs, and why it failed, if it does. Once it succeeds, a list shows each file it wrote to `dist/` with its size, under **Publish…**; `Esc` closes it. Older files in `dist/` are left as they are. |
 | `U` | Publish the last build with `uv publish`, as **Publish…** does after `B`: choose PyPI, TestPyPI or a project index with a `publish-url`, then confirm. The confirmation names the index, its upload URL, each file and where uv will take credentials from. uview passes no credentials and asks for none: set `UV_PUBLISH_TOKEN` (or `UV_PUBLISH_USERNAME` and `UV_PUBLISH_PASSWORD`, or `UV_KEYRING_PROVIDER=subprocess` for a keyring) before starting it. Their values are kept out of the uv log. Only the files the last build wrote are uploaded, never the rest of `dist/`. To rehearse, publish to TestPyPI. |
+| `C` | Write the settings file, `~/.config/uview/config.toml`, with every line commented out, to change the colours in (see [Colours](#colours)). A file that is there is left alone. |
 | `e` | Manage the environment. **Make it anew with another Python…** lists every Python uv finds or can download, and runs `uv sync --python` with the one chosen. **Empty it, then install the project again** runs `uv venv --clear`, then `uv sync`. **Delete it** asks first, then removes the directory; uv has no command for this, so uview deletes it only if it holds `pyvenv.cfg` and is not the project root or above it. `s` makes it again. |
 | `r` | Read both tables again, for changes made outside uview. |
 | `v` | Change the project's version. The list shows what each bump makes, e.g. `minor → 0.5.0`, as `uv version --bump … --dry-run` says; Enter writes it with `uv version --bump`. **Set version…** takes a version typed in. |
@@ -161,9 +162,11 @@ palette decides how they look and a terminal limited to 16 colours shows them al
 terminal for its background at startup and takes the theme that suits it; a terminal that does
 not answer gets the dark one.
 
-To choose for yourself, or to change a colour, write `~/.config/uview/config.toml`
+To choose for yourself, or to change a colour, edit `~/.config/uview/config.toml`
 (`$XDG_CONFIG_HOME/uview/config.toml` if that is set, `%APPDATA%\uview\config.toml` on Windows,
-or any file `UVIEW_CONFIG_FILE` names). Every line is optional:
+or any file `UVIEW_CONFIG_FILE` names). Press `C` in uview to write it with every line
+commented out and each colour as it is now; a file that is there is left alone. uview reads it
+as it starts. Every line is optional:
 
 ```toml
 theme = "light"        # or "dark"; set, uview does not ask the terminal
