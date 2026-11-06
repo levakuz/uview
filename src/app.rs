@@ -78,6 +78,7 @@ impl App {
         self.state.deps.env = Loadable::Loading { since };
         self.state.project.info = Loadable::Loading { since };
         self.runner.execute(Command::Reload);
+        self.runner.execute(Command::CheckUv);
 
         // Restore whatever the loop returns: an I/O error must not leave the terminal raw.
         let result = self.event_loop(&mut terminal);

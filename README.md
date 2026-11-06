@@ -17,12 +17,39 @@ binary, except deleting a group a removal left empty, which uv has no command fo
 
 ## Requirements
 
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) on `PATH`. uview is
-  tested with uv 0.8.
-- Rust, installed through [rustup](https://rustup.rs). The toolchain is pinned in
-  `rust-toolchain.toml`, and rustup installs it on the first build.
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.8.0 or newer on `PATH`
+  to run uview; installing it does not need uv. uview says so on the bottom line when uv
+  is missing or too old.
 
 ## Install
+
+uview is on PyPI as a wheel that holds its binary, for Linux (glibc and musl, x86_64 and
+aarch64), macOS (x86_64 and arm64) and Windows (x86_64). Any of these puts `uview` on `PATH`:
+
+```bash
+uv tool install uview
+```
+
+```bash
+pipx install uview
+```
+
+```bash
+pip install uview
+```
+
+or run it once without installing it:
+
+```bash
+uvx uview
+```
+
+pip needs Python 3.8 or newer and pip 21.2 or newer; uview itself runs no Python. On any
+other platform pip builds it from the source distribution, which needs a Rust toolchain
+([rustup](https://rustup.rs)).
+
+To build it from the repository instead, with the toolchain pinned in `rust-toolchain.toml`,
+which rustup installs on the first build:
 
 ```bash
 git clone https://github.com/levakuz/uview.git
@@ -30,7 +57,7 @@ cd uview
 cargo install --path . --locked
 ```
 
-This puts the `uview` binary in `~/.cargo/bin`.
+This puts the `uview` binary in `~/.cargo/bin`. `uview --version` says which one you have.
 
 ## Usage
 

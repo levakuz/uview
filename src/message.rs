@@ -132,6 +132,8 @@ pub enum Command {
         path: PathBuf,
         contents: String,
     },
+    /// Say so if the uv on PATH is too old for uview.
+    CheckUv,
     /// Build the project's sdist and wheel with `uv build`.
     Build,
     /// Upload `files` to `target` with `uv publish`.

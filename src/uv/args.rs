@@ -132,6 +132,8 @@ pub fn init_args<'a>(dir: &'a str, name: Option<&'a str>) -> Vec<&'a str> {
 /// Reads the project's name and version as JSON. Given no new version, `uv version` neither
 /// locks nor syncs.
 pub const VERSION: [&str; 3] = ["version", "--output-format", "json"];
+/// uv's own version, as `uv 0.8.9 (68c0bf8a2 2025-08-11)`.
+pub const UV_VERSION: [&str; 1] = ["--version"];
 
 /// `uv version` arguments that make `change`, or with `dry_run` only say what it would make.
 /// Either way uv answers with the new version as JSON.
