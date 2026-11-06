@@ -32,10 +32,11 @@ fn tabs_leave_the_table_its_own_colours() -> Result<(), Box<dyn std::error::Erro
     for x in [0, 38, 39] {
         assert_eq!(buffer[(x, 0)].fg, Color::Cyan, "x = {x}");
     }
-    // ...the divider and the inactive tab are white, and the active tab green and bold.
-    assert_eq!(buffer[(17, 0)].fg, Color::White);
-    assert_eq!(buffer[(19, 0)].fg, Color::White);
-    assert_eq!(buffer[(33, 0)].fg, Color::White);
+    // ...the divider and the inactive tab are the terminal's own text colour, which shows on a
+    // light background as on a dark one, and the active tab green and bold.
+    assert_eq!(buffer[(17, 0)].fg, Color::Reset);
+    assert_eq!(buffer[(19, 0)].fg, Color::Reset);
+    assert_eq!(buffer[(33, 0)].fg, Color::Reset);
     assert_eq!(buffer[(2, 0)].fg, Color::Green);
     assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
     // The header keeps the terminal's default colour.
@@ -48,7 +49,7 @@ fn tabs_leave_the_table_its_own_colours() -> Result<(), Box<dyn std::error::Erro
     );
     let buffer = render(&mut tabs, 40)?;
     assert_eq!(buffer[(0, 0)].fg, Color::Cyan);
-    assert_eq!(buffer[(2, 0)].fg, Color::White);
+    assert_eq!(buffer[(2, 0)].fg, Color::Reset);
     assert_eq!(buffer[(19, 0)].fg, Color::Green);
     // Round: on to the tree, then on to pyproject.toml; `[` goes back.
     let next = Action::Deps(DepsAction::SwitchTable);

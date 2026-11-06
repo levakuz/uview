@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::ui::components::shared::popup::{Popup, PopupSize};
 use crate::ui::keymap::{self, Mode};
+use crate::ui::theme::theme;
 
 /// The bottom line: the keys that work in `mode`, each with a word on what it does.
 pub fn render_footer(frame: &mut Frame, area: Rect, mode: Mode) {
@@ -16,8 +17,8 @@ pub fn render_footer(frame: &mut Frame, area: Rect, mode: Mode) {
         if !spans.is_empty() {
             spans.push("  ".into());
         }
-        spans.push(keys.white());
-        spans.push(format!(" {hint}").dark_gray());
+        spans.push(keys.fg(theme().text));
+        spans.push(format!(" {hint}").fg(theme().muted));
     }
     frame.render_widget(Line::from(spans), area);
 }
@@ -34,7 +35,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, scroll: &mut u16) {
         .unwrap_or(0);
     let mut lines = Vec::new();
     for (place, bindings) in groups {
-        lines.push(Line::from(place).green().bold());
+        lines.push(Line::from(place).fg(theme().success).bold());
         for (keys, help) in bindings.iter().map(keymap::Binding::help) {
             lines.push(Line::from(vec![
                 format!("  {keys:keys_width$}  ").bold(),

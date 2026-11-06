@@ -143,6 +143,7 @@ there. Quitting cancels the same way.
 | `s` | Sync the environment with `uv sync`. |
 | `B` | Build the project's sdist and wheel with `uv build`; at a workspace root without a `[project]` of its own, every member's, with `--all-packages`. The uv log shows the build as it runs, and why it failed, if it does. Once it succeeds, a list shows each file it wrote to `dist/` with its size, under **Publish…**; `Esc` closes it. Older files in `dist/` are left as they are. |
 | `U` | Publish the last build with `uv publish`, as **Publish…** does after `B`: choose PyPI, TestPyPI or a project index with a `publish-url`, then confirm. The confirmation names the index, its upload URL, each file and where uv will take credentials from. uview passes no credentials and asks for none: set `UV_PUBLISH_TOKEN` (or `UV_PUBLISH_USERNAME` and `UV_PUBLISH_PASSWORD`, or `UV_KEYRING_PROVIDER=subprocess` for a keyring) before starting it. Their values are kept out of the uv log. Only the files the last build wrote are uploaded, never the rest of `dist/`. To rehearse, publish to TestPyPI. |
+| `C` | Write the settings file, `~/.config/uview/config.toml`, with every line commented out, to change the colours in (see [Colours](#colours)). A file that is there is left alone. |
 | `e` | Manage the environment. **Make it anew with another Python…** lists every Python uv finds or can download, and runs `uv sync --python` with the one chosen. **Empty it, then install the project again** runs `uv venv --clear`, then `uv sync`. **Delete it** asks first, then removes the directory; uv has no command for this, so uview deletes it only if it holds `pyvenv.cfg` and is not the project root or above it. `s` makes it again. |
 | `r` | Read both tables again, for changes made outside uview. |
 | `v` | Change the project's version. The list shows what each bump makes, e.g. `minor → 0.5.0`, as `uv version --bump … --dry-run` says; Enter writes it with `uv version --bump`. **Set version…** takes a version typed in. |
@@ -153,3 +154,32 @@ there. Quitting cancels the same way.
 
 While you type into an input, every key except `Enter`, `Esc` and `Ctrl+C` goes into the
 field. While the actions list is open, only its keys work, with `?`, `q` and `Ctrl+C`.
+
+### Colours
+
+uview comes with a dark and a light theme, both of the 16 ANSI colours, so your terminal's own
+palette decides how they look and a terminal limited to 16 colours shows them all. It asks the
+terminal for its background at startup and takes the theme that suits it; a terminal that does
+not answer gets the dark one.
+
+To choose for yourself, or to change a colour, edit `~/.config/uview/config.toml`
+(`$XDG_CONFIG_HOME/uview/config.toml` if that is set, `%APPDATA%\uview\config.toml` on Windows,
+or any file `UVIEW_CONFIG_FILE` names). Press `C` in uview to write it with every line
+commented out and each colour as it is now; a file that is there is left alone. uview reads it
+as it starts. Every line is optional:
+
+```toml
+theme = "light"        # or "dark"; set, uview does not ask the terminal
+
+[colors]
+text    = "reset"      # the project's name, the tabs, the keys: "reset" is the terminal's own
+accent  = "blue"       # what has the focus, what is running
+muted   = "darkgray"   # hints, placeholders, borders without the focus
+warning = "magenta"    # a stale uv.lock, a package behind
+error   = "red"
+success = "#2e7d32"    # notices, the active tab
+```
+
+A colour is a name (`red`, `lightred`, `bright red`, `darkgray`), `reset`, a number from `0`
+to `255`, or `#rrggbb`; the last two need a terminal that has those colours. If the file has a
+mistake, the bottom line says what it is, and uview uses the theme's colour instead.

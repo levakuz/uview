@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -7,6 +8,7 @@ use ratatui::DefaultTerminal;
 use ratatui::layout::{Constraint, Layout};
 use tokio::sync::mpsc;
 
+use crate::config::template;
 use crate::controllers::project::ProjectPaths;
 use crate::controllers::publish::credentials;
 use crate::index::RealIndexClient;
@@ -20,6 +22,7 @@ use crate::ui::components::features::uv_log::render_uv_log;
 use crate::ui::components::shared::status_bar::{SPINNER_FRAME, render_status_line, spinner};
 use crate::ui::keymap::{self, Mode};
 use crate::ui::pages::dependencies::DependenciesPage;
+use crate::ui::theme::theme;
 use crate::uv::RealUvClient;
 
 pub struct App {
@@ -29,8 +32,10 @@ pub struct App {
     help: bool,
     /// How far the help is scrolled down, in rows.
     help_scroll: u16,
-    /// What the app knows. Only `receive` and Esc change it.
+    /// What the app knows. Only `receive`, Esc and a settings file with nowhere to go change it.
     state: AppState,
+    /// Where the settings file is, or would be; `None` with nowhere to put one.
+    config: Option<PathBuf>,
     /// Runs the commands the page returns.
     runner: JobRunner<RealUvClient, RealIndexClient>,
     /// Where the runner reports what commands produced.
@@ -38,7 +43,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(paths: ProjectPaths) -> Self {
+    /// The app for the project at `paths`, with the settings file at `config`, if there is a
+    /// place for one; `problem` says what was wrong with it, until a later message replaces it.
+    pub fn new(paths: ProjectPaths, config: Option<PathBuf>, problem: Option<String>) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded_channel();
         let mut project = ProjectState::new(paths.root.display().to_string());
         project.credentials = credentials(|key| std::env::var(key).ok());
@@ -49,8 +56,10 @@ impl App {
             help_scroll: 0,
             state: AppState {
                 project,
+                message: problem.map(Message::Error),
                 ..AppState::default()
             },
+            config,
             runner: JobRunner::new(
                 Arc::new(RealUvClient::new(&paths.root)),
                 Arc::new(RealIndexClient::new()),
@@ -173,6 +182,17 @@ impl App {
                 self.should_quit = true;
             }
             Action::Cancel => self.runner.cancel(),
+            Action::WriteConfig => match &self.config {
+                Some(path) => self.runner.execute(Command::WriteConfig {
+                    path: path.clone(),
+                    contents: template(theme()),
+                }),
+                None => {
+                    let reason = "no HOME, XDG_CONFIG_HOME or UVIEW_CONFIG_FILE to put it under";
+                    let message = format!("Nowhere to write a settings file: {reason}");
+                    self.state.message = Some(Message::Error(message));
+                }
+            },
             Action::Help => {
                 self.help = !self.help;
                 self.help_scroll = 0;

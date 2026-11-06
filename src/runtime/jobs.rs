@@ -120,6 +120,7 @@ fn mutates(command: &Command) -> bool {
             | Command::ListVersions { .. }
             | Command::LoadTree { .. }
             | Command::ListPythons
+            | Command::WriteConfig { .. }
             | Command::WhyInstalled { .. }
     )
 }
@@ -131,6 +132,7 @@ fn label(command: &Command) -> String {
         Command::PreviewVersions => "Reading the next versions".into(),
         Command::ListPythons => "Listing Pythons".into(),
         Command::Build => "Building the project".into(),
+        Command::WriteConfig { .. } => "Writing the settings file".into(),
         Command::Publish { target, .. } => format!("Publishing to {}", target.label()),
         Command::RecreateEnv { python } => {
             format!("Making the environment with Python {}", python.request())

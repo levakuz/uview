@@ -5,6 +5,7 @@ use ratatui::{
 
 use crate::domain::TreeNode;
 use crate::ui::components::shared::tree_view::TreeRow;
+use crate::ui::theme::theme;
 
 impl TreeRow for TreeNode {
     fn depth(&self) -> usize {
@@ -33,13 +34,13 @@ impl TreeRow for TreeNode {
         spans.extend(
             self.notes
                 .iter()
-                .map(|note| format!("  {note}").dark_gray()),
+                .map(|note| format!("  {note}").fg(theme().muted)),
         );
         if self.repeated {
-            spans.push("  (*)".dark_gray());
+            spans.push("  (*)".fg(theme().muted));
         }
         if let Some(latest) = &self.latest {
-            spans.push(format!("  latest: {latest}").yellow());
+            spans.push(format!("  latest: {latest}").fg(theme().warning));
         }
         Line::from(spans)
     }

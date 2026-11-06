@@ -1,5 +1,7 @@
 //! The messages that move through the app, split by direction of travel (ADR-0001).
 
+use std::path::PathBuf;
+
 use crossterm::event::KeyEvent;
 
 use crate::domain::{
@@ -22,6 +24,8 @@ pub enum Action {
     Cancel,
     /// Open or close the help.
     Help,
+    /// Write a settings file to edit, unless there is one.
+    WriteConfig,
     Nav(NavAction),
     Deps(DepsAction),
 }
@@ -122,6 +126,11 @@ pub enum Command {
     /// with `uv lock --upgrade`.
     Lock {
         upgrade: bool,
+    },
+    /// Write `contents` to the settings file at `path`, unless a file is there.
+    WriteConfig {
+        path: PathBuf,
+        contents: String,
     },
     /// Build the project's sdist and wheel with `uv build`.
     Build,
