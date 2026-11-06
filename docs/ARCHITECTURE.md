@@ -187,7 +187,8 @@ root, its Python, the environment table's package count and its size on disk.
 
 ```
 src/
-├── main.rs                 # tokio entry point; finds the project root, or offers uv init; resolves its paths
+├── main.rs                 # tokio entry point; finds the project root, or offers uv init; resolves its paths; chooses the theme
+├── config.rs               # the user's settings file (ADR-0016): where it is, the theme it chooses, its colours
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, the help
 ├── message.rs              # Input / Action / Command / Event
@@ -216,6 +217,7 @@ src/
 └── ui/
     ├── mod.rs              # Component trait
     ├── keymap.rs           # Input × Mode → Action, one table; the footer and the help read it too
+    ├── theme.rs            # Theme: the colour of each role, dark and light; the one chosen at startup
     ├── pages/
     │   └── dependencies.rs # DependenciesPage — its mode, and the version popup over it; drawn in the left 60%
     └── components/
@@ -281,6 +283,11 @@ concept or a specific screen, it belongs in `features`. If it is parameterised o
 trait and would work unchanged in a different TUI, it belongs in `shared`. The reverse
 direction is enforced by `tests/architecture.rs` (`shared-no-domain`): nothing in `shared/`
 may name a domain type or a controller.
+
+**Colours** come from `ui/theme.rs` alone, by role: `text`, `accent`, `muted`, `warning`,
+`error` and `success`. `main.rs` chooses the theme once, before the first frame, from the
+settings file or the terminal's background (ADR-0016), and every view reads it through
+`theme()`. No colour is written anywhere else under `src/ui/` (`colours-from-the-theme`).
 
 ## 7. The `Component` trait
 
@@ -459,6 +466,7 @@ this document into a failing test, using only the standard library:
 | `index-bottom-layer` | nothing under `src/index/` references ratatui, a controller, the runtime, the messages, the UI or the uv layer (§2, ADR-0012) |
 | `only-index-requests` | nothing under `src/` but `src/index/` uses `reqwest` (ADR-0012) |
 | `no-working-directory` | nothing under `src/` changes the working directory or names a path relative to it (ADR-0011) |
+| `colours-from-the-theme` | nothing under `src/ui/` but `src/ui/theme.rs` names a colour (§6, #33) |
 | `no-tests-in-src` | no `#[test]` or `#[cfg(test)]` under `src/` (this section) |
 
 Known violations sit in an allowlist, each with the issue that removes it; it is empty

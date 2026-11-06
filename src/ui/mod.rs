@@ -1,6 +1,7 @@
 pub mod components;
 pub mod keymap;
 pub mod pages;
+pub mod theme;
 
 use ratatui::Frame;
 use ratatui::layout::Rect;

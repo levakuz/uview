@@ -68,7 +68,7 @@ fn the_footer_lists_the_keys_that_work_where_the_focus_is() -> Result<(), Box<dy
     let buffer = table.backend().buffer();
     assert_eq!(
         (buffer[(0, 0)].fg, buffer[(6, 0)].fg),
-        (Color::White, Color::DarkGray)
+        (Color::Reset, Color::DarkGray)
     );
     assert_eq!(
         rows(&footer(Mode::Actions)?)[0].trim_end(),

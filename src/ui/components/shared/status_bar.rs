@@ -9,13 +9,17 @@ use ratatui::{
 };
 
 use crate::state::Message;
+use crate::ui::theme::theme;
 
 /// `message` on a single line: uv's stderr spans several, so they are flattened, and the
 /// widget clips at the width.
 fn render_message(frame: &mut Frame, area: Rect, message: &Message) {
     let (text, style) = match message {
-        Message::Error(msg) => (format!("Error: {msg}"), Style::new().red().bold()),
-        Message::Info(msg) => (msg.clone(), Style::new().green()),
+        Message::Error(msg) => (
+            format!("Error: {msg}"),
+            Style::new().fg(theme().error).bold(),
+        ),
+        Message::Info(msg) => (msg.clone(), Style::new().fg(theme().success)),
     };
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     frame.render_widget(Paragraph::new(text).style(style), area);
@@ -38,7 +42,7 @@ pub fn render_status_line(
     message: Option<&Message>,
 ) {
     if let Some(activity) = activity {
-        let activity = Line::raw(activity).cyan();
+        let activity = Line::raw(activity).fg(theme().accent);
         let [shown, rest] = Layout::horizontal([
             Constraint::Length(activity.width() as u16),
             Constraint::Min(0),

@@ -72,7 +72,7 @@ fn the_project_tile_is_titled_with_the_projects_name_and_version() -> Result<(),
     assert!(!buffer[(14, 0)].modifier.contains(Modifier::BOLD));
     assert_eq!(
         (buffer[(2, 0)].fg, buffer[(14, 0)].fg),
-        (Color::White, Color::White)
+        (Color::Reset, Color::Reset)
     );
     Ok(())
 }

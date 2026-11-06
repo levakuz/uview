@@ -153,3 +153,30 @@ there. Quitting cancels the same way.
 
 While you type into an input, every key except `Enter`, `Esc` and `Ctrl+C` goes into the
 field. While the actions list is open, only its keys work, with `?`, `q` and `Ctrl+C`.
+
+### Colours
+
+uview comes with a dark and a light theme, both of the 16 ANSI colours, so your terminal's own
+palette decides how they look and a terminal limited to 16 colours shows them all. It asks the
+terminal for its background at startup and takes the theme that suits it; a terminal that does
+not answer gets the dark one.
+
+To choose for yourself, or to change a colour, write `~/.config/uview/config.toml`
+(`$XDG_CONFIG_HOME/uview/config.toml` if that is set, `%APPDATA%\uview\config.toml` on Windows,
+or any file `UVIEW_CONFIG_FILE` names). Every line is optional:
+
+```toml
+theme = "light"        # or "dark"; set, uview does not ask the terminal
+
+[colors]
+text    = "reset"      # the project's name, the tabs, the keys: "reset" is the terminal's own
+accent  = "blue"       # what has the focus, what is running
+muted   = "darkgray"   # hints, placeholders, borders without the focus
+warning = "magenta"    # a stale uv.lock, a package behind
+error   = "red"
+success = "#2e7d32"    # notices, the active tab
+```
+
+A colour is a name (`red`, `lightred`, `bright red`, `darkgray`), `reset`, a number from `0`
+to `255`, or `#rrggbb`; the last two need a terminal that has those colours. If the file has a
+mistake, the bottom line says what it is, and uview uses the theme's colour instead.

@@ -1,8 +1,9 @@
+use crate::ui::theme::theme;
 use ratatui::{
     Frame,
     crossterm::event::{Event, KeyEvent},
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, Paragraph},
 };
 use tui_input::Input;
@@ -82,7 +83,7 @@ impl UviewInput {
         let scroll = self.input.visual_scroll(width as usize);
         let style = match self.input_mode {
             InputMode::Normal => Style::default(),
-            InputMode::Editing => Color::Yellow.into(),
+            InputMode::Editing => theme().warning.into(),
         };
         let input = Paragraph::new(self.input.value())
             .style(style)

@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::ui::theme::theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
@@ -105,9 +106,9 @@ impl<T: TableRow> SharedTable<T> {
         let table_rows: Vec<Row> = cells.into_iter().map(Row::new).collect();
 
         let border_style = if self.focused {
-            Style::new().cyan()
+            Style::new().fg(theme().accent)
         } else {
-            Style::new().dark_gray()
+            Style::new().fg(theme().muted)
         };
 
         let highlight_style = if self.focused {

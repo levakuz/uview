@@ -1,3 +1,4 @@
+pub mod config;
 pub mod controllers;
 pub mod domain;
 pub mod index;

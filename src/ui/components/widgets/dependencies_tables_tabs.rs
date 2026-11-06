@@ -1,3 +1,4 @@
+use crate::ui::theme::theme;
 use crate::{
     domain::{
         EnvDependency, Membership, PyprojectDependency, Source, TreeNode, bare_name, normalize_name,
@@ -243,18 +244,18 @@ impl DependenciesTablesTabs {
     fn tabs(&self) -> Line<'static> {
         let tab = |name: String, active: bool| {
             if active {
-                name.green().bold()
+                name.fg(theme().success).bold()
             } else {
-                name.white()
+                name.fg(theme().text)
             }
         };
         let active = |table| self.active_table == table;
         Line::from(vec![
             " ".into(),
             tab("pyproject.toml".into(), active(ActiveTable::Pyproject)),
-            " • ".white(),
+            " • ".fg(theme().text),
             tab("Environment".into(), active(ActiveTable::Environment)),
-            " • ".white(),
+            " • ".fg(theme().text),
             // A "why" names its package in place of the tree.
             tab(
                 self.why_of
@@ -297,7 +298,7 @@ impl DependenciesTablesTabs {
                             loaded.rows(),
                             placeholder(loaded, "Nothing pulls it in", "Could not tell"),
                         ),
-                        _ => (&[][..], Text::from("Loading…").dark_gray()),
+                        _ => (&[][..], Text::from("Loading…").fg(theme().muted)),
                     };
                     self.why_view.render(frame, area, rows, tabs, placeholder);
                 }
@@ -305,7 +306,7 @@ impl DependenciesTablesTabs {
                     let placeholder = match &deps.tree {
                         // uv's words for a project never locked.
                         Loadable::Failed(reason) if reason.contains("lockfile") => {
-                            Text::from("No uv.lock yet. Press l to lock.").dark_gray()
+                            Text::from("No uv.lock yet. Press l to lock.").fg(theme().muted)
                         }
                         tree => placeholder(tree, "No dependencies", "Could not read the tree"),
                     };
@@ -828,10 +829,10 @@ fn placeholder<T>(loadable: &Loadable<Vec<T>>, empty: &'static str, failed: &str
         Loadable::NotLoaded => Text::default(),
         Loadable::Loading { since } => match since.elapsed().as_secs() {
             // A slow load says how long it has taken.
-            waited @ 2.. => Text::from(format!("Loading… {waited}s")).dark_gray(),
-            _ => Text::from("Loading…").dark_gray(),
+            waited @ 2.. => Text::from(format!("Loading… {waited}s")).fg(theme().muted),
+            _ => Text::from("Loading…").fg(theme().muted),
         },
-        Loadable::Loaded(_) => Text::from(empty).dark_gray(),
-        Loadable::Failed(reason) => Text::from(format!("{failed}: {reason}")).red(),
+        Loadable::Loaded(_) => Text::from(empty).fg(theme().muted),
+        Loadable::Failed(reason) => Text::from(format!("{failed}: {reason}")).fg(theme().error),
     }
 }

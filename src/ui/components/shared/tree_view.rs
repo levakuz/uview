@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::ui::theme::theme;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -167,7 +168,7 @@ impl TreeView {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .border_style(Style::new().cyan());
+            .border_style(Style::new().fg(theme().accent));
         if rows.is_empty() {
             let paragraph = Paragraph::new(placeholder)
                 .wrap(Wrap { trim: false })
@@ -189,7 +190,10 @@ impl TreeView {
                     (true, false) => "▾ ",
                     (true, true) => "▸ ",
                 };
-                let mut spans = vec![Span::raw("  ".repeat(rows[i].depth())), marker.dark_gray()];
+                let mut spans = vec![
+                    Span::raw("  ".repeat(rows[i].depth())),
+                    marker.fg(theme().muted),
+                ];
                 spans.extend(rows[i].line().spans);
                 // The highlight reverses the row's colours: a span with a colour of its own
                 // would turn into a block of it. Highlighted, a row keeps only its weight, and

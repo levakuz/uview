@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::domain::{EnvInfo, LockState};
 use crate::state::{Loadable, ProjectState};
+use crate::ui::theme::theme;
 
 /// Draws the project tile at the top of `column`, as tall as its wrapped text needs, and
 /// returns the rest of the column. The project's name and version are its title once uv has
@@ -23,15 +24,15 @@ pub fn render_project_tile(
         // White, as the tabs are: a title is otherwise as dim as the border.
         Loadable::Loaded(info) => Line::from(vec![
             " ".into(),
-            info.name.as_str().white().bold(),
-            format!(" {} ", info.version).white(),
+            info.name.as_str().fg(theme().text).bold(),
+            format!(" {} ", info.version).fg(theme().text),
         ]),
         _ => Line::raw("Project"),
     };
     let mut text = Text::default();
     if let Loadable::Failed(reason) = &project.info {
         // The first line says what is wrong; what follows it would crowd out the uv log.
-        text.push_line(Line::raw(reason.lines().next().unwrap_or_default()).dark_gray());
+        text.push_line(Line::raw(reason.lines().next().unwrap_or_default()).fg(theme().muted));
     }
     text.push_line(project.root.as_str());
     text.push_line(environment_line(&project.environment, packages));
@@ -40,7 +41,7 @@ pub fn render_project_tile(
     }
     let block = Block::bordered()
         .title(title)
-        .border_style(Style::new().dark_gray());
+        .border_style(Style::new().fg(theme().muted));
     let paragraph = Paragraph::new(text).wrap(Wrap { trim: false }).block(block);
     // Counts the block's top and bottom, but not its sides.
     let rows = paragraph.line_count(column.width.saturating_sub(2));
@@ -60,10 +61,12 @@ fn lock_line(lock: &Loadable<LockState>) -> Option<Line<'static>> {
         return None;
     };
     Some(match state {
-        LockState::Fresh => Line::raw("uv.lock up to date").dark_gray(),
-        LockState::Stale => Line::raw("uv.lock out of date — press l").yellow(),
-        LockState::Missing => Line::raw("no uv.lock — press l").yellow(),
-        LockState::Unknown => Line::raw("uv.lock not checked: it needs the network").dark_gray(),
+        LockState::Fresh => Line::raw("uv.lock up to date").fg(theme().muted),
+        LockState::Stale => Line::raw("uv.lock out of date — press l").fg(theme().warning),
+        LockState::Missing => Line::raw("no uv.lock — press l").fg(theme().warning),
+        LockState::Unknown => {
+            Line::raw("uv.lock not checked: it needs the network").fg(theme().muted)
+        }
     })
 }
 
@@ -76,8 +79,8 @@ fn environment_line(
 ) -> Line<'static> {
     let info = match environment {
         Loadable::Loaded(Some(info)) => info,
-        Loadable::Loaded(None) => return Line::raw("no environment").dark_gray(),
-        _ => return Line::raw("…").dark_gray(),
+        Loadable::Loaded(None) => return Line::raw("no environment").fg(theme().muted),
+        _ => return Line::raw("…").fg(theme().muted),
     };
     let mut parts = vec![info.shown_path.clone()];
     parts.extend(
@@ -90,7 +93,7 @@ fn environment_line(
         n => format!("{n} packages"),
     }));
     parts.push(info.size.map_or("size unknown".into(), human_size));
-    Line::raw(parts.join(" · ")).dark_gray()
+    Line::raw(parts.join(" · ")).fg(theme().muted)
 }
 
 /// `bytes` in binary units with one decimal, as `41.2 MiB`.

@@ -1,4 +1,5 @@
 mod app;
+mod config;
 mod controllers;
 mod domain;
 mod index;
@@ -14,6 +15,8 @@ use std::path::{Path, PathBuf};
 use color_eyre::Result;
 use tokio_util::sync::CancellationToken;
 
+use crate::config::Config;
+use crate::ui::theme::{Theme, set_theme};
 use crate::uv::{RealUvClient, UvClient, UvError};
 
 #[tokio::main]
@@ -32,8 +35,48 @@ async fn main() -> Result<()> {
     // as it was started in (ADR-0011).
     let configured = std::env::var("UV_PROJECT_ENVIRONMENT").ok();
     let paths = controllers::project::ProjectPaths::at(root, configured.as_deref());
-    let mut app = app::App::new(paths);
+    let (theme, problem) = choose_theme();
+    set_theme(theme);
+    let mut app = app::App::new(paths, problem);
     app.run().await
+}
+
+/// The theme to draw with, from the settings file and the terminal, and what is wrong with the
+/// file, if anything: a file uview cannot use is reported, never fatal.
+fn choose_theme() -> (Theme, Option<String>) {
+    let path = config::config_path(|key| std::env::var(key).ok(), cfg!(windows));
+    let name = path
+        .as_deref()
+        .and_then(Path::file_name)
+        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    let (config, mut problems) = match path.as_deref().map(std::fs::read_to_string) {
+        Some(Ok(text)) => match config::parse(&text) {
+            Ok(read) => read,
+            Err(e) => (Config::default(), vec![e]),
+        },
+        // No file is the usual case.
+        Some(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => (Config::default(), Vec::new()),
+        Some(Err(e)) => (Config::default(), vec![e.to_string()]),
+        None => (Config::default(), Vec::new()),
+    };
+    let base = config.theme.map_or_else(background, config::Base::theme);
+    let (theme, colors) = config::themed(base, &config.colors);
+    problems.extend(colors);
+    let problem = (!problems.is_empty()).then(|| format!("{name}: {}", problems.join("; ")));
+    (theme, problem)
+}
+
+/// The built-in theme for the terminal's background, as the terminal tells it before the app
+/// takes the screen over; dark when it does not answer.
+fn background() -> Theme {
+    use terminal_colorsaurus::{QueryOptions, ThemeMode, theme_mode};
+    if !std::io::stdout().is_terminal() {
+        return Theme::DARK;
+    }
+    match theme_mode(QueryOptions::default()) {
+        Ok(ThemeMode::Light) => Theme::LIGHT,
+        _ => Theme::DARK,
+    }
 }
 
 /// The project uv would act on from here, or why there is none. With none at all, offers to

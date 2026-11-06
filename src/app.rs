@@ -38,7 +38,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(paths: ProjectPaths) -> Self {
+    /// The app for the project at `paths`, `problem` saying what was wrong with the settings
+    /// file, if anything, until a later message replaces it.
+    pub fn new(paths: ProjectPaths, problem: Option<String>) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded_channel();
         let mut project = ProjectState::new(paths.root.display().to_string());
         project.credentials = credentials(|key| std::env::var(key).ok());
@@ -49,6 +51,7 @@ impl App {
             help_scroll: 0,
             state: AppState {
                 project,
+                message: problem.map(Message::Error),
                 ..AppState::default()
             },
             runner: JobRunner::new(

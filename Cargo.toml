@@ -20,6 +20,7 @@ toml_edit = "0.25.15"
 unicode-width = "0.2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "system-proxy", "gzip"] }
 pep440_rs = "0.7"
+terminal-colorsaurus = "1.0.3"
 
 [target.'cfg(unix)'.dependencies]
 # Sends SIGINT to a cancelled `uv`. Already built for crossterm; this adds the process API.
