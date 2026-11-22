@@ -6,4 +6,5 @@ pub mod indexes;
 pub mod project;
 pub mod publish;
 pub mod pyproject;
+pub mod uv_settings;
 pub mod versions;

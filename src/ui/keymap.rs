@@ -460,6 +460,7 @@ pub fn footer(mode: Mode) -> Box<dyn Iterator<Item = &'static Binding>> {
 /// What `input` means in `mode`, if anything.
 pub fn action_for(mode: Mode, input: &Input) -> Option<Action> {
     let Input::Key(key) = input;
+    let key = &typed(*key, cfg!(windows));
     bindings(mode)
         .find_map(|binding| binding.action_for(key))
         // In an input, every other key goes into the field.
@@ -477,4 +478,14 @@ pub fn groups() -> [(&'static str, &'static [Binding]); 7] {
         ("Outside an input", OUTSIDE_INPUTS),
         ("Anywhere", ANYWHERE),
     ]
+}
+
+/// `key` as it was typed. On Windows AltGr arrives as Ctrl+Alt, so `[` on a German layout would
+/// be Ctrl+Alt+`[`, which no binding takes and no input types.
+pub fn typed(mut key: KeyEvent, windows: bool) -> KeyEvent {
+    let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
+    if windows && matches!(key.code, KeyCode::Char(_)) && key.modifiers.contains(altgr) {
+        key.modifiers.remove(altgr);
+    }
+    key
 }

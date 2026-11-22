@@ -196,18 +196,33 @@ impl uview::uv::UvClient for UvSays {
 
 #[tokio::test]
 async fn a_uv_older_than_uview_needs_is_told() {
-    use uview::controllers::project::uv_too_old;
+    use uview::controllers::project::uv_unusable;
     assert_eq!(
-        uv_too_old(&UvSays("uv 0.7.22 (Homebrew 2025-07-17)\n"))
+        uv_unusable(&UvSays("uv 0.7.22 (Homebrew 2025-07-17)\n"))
             .await
             .as_deref(),
         Some("uv 0.7.22 is older than uview needs, 0.8.0: update it, as with `uv self update`")
     );
-    assert_eq!(uv_too_old(&UvSays("uv 0.8.0\n")).await, None);
+    assert_eq!(uv_unusable(&UvSays("uv 0.8.0\n")).await, None);
     assert_eq!(
-        uv_too_old(&UvSays("uv 0.10.3 (abc 2026-10-01)\n")).await,
+        uv_unusable(&UvSays("uv 0.10.3 (abc 2026-10-01)\n")).await,
         None
     );
     // What cannot be read is no reason to complain.
-    assert_eq!(uv_too_old(&UvSays("something else")).await, None);
+    assert_eq!(uv_unusable(&UvSays("something else")).await, None);
+    // A uv that is not there is.
+    assert_eq!(
+        uv_unusable(&NoUv).await.as_deref(),
+        Some("`uv` was not found on PATH: install it, as https://docs.astral.sh/uv/ says")
+    );
+}
+
+/// No uv on PATH.
+struct NoUv;
+
+impl uview::uv::UvClient for NoUv {
+    async fn run(&self, _: &[&str]) -> Result<String, uview::uv::UvError> {
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        Err(uview::uv::UvError::Spawn(missing))
+    }
 }

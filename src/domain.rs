@@ -249,6 +249,18 @@ pub fn version_problem(version: &str) -> Option<&'static str> {
     }
 }
 
+/// `url` with the credentials it may carry drawn as `****`: `https://****@corp.example.com/`.
+pub fn redacted(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let host = rest.split('/').next().unwrap_or_default();
+    match host.rsplit_once('@') {
+        Some((_, after)) => format!("{scheme}://****@{after}{}", &rest[host.len()..]),
+        None => url.to_string(),
+    }
+}
+
 /// `name` as PEP 503 normalizes a project name: lower case, each run of `-`, `_` and `.` one
 /// dash. Indexes and uv compare names this way.
 pub fn normalize_name(name: &str) -> String {
@@ -530,14 +542,16 @@ pub fn group_name_problem(name: &str, existing: &[DeclaredGroup]) -> Option<&'st
 
 /// Whether uv.lock matches what pyproject.toml declares, as `uv lock --check` says without the
 /// network.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LockState {
     Fresh,
     /// pyproject.toml asks for what the lock does not hold: `uv lock` would change it.
     Stale,
     Missing,
     /// uv could not tell without the network, as for a package not in its cache.
-    Unknown,
+    Offline,
+    /// uv could not tell, for this reason: the first line of what it said.
+    Unknown(String),
 }
 
 /// A line of `uv tree`: a package at its depth, the project's own at 0.

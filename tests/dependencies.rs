@@ -333,6 +333,37 @@ async fn uv_add_streams_its_lines_and_a_cancel_puts_pyproject_back() -> Result<(
     Ok(())
 }
 
+/// On Windows a cancelled `uv` is killed, with all it started, and the call returns only once
+/// it has exited: a process still in the directory would keep it from being removed.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_cancel_on_windows_returns_once_uv_has_exited() -> Result<(), Box<dyn Error>> {
+    let index = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let url = format!("http://{}/simple", index.local_addr()?);
+    std::thread::spawn(move || index.incoming().collect::<Vec<_>>());
+    let dir = std::env::temp_dir().join(format!("uview-cancel-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(
+        dir.join("pyproject.toml"),
+        "[project]\nname = \"p\"\nversion = \"0.1.0\"\ndependencies = []\n",
+    )?;
+    let cancel = CancellationToken::new();
+    let uv = RealUvClient::new(&dir);
+    let args = ["add", "requests", "--default-index", &url];
+    let mut add = Box::pin(uv.run_streaming(&args, &cancel, &|_| {}));
+    // Finished already: no `uv` or no Python here, so nothing to cancel.
+    if tokio::time::timeout(Duration::from_secs(3), &mut add)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+    cancel.cancel();
+    assert!(matches!(add.await, Err(UvError::Cancelled)));
+    std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
 #[test]
 fn membership_args_pick_the_flag_for_each_membership() {
     let main_group = Membership::Group("main".into());
@@ -1335,4 +1366,40 @@ dev = [
     // Listed twice, moved twice.
     assert_eq!(declarations(text, "six", &dev).len(), 2);
     assert!(declarations(text, "idna", &dev).is_empty());
+}
+
+#[tokio::test]
+async fn an_explanation_is_said_at_once_and_runs_nothing() -> Result<(), Box<dyn Error>> {
+    let uv = Arc::new(FakeUvClient::default());
+    let (events, mut received) = unbounded_channel();
+    let mut runner = JobRunner::new(
+        Arc::clone(&uv),
+        Arc::new(FakeIndex::default()),
+        project(),
+        events,
+    );
+    runner.execute(Command::Explain("idna is not in pyproject.toml".into()));
+    runner.execute(Command::Sync);
+    let events = events_until(&mut received, finished(1)).await?;
+    // Said before anything else, and the sync is the first job: the explanation was none.
+    assert!(matches!(&events[0], Event::Notice(m) if m == "idna is not in pyproject.toml"));
+    assert!(matches!(&events[1], Event::JobQueued { id: JobId(1), .. }));
+    assert_eq!(uv.calls().len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_directory_that_has_gone_is_told_as_such() {
+    let gone = std::env::temp_dir().join(format!("uview-gone-{}", std::process::id()));
+    let said = RealUvClient::new(&gone)
+        .run(&["--version"])
+        .await
+        .map_err(|e| e.to_string());
+    assert_eq!(
+        said,
+        Err(format!(
+            "could not run `uv`: the project's directory {} is gone",
+            gone.display()
+        ))
+    );
 }

@@ -207,9 +207,18 @@ fn highlighted<'a>(list: &ListPopup, deps: &'a DepsState) -> Option<&'a Declared
 }
 
 /// Asks for `group`'s new name, unless something names it; `back` is the step to stay on then.
+/// Why `group` can be neither renamed nor deleted, if it cannot.
+fn kept(group: &DeclaredGroup) -> Option<Command> {
+    let named_by = group.named_by.as_ref()?;
+    Some(Command::Explain(format!(
+        "{} is kept: {named_by}",
+        group.name
+    )))
+}
+
 fn rename(group: &DeclaredGroup, back: Step) -> (Option<Step>, Vec<Command>) {
-    if group.named_by.is_some() {
-        return (Some(back), Vec::new());
+    if let Some(kept) = kept(group) {
+        return (Some(back), vec![kept]);
     }
     let title = format!("Rename {} to", group.name);
     let rename = Step::Rename {
@@ -250,8 +259,8 @@ fn members<'a>(group: &str, deps: &'a DepsState) -> Vec<&'a PyprojectDependency>
 /// Deleting `group`: at once when empty, after a question when it has packages, not at all when
 /// something names it. `back` is the step to stay on when it cannot go.
 fn delete(group: &DeclaredGroup, deps: &DepsState, back: Step) -> (Option<Step>, Vec<Command>) {
-    if group.named_by.is_some() {
-        return (Some(back), Vec::new());
+    if let Some(kept) = kept(group) {
+        return (Some(back), vec![kept]);
     }
     let count = members(&group.name, deps).len();
     if count == 0 {

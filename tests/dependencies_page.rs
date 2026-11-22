@@ -1190,7 +1190,12 @@ fn up_to_date_does_nothing_and_an_undeclared_package_is_not_bumped()
         version: "3.10".into(),
     }]);
     screen.press(KeyCode::Tab);
-    assert!(screen.press(KeyCode::Char('b')).is_empty());
+    assert_eq!(
+        screen.press(KeyCode::Char('b')),
+        [Command::Explain(
+            "idna is not in pyproject.toml, so it has no constraint to bump".into()
+        )]
+    );
     assert_eq!(screen.page.mode(), Mode::Table);
     Ok(())
 }
@@ -1407,7 +1412,12 @@ fn g_lists_the_groups_and_d_deletes_an_empty_one_at_once() -> Result<(), Box<dyn
     for _ in 0..4 {
         screen.press(KeyCode::Down);
     }
-    assert!(screen.press(KeyCode::Char('d')).is_empty());
+    assert_eq!(
+        screen.press(KeyCode::Char('d')),
+        [Command::Explain(
+            "docs is kept: named in tool.uv.default-groups".into()
+        )]
+    );
     assert_eq!(screen.page.mode(), Mode::Groups);
     Ok(())
 }
@@ -1591,7 +1601,12 @@ fn n_r_and_d_act_from_the_list_of_groups_and_from_a_group_s_details() {
     for _ in 0..4 {
         screen.press(KeyCode::Down);
     }
-    assert!(screen.press(KeyCode::Char('r')).is_empty());
+    assert_eq!(
+        screen.press(KeyCode::Char('r')),
+        [Command::Explain(
+            "docs is kept: named in tool.uv.default-groups".into()
+        )]
+    );
     assert_eq!(screen.page.mode(), Mode::Groups);
     screen.press(KeyCode::Esc);
     // From test's details, d asks first, as it has a package.
@@ -1750,12 +1765,20 @@ fn package_actions_work_on_the_tree_for_a_declared_package() {
             groups: vec![Membership::Project],
         }]
     );
-    // anyio is not: Enter and d do nothing, u updates it within the constraints.
+    // anyio is not: Enter and d say why they do nothing, u updates it within the constraints.
     screen.press(KeyCode::Down);
-    assert!(screen.press(KeyCode::Enter).is_empty());
+    let not_declared = [Command::Explain(
+        "anyio is not in pyproject.toml: w shows what pulls it in".into(),
+    )];
+    assert_eq!(screen.press(KeyCode::Enter), not_declared);
     assert_eq!(screen.page.mode(), Mode::Tree);
-    assert!(screen.press(KeyCode::Char('d')).is_empty());
-    assert!(screen.press(KeyCode::Char('b')).is_empty());
+    assert_eq!(screen.press(KeyCode::Char('d')), not_declared);
+    assert_eq!(
+        screen.press(KeyCode::Char('b')),
+        [Command::Explain(
+            "anyio is not in pyproject.toml, so it has no constraint to bump".into()
+        )]
+    );
     assert_eq!(
         screen.press(KeyCode::Char('u')),
         [Command::Upgrade {

@@ -164,7 +164,14 @@ fn uv_lock_check_tells_fresh_stale_missing_and_unknown() {
         parse::lock_state(&failed(
             "  × No solution found when resolving dependencies:\\n      hint: Packages were unavailable because the network was disabled."
         )),
-        LockState::Unknown
+        LockState::Offline
+    );
+    // Any other failure says what uv said.
+    assert_eq!(
+        parse::lock_state(&failed(
+            "error: Failed to parse `pyproject.toml`\n  Caused by: TOML parse error at line 3"
+        )),
+        LockState::Unknown("Failed to parse `pyproject.toml`".into())
     );
     assert_eq!(LOCK_CHECK, ["lock", "--check", "--offline"]);
     assert_eq!(LOCK_UPGRADE, ["lock", "--upgrade"]);

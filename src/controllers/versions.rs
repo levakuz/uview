@@ -7,53 +7,26 @@ use std::str::FromStr;
 
 use pep440_rs::{Operator, Version, VersionSpecifiers};
 
-use crate::controllers::indexes::{list_indexes, pinned_index};
-use crate::domain::{IndexKind, VersionChoice, VersionList};
+use crate::controllers::uv_settings::{PYPI, UvSettings, ignores, indexes_for};
+use crate::domain::{VersionChoice, VersionList, redacted};
 use crate::index::parse::{File, files};
 use crate::index::{IndexClient, IndexError};
 
-/// PyPI's Simple API: the default index when the project names none.
-pub const PYPI: &str = "https://pypi.org/simple";
-
-/// The indexes to ask for `package`, in the order uv would take it from them: the index
-/// `[tool.uv.sources]` pins it to; else the project's indexes that are not explicit, in order,
-/// then the default, which is PyPI unless an index replaces it. uv takes the first that has it.
-// ponytail: indexes from uv.toml and UV_INDEX / UV_DEFAULT_INDEX are not read; read them when a
-// project's indexes live there.
-pub fn indexes_for(pyproject: &str, package: &str) -> Vec<String> {
-    let indexes = list_indexes(pyproject);
-    if let Some(pinned) = pinned_index(pyproject, package) {
-        return indexes
-            .into_iter()
-            .filter(|i| i.name.as_deref() == Some(pinned.as_str()))
-            .map(|i| i.url)
-            .collect();
-    }
-    let default = indexes
-        .iter()
-        .find(|i| i.kind == IndexKind::Default)
-        .map_or(PYPI.to_string(), |i| i.url.clone());
-    indexes
-        .into_iter()
-        .filter(|i| i.kind == IndexKind::Extra)
-        .map(|i| i.url)
-        .chain([default])
-        .collect()
-}
-
 /// The versions of `package` to choose from, newest first, from the first index in uv's order
 /// that has it, and PyPI's description of it when PyPI is that index; it is read alongside, and
-/// a failure to read it leaves the versions be. `pyproject` is the project's file, read for its
-/// indexes and its `requires-python`.
+/// a failure to read it leaves the versions be. `settings` are where uv takes its indexes from;
+/// `pyproject` is the project's file, read for its sources and its `requires-python`. An index
+/// is named without the credentials its URL may carry.
 pub async fn list_versions(
     index: &impl IndexClient,
+    settings: &UvSettings,
     pyproject: &Path,
     package: &str,
 ) -> Result<VersionList, String> {
     let text = tokio::fs::read_to_string(pyproject)
         .await
         .map_err(|e| format!("pyproject.toml: {e}"))?;
-    let asked = indexes_for(&text, package);
+    let asked = indexes_for(settings, &text, package);
     for url in &asked {
         let (page, info) = if url == PYPI {
             let (page, info) = tokio::join!(
@@ -66,42 +39,20 @@ pub async fn list_versions(
         };
         match page {
             Ok(page) => {
-                let files = files(&page, package).map_err(|e| format!("{url}: {e}"))?;
+                let files = files(&page, package).map_err(|e| format!("{}: {e}", redacted(url)))?;
                 return Ok(VersionList {
                     versions: choices(files, requires_python(&text).as_deref()),
-                    index: url.clone(),
+                    index: redacted(url),
                     info,
                 });
             }
             Err(IndexError::NotFound) => continue,
-            Err(IndexError::Status(code)) if ignores(&text, url, code) => continue,
-            Err(e) => return Err(format!("{url}: {e}")),
+            Err(IndexError::Status(code)) if ignores(settings, url, code) => continue,
+            Err(e) => return Err(format!("{}: {e}", redacted(url))),
         }
     }
+    let asked: Vec<String> = asked.iter().map(|url| redacted(url)).collect();
     Err(format!("{package} is not on {}", asked.join(", ")))
-}
-
-/// Whether uv would go on past the index at `url` when it answers `code`, as for a package it
-/// lacks: the codes its `ignore-error-codes` lists, or 403 from the PyTorch index, which answers
-/// that for a package it does not have.
-pub fn ignores(pyproject: &str, url: &str, code: u16) -> bool {
-    let listed = pyproject.parse::<toml::Table>().ok().and_then(|doc| {
-        doc.get("tool")?
-            .get("uv")?
-            .get("index")?
-            .as_array()?
-            .iter()
-            .find(|index| index.get("url").and_then(toml::Value::as_str) == Some(url))?
-            .get("ignore-error-codes")?
-            .as_array()
-            .cloned()
-    });
-    match listed {
-        Some(codes) => codes
-            .iter()
-            .any(|c| c.as_integer() == Some(i64::from(code))),
-        None => code == 403 && url.contains("download.pytorch.org"),
-    }
 }
 
 /// The project's `requires-python`, if it declares one.

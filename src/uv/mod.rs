@@ -34,7 +34,10 @@ impl fmt::Display for UvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             UvError::Spawn(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                write!(f, "`uv` was not found — is it installed and on PATH?")
+                write!(
+                    f,
+                    "`uv` was not found on PATH: install it, as https://docs.astral.sh/uv/ says"
+                )
             }
             UvError::Spawn(e) => write!(f, "could not run `uv`: {e}"),
             UvError::Failed {
@@ -101,6 +104,18 @@ impl RealUvClient {
     }
 }
 
+impl RealUvClient {
+    /// Why `uv` could not start. A directory to run it in that has gone fails the same way as a
+    /// `uv` that is not on PATH, and would be told as one.
+    fn spawn_error(&self, e: std::io::Error) -> UvError {
+        if self.dir.is_dir() {
+            return UvError::Spawn(e);
+        }
+        let gone = format!("the project's directory {} is gone", self.dir.display());
+        UvError::Spawn(std::io::Error::other(gone))
+    }
+}
+
 /// `line` with each of `secrets` in it replaced by `****`. uv prints no credentials; this is
 /// in case it ever does.
 pub fn scrub(line: &str, secrets: &[String]) -> String {
@@ -116,9 +131,10 @@ impl UvClient for RealUvClient {
     }
 
     /// Hands `on_line` each line of stderr, where `uv` reports its progress line by line when
-    /// stderr is not a terminal. Once `cancel` fires, stops `uv` as Ctrl+C would: with SIGINT on
-    /// Unix, on which `uv add` puts pyproject.toml back. Windows has no such signal for a child,
-    /// so there it is killed. Returns once `uv` has exited, so what it left behind can be read.
+    /// stderr is not a terminal. Once `cancel` fires, stops `uv` and whatever it started, a build
+    /// backend or git, as Ctrl+C would: with SIGINT on Unix, on which `uv add` puts
+    /// pyproject.toml back. Windows has no such signal for a child, so there they are killed.
+    /// Returns once `uv` has exited, so what it left behind can be read.
     async fn run_streaming(
         &self,
         args: &[&str],
@@ -128,7 +144,8 @@ impl UvClient for RealUvClient {
         if cancel.is_cancelled() {
             return Err(UvError::Cancelled);
         }
-        let mut child = tokio::process::Command::new("uv")
+        let mut command = tokio::process::Command::new("uv");
+        command
             // Plain text: FORCE_COLOR would otherwise colour even a pipe.
             .args(["--color", "never"])
             .args(args)
@@ -141,9 +158,11 @@ impl UvClient for RealUvClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             // If this future is dropped, `uv` must not outlive it.
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(UvError::Spawn)?;
+            .kill_on_drop(true);
+        // Its own process group, so a cancel reaches what it started too.
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command.spawn().map_err(|e| self.spawn_error(e))?;
         let pid = child.id();
         let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
         let output = async {
@@ -158,8 +177,9 @@ impl UvClient for RealUvClient {
             biased;
             () = cancel.cancelled() => {
                 // `uv add` puts pyproject.toml back, then exits; other commands stop at once.
-                // A `uv` still running after that is killed as `child` is dropped.
-                if interrupt(pid) {
+                interrupt(pid).await;
+                if tokio::time::timeout(Duration::from_secs(2), &mut output).await.is_err() {
+                    kill(pid);
                     let _ = tokio::time::timeout(Duration::from_secs(2), output).await;
                 }
                 return Err(UvError::Cancelled);
@@ -210,19 +230,44 @@ async fn read_lines(
     Ok(all)
 }
 
-/// Sends SIGINT to `uv`, and says whether it could.
-/// ponytail: uv alone, so a build backend it started runs on until it finishes. Signal the
-/// process group if that ever matters.
+/// Sends SIGINT to `uv` and what it started, as Ctrl+C in a shell would.
 #[cfg(unix)]
-fn interrupt(pid: Option<u32>) -> bool {
-    use rustix::process::{Pid, Signal, kill_process};
-    pid.and_then(|pid| i32::try_from(pid).ok())
-        .and_then(Pid::from_raw)
-        .is_some_and(|pid| kill_process(pid, Signal::INT).is_ok())
+async fn interrupt(pid: Option<u32>) {
+    signal_group(pid, rustix::process::Signal::INT);
 }
 
-/// A child on Windows cannot be sent Ctrl+C.
-#[cfg(not(unix))]
-fn interrupt(_pid: Option<u32>) -> bool {
-    false
+/// Kills what is left of `uv`'s process group.
+#[cfg(unix)]
+fn kill(pid: Option<u32>) {
+    signal_group(pid, rustix::process::Signal::KILL);
 }
+
+#[cfg(unix)]
+fn signal_group(pid: Option<u32>, signal: rustix::process::Signal) {
+    use rustix::process::{Pid, kill_process_group};
+    if let Some(pid) = pid
+        .and_then(|pid| i32::try_from(pid).ok())
+        .and_then(Pid::from_raw)
+    {
+        let _ = kill_process_group(pid, signal);
+    }
+}
+
+/// A child on Windows cannot be sent Ctrl+C, so `uv` and every process under it are killed.
+/// A `uv add` killed after it wrote pyproject.toml leaves it so, with uv.lock behind.
+#[cfg(windows)]
+async fn interrupt(pid: Option<u32>) {
+    let Some(pid) = pid else { return };
+    let _ = tokio::process::Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .status()
+        .await;
+}
+
+/// Killed already, by `interrupt`.
+#[cfg(windows)]
+fn kill(_pid: Option<u32>) {}

@@ -51,7 +51,7 @@ There are five layers, plus a thin application shell and the state they share.
 | **State** | `src/state.rs` | Hold what the app knows, once: the project, the dependencies, the jobs and the latest message (ADR-0004) | Render, run anything, know about ratatui, the UI or the runtime |
 | **UI** | `src/ui/` | Render frames from the state, turn input into actions and actions into commands, hold view state | Write the state, spawn tasks, call controllers, read the filesystem |
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
-| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it, create an empty one, and add or remove an index (ADR-0009, ADR-0010, ADR-0013); read the environment's `pyvenv.cfg` and size, and delete it (ADR-0015) | Render, hold UI state, know about ratatui, start a process |
+| **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml` and uv's settings files (ADR-0019); delete an emptied group from it, create an empty one, and add or remove an index (ADR-0009, ADR-0010, ADR-0013); read the environment's `pyvenv.cfg` and size, and delete it (ADR-0015) | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
 | **Settings and command line** | `src/config.rs`, `src/cli.rs` | Find and read the user's settings file into a `Theme`, and write its template (ADR-0016); answer `--help` and `--version`, and hold the one version (ADR-0017) | Run `uv`, know about the runtime or controllers. `config.rs` names ratatui's `Color` and `ui::theme`, and the runtime calls it to write the template: the one place the runtime reaches a UI type, which `runtime-no-ui` does not see |
 | **Messages and domain** | `src/message.rs`, `src/domain.rs` | The types every layer passes: `Input`, `Action`, `Command`, `Event`, and what they carry | Do anything |
@@ -195,7 +195,7 @@ root, its Python, the environment table's package count and its size on disk.
 src/
 ├── main.rs                 # tokio entry point; answers --help and --version; finds the project root, or offers uv init; resolves its paths; chooses the theme
 ├── cli.rs                  # the command line, and VERSION, Cargo.toml's: the one --version, the help and the Python package show (ADR-0017)
-├── config.rs               # the user's settings file (ADR-0016): where it is, the theme it chooses, its colours; the template C writes
+├── config.rs               # the user's settings file (ADR-0016): where it is, the theme it chooses, its colours; the template C writes; the user's settings directory, uv's too
 ├── lib.rs                  # public surface, so tests/ can reach everything but app.rs
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, the help
 ├── message.rs              # Input / Action / Command / Event
@@ -212,6 +212,7 @@ src/
 │   ├── indexes.rs          # the project's [[tool.uv.index]]: list, add, remove (ADR-0010)
 │   ├── publish.rs          # uv publish of what the last build wrote; where uv will find credentials
 │   ├── pyproject.rs        # edit pyproject.toml, then uv lock, putting it back if the lock fails
+│   ├── uv_settings.rs      # the indexes uv would ask, from the environment and uv's settings files (ADR-0019)
 │   ├── versions.rs         # a package's versions from the index uv would use, newest first, and PyPI's description of it (ADR-0012)
 │   └── project.rs          # the project root, or why uv would refuse it; its workspace root and environment; its name and version
 ├── index/
@@ -397,12 +398,14 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   80 ms, for the spinner and the seconds a `Loading…` table counts (docs/performance.md).
 - **Only the runtime spawns.** `JobRunner` (`runtime/jobs.rs`) turns each command into a job
   with an id and a label, and reports it as `JobQueued`, `JobStarted` and `JobFinished`. A
-  read, `Reload`, runs in a task of its own at once. A mutation goes to a single task that
+  read, `Reload`, runs in a task of its own at once. `Command::Explain`, a component's reason
+  why a key did nothing, is no job: the runner hands it straight back as `Event::Notice`.
+  A mutation goes to a single task that
   runs mutations one at a time, in the order accepted: `uv` locks the project, so of two at
   once one would fail (ADR-0003). Nothing is awaited in the loop, so a slow `uv` invocation
   cannot freeze rendering.
-- At startup, before the loop begins, `App` marks both tables and the project's name and
-  version `Loading`, and hands the runner `Command::Reload`. It reads `pyproject.toml`, lists
+- At startup, before the loop begins, `App` marks both tables, the tree and the project's
+  name and version `Loading`, and hands the runner `Command::Reload`. It reads `pyproject.toml`, lists
   the environment, then reads the name and version with `uv version`, which neither locks nor
   syncs, checks the lock and reads the tree. Last, it reads the environment's `pyvenv.cfg` and
   measures its size, a walk of every file that nothing else waits on. It sends each table's rows, or why they failed, which also goes to the status
@@ -422,12 +425,15 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   shows it under the label of the job it came from. A read's lines are dropped. A reload writes
   nothing but errors, which its table or the project tile already shows, and they would come
   back after every mutation.
-- **Cancellation.** Ctrl+C cancels every job accepted so far (ADR-0006). A queued job never
-  starts. A running one ends at its current `uv` call: `RealUvClient` sends `uv` SIGINT, on
-  which `uv add` puts `pyproject.toml` back, waits up to two seconds for it to exit, and
-  kills it if it has not; on Windows it kills it at once. The job then reloads and finishes,
-  and the status line says it was cancelled. Quitting cancels the same way and waits for the
-  jobs to finish.
+- **Cancellation.** Ctrl+C cancels every job accepted so far (ADR-0006), then starts one
+  reload, so a cancelled reload leaves no "cancelled" in the tables. A queued job never
+  starts. A running one ends at its current `uv` call: `uv` runs in a process group of its
+  own, and `RealUvClient` sends the group SIGINT, on which `uv add` puts `pyproject.toml`
+  back, waits up to two seconds for it to exit, and kills the group if it has not; on Windows
+  it kills `uv`'s process tree at once, with `taskkill /T /F`. Either way the call returns once
+  `uv` has exited. The job then reloads and finishes, and the status line says it was
+  cancelled. Quitting cancels the same way, says so, and waits for the jobs to finish; no key
+  starts anything meanwhile.
 
 **Spawned handles are dropped.** The runner keeps no handle to the tasks it spawns, so a
 job that panics reports nothing, and a panic in the mutation task would stop every later

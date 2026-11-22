@@ -118,7 +118,7 @@ impl IndexClient for RealIndexClient {
             .header(reqwest::header::ACCEPT, ACCEPT)
             .send()
             .await
-            .map_err(|e| IndexError::Network(e.to_string()))?;
+            .map_err(|e| IndexError::Network(e.without_url().to_string()))?;
         match response.status().as_u16() {
             200..=299 => {}
             404 => return Err(IndexError::NotFound),
@@ -132,7 +132,7 @@ impl IndexClient for RealIndexClient {
         let body = response
             .text()
             .await
-            .map_err(|e| IndexError::Network(e.to_string()))?;
+            .map_err(|e| IndexError::Network(e.without_url().to_string()))?;
         Ok(Page { json, body })
     }
 
@@ -146,7 +146,7 @@ impl IndexClient for RealIndexClient {
             .get(&url)
             .send()
             .await
-            .map_err(|e| IndexError::Network(e.to_string()))?;
+            .map_err(|e| IndexError::Network(e.without_url().to_string()))?;
         match response.status().as_u16() {
             200..=299 => {}
             404 => return Err(IndexError::NotFound),
@@ -155,7 +155,7 @@ impl IndexClient for RealIndexClient {
         let body = response
             .text()
             .await
-            .map_err(|e| IndexError::Network(e.to_string()))?;
+            .map_err(|e| IndexError::Network(e.without_url().to_string()))?;
         parse::pypi_project(&body)
     }
 }

@@ -10,23 +10,26 @@ use serde::Deserialize;
 use crate::ui::theme::Theme;
 
 /// Where the settings file is, as `env` reads the environment: `UVIEW_CONFIG_FILE`, or
-/// `uview/config.toml` where uv keeps `uv.toml`: under `%APPDATA%` on Windows, else under
-/// `$XDG_CONFIG_HOME` or `~/.config`. `None` when none of them is set.
+/// `uview/config.toml` in `config_dir`. `None` when none of them is set.
 pub fn config_path(env: impl Fn(&str) -> Option<String>, windows: bool) -> Option<PathBuf> {
-    let set = |key| env(key).filter(|value| !value.is_empty());
-    if let Some(file) = set("UVIEW_CONFIG_FILE") {
-        return Some(PathBuf::from(file));
+    match env("UVIEW_CONFIG_FILE").filter(|file| !file.is_empty()) {
+        Some(file) => Some(PathBuf::from(file)),
+        None => Some(config_dir(&env, windows)?.join("uview").join("config.toml")),
     }
-    let dir = if windows {
-        PathBuf::from(set("APPDATA")?)
-    } else {
-        // A relative XDG_CONFIG_HOME is to be ignored, as the spec says.
-        set("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|dir| dir.is_absolute())
-            .or_else(|| set("HOME").map(|home| Path::new(&home).join(".config")))?
-    };
-    Some(dir.join("uview").join("config.toml"))
+}
+
+/// Where the user's settings go, as uv keeps its `uv.toml` in `uv/` there: `%APPDATA%` on
+/// Windows, else `$XDG_CONFIG_HOME` or `~/.config`.
+pub fn config_dir(env: &impl Fn(&str) -> Option<String>, windows: bool) -> Option<PathBuf> {
+    let set = |key| env(key).filter(|value| !value.is_empty());
+    if windows {
+        return set("APPDATA").map(PathBuf::from);
+    }
+    // A relative XDG_CONFIG_HOME is to be ignored, as the spec says.
+    set("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| set("HOME").map(|home| Path::new(&home).join(".config")))
 }
 
 /// What the settings file says.

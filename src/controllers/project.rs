@@ -131,10 +131,15 @@ fn matches_any(globs: &[String], root: &Path, path: &Path) -> bool {
 /// in 0.8.0.
 pub const MIN_UV: &str = "0.8.0";
 
-/// What to tell the user when the uv on PATH is older than `MIN_UV`, or `None`: also when uv
-/// cannot be run, which every other call reports.
-pub async fn uv_too_old(uv: &impl UvClient) -> Option<String> {
-    let found = parse::uv_version(&uv.run(&args::UV_VERSION).await.ok()?)?;
+/// What to tell the user when uv cannot be run, or the uv on PATH is older than `MIN_UV`, or
+/// `None`. A uv that runs but answers oddly is no reason to complain.
+pub async fn uv_unusable(uv: &impl UvClient) -> Option<String> {
+    let said = match uv.run(&args::UV_VERSION).await {
+        Ok(said) => said,
+        Err(e @ UvError::Spawn(_)) => return Some(e.to_string()),
+        Err(_) => return None,
+    };
+    let found = parse::uv_version(&said)?;
     let least: pep440_rs::Version = std::str::FromStr::from_str(MIN_UV).ok()?;
     (found < least).then(|| {
         format!(

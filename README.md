@@ -172,7 +172,9 @@ In a list, `↑` / `↓` move, `Enter` chooses and `Esc` closes. In an input, `E
 - **Pin to version** lists the versions the package's index has, newest first. Pre-releases are
   marked `pre`, a release that needs a newer Python than the project supports is marked with
   what it needs, and yanked releases are left out. The index is the one uv would use: the
-  package's pinned index, else the project's indexes, then PyPI.
+  package's pinned index; else those `UV_INDEX` names, then those of uv's settings files (the
+  project's `uv.toml` or `pyproject.toml`, yours, the system's), then the default, which is
+  `UV_DEFAULT_INDEX`, the one a settings file sets, or PyPI. The list says which index it asked.
   - Choosing a version asks how to pin it: `==` (highlighted), `>=`, `~=`, `==1.17.*`, `>`,
     `<=`, `<` or `!=`, each shown with what it means.
   - **Type a constraint…** takes one typed in: `1.2.3` becomes `==1.2.3`; `>=2.0` and `<3` are
@@ -300,11 +302,13 @@ While an operation runs, the bottom line names it after a spinner, with how many
 it, and the uv log shows what uv prints as it goes. uv locks the project, so uview runs one
 change at a time, in the order you asked for them. After each, the views are read again.
 
-`Ctrl+C` cancels the running operation and those waiting. On macOS and Linux, uview stops `uv`
-as Ctrl+C would in a shell: an add or a pin cancelled while uv resolves it leaves
-`pyproject.toml` as it was. Cancelled at another step, or on Windows, where uv is killed, an
-operation may already have changed the project. Either way, the views then show what is
-there. Quitting cancels the same way.
+`Ctrl+C` cancels the running operation and those waiting, and what uv started for it, such as a
+build backend or git. On macOS and Linux, uview stops `uv` as Ctrl+C would in a shell: an add or
+a pin cancelled while uv resolves it leaves `pyproject.toml` as it was. Cancelled at another
+step, an operation may already have changed the project. On Windows, where a process cannot be
+sent Ctrl+C, uv is killed: an add or a pin cancelled while uv resolves it leaves the new
+requirement in `pyproject.toml` with `uv.lock` behind it, which `l` locks and `d` removes.
+Either way, the views are then read again and show what is there. Quitting cancels the same way.
 
 ## Colours
 

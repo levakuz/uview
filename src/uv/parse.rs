@@ -31,8 +31,28 @@ pub fn lock_state(checked: &Result<String, UvError>) -> LockState {
         Err(UvError::Failed { stderr, .. }) if stderr.contains("Unable to find lockfile") => {
             LockState::Missing
         }
-        Err(_) => LockState::Unknown,
+        Err(UvError::Failed { stderr, .. })
+            if stderr.contains("network was disabled")
+                || stderr.contains("Network connectivity is disabled") =>
+        {
+            LockState::Offline
+        }
+        Err(UvError::Failed { stderr, .. }) => LockState::Unknown(first_line(stderr)),
+        Err(e) => LockState::Unknown(e.to_string()),
     }
+}
+
+/// The first line uv wrote that says something, without its `error:` or `×`.
+fn first_line(stderr: &str) -> String {
+    let line = stderr
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default();
+    let said = line
+        .strip_prefix("error:")
+        .or_else(|| line.strip_prefix('×'));
+    said.unwrap_or(line).trim().to_string()
 }
 
 /// The packages of `uv tree`'s output, in order, each at its depth. A line is drawn as

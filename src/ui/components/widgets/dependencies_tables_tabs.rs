@@ -575,7 +575,7 @@ impl DependenciesTablesTabs {
                     return Vec::new();
                 };
                 if self.active_table == ActiveTable::Tree && self.declared(&name, deps).is_none() {
-                    return Vec::new();
+                    return vec![not_declared(&name)];
                 }
                 // A fresh popup, so it never opens with Remove still selected. Group actions are
                 // for a declared package.
@@ -757,13 +757,17 @@ impl DependenciesTablesTabs {
     /// only installed is not bumped: that would declare a dependency of a dependency.
     fn bump(&mut self, name: &str, deps: &DepsState) -> Vec<Command> {
         let wanted = normalize_name(name);
-        deps.pyproject
+        let declared = deps
+            .pyproject
             .rows()
             .iter()
-            .find(|d| normalize_name(&d.name) == wanted)
-            .map(|dep| self.bump_popup.open(dep, deps))
-            .into_iter()
-            .collect()
+            .find(|d| normalize_name(&d.name) == wanted);
+        vec![match declared {
+            Some(dep) => self.bump_popup.open(dep, deps),
+            None => Command::Explain(format!(
+                "{name} is not in pyproject.toml, so it has no constraint to bump"
+            )),
+        }]
     }
 
     /// Removes `name` from wherever the active table lists it, if it still does.
@@ -780,12 +784,13 @@ impl DependenciesTablesTabs {
                     })
             }
             // On the tree, as from pyproject.toml, for a package it declares.
-            ActiveTable::Tree => self
-                .declared(name, deps)
-                .map(|d| Command::RemoveFromProject {
+            ActiveTable::Tree => Some(match self.declared(name, deps) {
+                Some(d) => Command::RemoveFromProject {
                     name: d.name.clone(),
                     groups: d.groups.clone(),
-                }),
+                },
+                None => not_declared(name),
+            }),
             // Environment only: pyproject.toml is left alone.
             ActiveTable::Environment => {
                 deps.env
@@ -823,6 +828,13 @@ fn group_choices(
     let mut labels: Vec<String> = groups.iter().map(ToString::to_string).collect();
     labels.push("New group…".into());
     (ListPopup::new(title, labels), groups)
+}
+
+/// Why a package of the tree that pyproject.toml does not declare has no actions.
+fn not_declared(name: &str) -> Command {
+    Command::Explain(format!(
+        "{name} is not in pyproject.toml: w shows what pulls it in"
+    ))
 }
 
 /// What a table shows in place of rows: how its load is going, that it loaded nothing, or why
