@@ -29,7 +29,8 @@ Architecture decisions live in `docs/adr/`. Tasks and their status live in
 | Single test | `cargo test <test_name>` |
 | Lint | `cargo clippy -- -D warnings` |
 | Format | `cargo fmt` |
-| Release | `cargo build --release` |
+| Optimised build | `cargo build --release` |
+| Release to PyPI | see `docs/releasing.md` |
 
 ## Architecture
 
@@ -41,9 +42,11 @@ already; one owner per fact.
 
 The short version:
 
-- **Three layers.** `src/ui/` renders and turns input into actions; `src/controllers/`
-  runs `uv` operations through the `UvClient` in `src/uv/`, which alone starts the `uv`
-  process. Controllers never import ratatui; UI code never invokes `uv` directly.
+- **Five layers.** `src/ui/` renders and turns input into commands; `src/runtime/` runs each
+  command as a job; `src/controllers/` do the work through the `UvClient` in `src/uv/`,
+  which alone starts the `uv` process, and the `IndexClient` in `src/index/`, which alone
+  makes HTTP requests. Controllers never import ratatui; UI code never calls a controller
+  or `uv`.
 - **UI is layered** `pages/` › `components/widgets/` › `components/features/` ›
   `components/shared/`. Parameterised over a trait and portable to another TUI → `shared`.
   Names a domain type or a `uv` concept → `features`.
@@ -58,6 +61,9 @@ A decision that is hard to reverse, changes the structure, or will make someone 
   accepted; the PR is the proposal.
 - Never edit an accepted ADR except its Status line. To reverse a decision, write a new
   ADR and mark the old one `Superseded by ADR-NNNN`.
+- Add a line for it to `docs/adr/README.md`, the list of them all.
+- A contributor's pull request does not need one. If the change turns out to carry a
+  decision worth recording, the maintainer writes the ADR when merging it.
 - `ARCHITECTURE.md` describes what the system is; an ADR records why. Link, don't restate.
 
 ## Code conventions
@@ -130,8 +136,8 @@ Before a PR is merged:
 - `cargo test`, `cargo clippy -- -D warnings` and `cargo fmt --check` all pass.
   `.claude/hooks/quality-gate.sh` runs exactly these as a Claude Code Stop hook, so an
   agent cannot finish a turn with Rust changes that fail them. CI
-  (`.github/workflows/ci.yml`) runs the same on Linux, macOS and Windows for every pull
-  request. A change to the packaging also builds and installs the wheels
+  (`.github/workflows/ci.yml`) runs clippy and the tests on Linux, macOS and Windows for
+  every pull request, and `cargo fmt --check` on Linux. A change to the packaging also builds and installs the wheels
   (`.github/workflows/release.yml`). The toolchain is pinned in `rust-toolchain.toml`.
 - A change that alters the layering, the action flow or the module tree updates
   `docs/ARCHITECTURE.md` and the rules in `tests/architecture.rs` in the same PR.

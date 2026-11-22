@@ -13,11 +13,15 @@ are. You never edit files.
 - `src/uv/` — the only code that starts `uv`: `args.rs` builds arguments, `parse.rs`
   reads its output.
 - `src/controllers/` — `uv` operations; `src/runtime/` — background jobs.
+- `src/index/` — the only code that makes HTTP requests: a package's versions.
 - `src/ui/` — `pages/` › `components/{widgets,features,shared}/`; keys in `keymap.rs`.
-- `src/message.rs`, `src/state.rs`, `src/app.rs` — actions, state, the loop.
+- `src/ui/theme.rs` — every colour; `src/config.rs` — the user's settings file.
+- `src/message.rs`, `src/domain.rs`, `src/state.rs`, `src/app.rs` — messages, domain
+  types, state, the loop; `src/cli.rs` — `--help`, `--version`.
 - `tests/` — integration tests, one file per area; `tests/architecture.rs` holds the
   layering rules.
-- `docs/ARCHITECTURE.md`, `docs/adr/` — why things are the way they are.
+- `docs/ARCHITECTURE.md`, `docs/adr/` — why things are the way they are;
+  `docs/releasing.md`, `.github/workflows/` — CI and the release.
 - Issues: `gh issue list --state all --search "<words>"`.
 
 Treat this map as a hint; if it disagrees with the tree, trust the tree.

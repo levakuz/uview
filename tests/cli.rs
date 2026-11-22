@@ -66,3 +66,20 @@ fn in_a_project_without_a_terminal_it_says_so_rather_than_crash() -> std::io::Re
     assert!(!stderr.contains("panicked"));
     Ok(())
 }
+
+#[test]
+fn the_wheel_depends_on_no_python_package() -> Result<(), Box<dyn std::error::Error>> {
+    // The root pyproject.toml packages uview (ADR-0017), and the repository is a uv project:
+    // `uv add`, or uview run on itself, writes there. The wheel holds a binary and needs nothing.
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/pyproject.toml"))?;
+    let project = text.parse::<toml::Table>()?;
+    let project = project.get("project").and_then(toml::Value::as_table);
+    for key in ["dependencies", "optional-dependencies"] {
+        assert!(
+            project.is_none_or(|p| !p.contains_key(key)),
+            "pyproject.toml declares [project] {key}"
+        );
+    }
+    assert!(!text.contains("[dependency-groups]"));
+    Ok(())
+}

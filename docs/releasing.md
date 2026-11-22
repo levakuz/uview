@@ -18,7 +18,8 @@ uview is released as wheels on PyPI (ADR-0017), from a tag, by
    follows. Merge it.
 2. Rehearse: start **Release** by hand from the Actions tab on `main`, or
    `gh workflow run release.yml --ref main`. It builds every wheel, installs them, and
-   publishes to TestPyPI. Try it:
+   publishes to TestPyPI. Look at the project's page on test.pypi.org: the README is its
+   description, so check that the screenshot shows and still looks like uview. Then try it:
 
    ```bash
    uvx --index https://test.pypi.org/simple/ --index-strategy unsafe-best-match uview --version

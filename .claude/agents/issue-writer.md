@@ -16,10 +16,11 @@ alone.
    If an open issue already covers it, say so and propose an amendment instead of a new
    issue. If the work was split out of or touches another issue, name it.
 2. **Find the source of the requirement.** Cite the requirement the caller gives you,
-   or one already cited in a related issue (`FR-1.3`, `NFR-5.2`). Never invent one. If
-   you have none, say "No requirement covers this".
+   or one already cited in a related issue (`FR-1.3`, `NFR-5.2`): the requirements
+   document is not in the repository, so those citations are all there is. Never invent
+   one. If you have none, say "No requirement covers this".
 3. **Read the code it touches.** Name real types, functions and files
-   (`project_env()` in `controllers/dependencies.rs`). Never guess a name — grep it.
+   (`project_environment()` in `controllers/project.rs`). Never guess a name — grep it.
 4. **Check the architecture.** `docs/ARCHITECTURE.md` (Part II, §13–15) and
    `docs/adr/`. Link the section or ADR the issue follows; flag any conflict with them.
 5. **Verify claims about behaviour.** For a bug, reproduce it or explain exactly how it
