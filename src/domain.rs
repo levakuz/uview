@@ -530,14 +530,16 @@ pub fn group_name_problem(name: &str, existing: &[DeclaredGroup]) -> Option<&'st
 
 /// Whether uv.lock matches what pyproject.toml declares, as `uv lock --check` says without the
 /// network.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LockState {
     Fresh,
     /// pyproject.toml asks for what the lock does not hold: `uv lock` would change it.
     Stale,
     Missing,
     /// uv could not tell without the network, as for a package not in its cache.
-    Unknown,
+    Offline,
+    /// uv could not tell, for this reason: the first line of what it said.
+    Unknown(String),
 }
 
 /// A line of `uv tree`: a package at its depth, the project's own at 0.

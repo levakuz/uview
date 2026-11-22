@@ -240,8 +240,12 @@ fn the_project_tile_says_what_uv_lock_needs() -> Result<(), Box<dyn Error>> {
         "no uv.lock — press l"
     );
     assert_eq!(
-        line(Loadable::Loaded(LockState::Unknown))?.0,
+        line(Loadable::Loaded(LockState::Offline))?.0,
         "uv.lock not checked: it needs the network"
+    );
+    assert_eq!(
+        line(Loadable::Loaded(LockState::Unknown("no pyproject".into())))?.0,
+        "uv.lock not checked: no pyproject"
     );
     // Until a reload has checked, nothing is said: the environment's row is followed by the
     // border.

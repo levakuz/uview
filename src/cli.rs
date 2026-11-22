@@ -28,13 +28,19 @@ pub fn invocation(args: &[String]) -> Invocation {
 }
 
 fn usage() -> String {
+    // Where config_path puts it, as each platform writes a path.
+    let settings = if cfg!(windows) {
+        r"%APPDATA%\uview\config.toml"
+    } else {
+        "~/.config/uview/config.toml"
+    };
     format!(
         "uview {VERSION}: a terminal UI for uv, the Python package manager
 
 Usage: uview [--help | --version]
 
 Run it in a Python project, or below one: it works on the project uv would.
-Press ? in it for every key. Colours: ~/.config/uview/config.toml, which C writes.
+Press ? in it for every key. Colours: {settings}, which C writes.
 
 Options:
   -h, --help     Print this help

@@ -76,6 +76,10 @@ impl<U: UvClient + 'static, I: IndexClient + Send + Sync + 'static> JobRunner<U,
 
     /// Accepts `command` as a job: a read starts at once, a mutation after those before it.
     pub fn execute(&mut self, command: Command) {
+        if let Command::Explain(why) = command {
+            let _ = self.events.send(Event::Notice(why));
+            return;
+        }
         self.last_id += 1;
         let job = Job {
             id: JobId(self.last_id),
@@ -115,7 +119,8 @@ impl<U: UvClient + 'static, I: IndexClient + Send + Sync + 'static> JobRunner<U,
 fn mutates(command: &Command) -> bool {
     !matches!(
         command,
-        Command::Reload
+        Command::Explain(_)
+            | Command::Reload
             | Command::PreviewVersions
             | Command::ListVersions { .. }
             | Command::LoadTree { .. }
@@ -129,6 +134,7 @@ fn mutates(command: &Command) -> bool {
 /// What the progress indicator says while `command` runs.
 fn label(command: &Command) -> String {
     match command {
+        Command::Explain(_) => "Explaining".into(),
         Command::Reload => "Loading dependencies".into(),
         Command::PreviewVersions => "Reading the next versions".into(),
         Command::ListPythons => "Listing Pythons".into(),

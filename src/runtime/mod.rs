@@ -21,7 +21,7 @@ use crate::controllers::groups::{
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{
     ProjectPaths, check_lock, load_project_info, load_tree, lock, preview_bumps, set_version,
-    uv_too_old, why_installed,
+    uv_unusable, why_installed,
 };
 use crate::controllers::publish::{publish, published_notice};
 use crate::controllers::versions::list_versions;
@@ -50,6 +50,10 @@ async fn run<U: UvClient, I: IndexClient>(
 ) {
     let uv = clients.uv;
     let outcome = match command {
+        Command::Explain(why) => {
+            let _ = events.send(Event::Notice(why));
+            return;
+        }
         // What the index says is the list's to show, not the status line's. A cancel ends the
         // request; uv is not involved to end it.
         Command::ListVersions { name } => {
@@ -129,8 +133,8 @@ async fn run<U: UvClient, I: IndexClient>(
             Err(e) => Err(e),
         },
         Command::CheckUv => {
-            if let Some(too_old) = uv_too_old(uv).await {
-                let _ = events.send(Event::Error(too_old));
+            if let Some(unusable) = uv_unusable(uv).await {
+                let _ = events.send(Event::Error(unusable));
             }
             return;
         }

@@ -64,8 +64,11 @@ fn lock_line(lock: &Loadable<LockState>) -> Option<Line<'static>> {
         LockState::Fresh => Line::raw("uv.lock up to date").fg(theme().muted),
         LockState::Stale => Line::raw("uv.lock out of date — press l").fg(theme().warning),
         LockState::Missing => Line::raw("no uv.lock — press l").fg(theme().warning),
-        LockState::Unknown => {
+        LockState::Offline => {
             Line::raw("uv.lock not checked: it needs the network").fg(theme().muted)
+        }
+        LockState::Unknown(reason) => {
+            Line::raw(format!("uv.lock not checked: {reason}")).fg(theme().muted)
         }
     })
 }

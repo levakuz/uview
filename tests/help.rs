@@ -165,3 +165,21 @@ fn shift_tells_the_logs_arrows_from_the_selections() {
     let help = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
     assert_eq!(press(Mode::Table, help), Some(Action::Help));
 }
+
+#[test]
+fn altgr_on_windows_is_the_character_it_types() {
+    use uview::ui::keymap::typed;
+    // `[` on a German layout, as Windows reports it.
+    let altgr = KeyEvent::new(
+        KeyCode::Char('['),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    );
+    assert_eq!(typed(altgr, true), KeyEvent::from(KeyCode::Char('[')));
+    // Elsewhere Ctrl+Alt is no AltGr: Esc and a key read together arrive with Alt.
+    assert_eq!(typed(altgr, false), altgr);
+    // Only for characters, and Ctrl alone stays Ctrl.
+    let arrow = KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::ALT);
+    assert_eq!(typed(arrow, true), arrow);
+    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert_eq!(typed(ctrl_c, true), ctrl_c);
+}

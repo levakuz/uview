@@ -104,6 +104,8 @@ pub enum DepsAction {
 /// runtime does.
 #[derive(Debug, PartialEq)]
 pub enum Command {
+    /// Say on the status line why a key did nothing. No job runs: it is said at once.
+    Explain(String),
     /// Read both tables, and the project's name and version, again.
     Reload,
     /// Bring the environment exactly in line with the lockfile: plain `uv sync`.

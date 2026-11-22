@@ -83,6 +83,7 @@ impl App {
         self.state.deps.pyproject = Loadable::Loading { since };
         self.state.deps.env = Loadable::Loading { since };
         self.state.project.info = Loadable::Loading { since };
+        self.state.deps.tree = Loadable::Loading { since };
         self.runner.execute(Command::Reload);
         self.runner.execute(Command::CheckUv);
 
@@ -181,19 +182,30 @@ impl App {
     /// Hands `action` to the page and the commands it returns to the runner. Components
     /// return commands, never actions, so nothing comes back into dispatch.
     fn dispatch(&mut self, action: Action) {
+        // On the way out, nothing new starts.
+        if self.should_quit {
+            return;
+        }
         match action {
             // Quits once the jobs have stopped, so a `uv` interrupted mid-way can put back what
             // it changed.
             Action::Quit => {
                 self.runner.cancel();
                 self.should_quit = true;
+                let message = "Quitting once uv has stopped…".to_string();
+                self.state.message = Some(Message::Info(message));
             }
             // With nothing to cancel, whoever pressed it most likely wants out.
             Action::Cancel if self.state.jobs.is_idle() => {
                 let hint = "Nothing is running to cancel; q quits".to_string();
                 self.state.message = Some(Message::Info(hint));
             }
-            Action::Cancel => self.runner.cancel(),
+            // A cancelled reload leaves "cancelled" in the tables: one that runs to the end
+            // follows.
+            Action::Cancel => {
+                self.runner.cancel();
+                self.runner.execute(Command::Reload);
+            }
             Action::LogBack => self.log_back += LOG_STEP,
             Action::LogForward => self.log_back = self.log_back.saturating_sub(LOG_STEP),
             Action::WriteConfig => match &self.config {
@@ -202,7 +214,11 @@ impl App {
                     contents: template(theme()),
                 }),
                 None => {
-                    let reason = "no HOME, XDG_CONFIG_HOME or UVIEW_CONFIG_FILE to put it under";
+                    let reason = if cfg!(windows) {
+                        "no APPDATA or UVIEW_CONFIG_FILE to put it under"
+                    } else {
+                        "no HOME, XDG_CONFIG_HOME or UVIEW_CONFIG_FILE to put it under"
+                    };
                     let message = format!("Nowhere to write a settings file: {reason}");
                     self.state.message = Some(Message::Error(message));
                 }
