@@ -98,6 +98,8 @@ fn the_config_file_is_where_uv_keeps_its_own() {
         config_path(env(&[("HOME", "/home/jane")]), false),
         Some(PathBuf::from("/home/jane/.config/uview/config.toml"))
     );
+    // `/home/jane/cfg` is absolute only where the test runs on Unix.
+    #[cfg(unix)]
     assert_eq!(
         config_path(
             env(&[
