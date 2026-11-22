@@ -24,9 +24,6 @@ classifiers = [
     "Programming Language :: Rust",
     "Topic :: Software Development :: Build Tools",
 ]
-dependencies = [
-    "flask>=3.0.3",
-]
 
 [project.urls]
 Repository = "https://github.com/levakuz/uview"
