@@ -7,7 +7,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 
-use uview::controllers::versions::{PYPI, choices, indexes_for, list_versions};
+use uview::controllers::uv_settings::{PYPI, UvSettings, indexes_for, table};
+use uview::controllers::versions::{choices, list_versions};
 use uview::domain::{PackageInfo, VersionChoice};
 use uview::index::parse::{files, version_in};
 use uview::index::{IndexClient, IndexError, Page, RealIndexClient, project_url};
@@ -144,16 +145,24 @@ explicit = true
 internal-lib = { index = "corp" }
 "#;
 
+/// The settings of a project whose pyproject.toml is `pyproject`, and nothing else.
+fn settings_of(pyproject: &str) -> UvSettings {
+    UvSettings {
+        env: Vec::new(),
+        files: table(pyproject, true).into_iter().collect(),
+    }
+}
+
 #[test]
 fn uv_s_order_decides_which_index_to_ask() {
     // Pinned: that index alone.
     assert_eq!(
-        indexes_for(PYPROJECT, "Internal_Lib"),
+        indexes_for(&settings_of(PYPROJECT), PYPROJECT, "Internal_Lib"),
         ["https://corp.example.com/simple"]
     );
     // Else the extras in order, then PyPI; the explicit one is skipped.
     assert_eq!(
-        indexes_for(PYPROJECT, "six"),
+        indexes_for(&settings_of(PYPROJECT), PYPROJECT, "six"),
         ["https://download.pytorch.org/whl/cpu", PYPI]
     );
     // A default index replaces PyPI.
@@ -162,10 +171,181 @@ fn uv_s_order_decides_which_index_to_ask() {
         "url = \"https://download.pytorch.org/whl/cpu\"\ndefault = true",
     );
     assert_eq!(
-        indexes_for(&replaced, "six"),
+        indexes_for(&settings_of(&replaced), &replaced, "six"),
         ["https://download.pytorch.org/whl/cpu"]
     );
-    assert_eq!(indexes_for("[project]\nname = \"p\"\n", "six"), [PYPI]);
+    assert_eq!(
+        indexes_for(&UvSettings::default(), "[project]\nname = \"p\"\n", "six"),
+        [PYPI]
+    );
+}
+
+/// `text`, as a uv.toml.
+fn uv_toml(text: &str) -> toml::Table {
+    table(text, false).unwrap_or_default()
+}
+
+#[test]
+fn the_environment_and_every_settings_file_count_in_uv_s_order() {
+    let settings = UvSettings {
+        env: vec![(
+            "UV_INDEX",
+            "mirror=https://mirror.example/simple corp".into(),
+        )],
+        files: vec![
+            // The project's, then the user's.
+            uv_toml(
+                r#"extra-index-url = ["https://legacy.example/simple"]
+[[index]]
+name = "corp"
+url = "https://corp.example/simple"
+explicit = true
+[[index]]
+url = "https://project.example/simple/"
+"#,
+            ),
+            uv_toml(
+                r#"index-url = "https://user-default.example/simple"
+[[index]]
+url = "https://user.example/simple"
+"#,
+            ),
+        ],
+    };
+    // UV_INDEX first, by URL or by the name of one a file defines, explicit or not; then the
+    // files' indexes, the project's ahead of the user's; then the legacy extras; then the
+    // default a file sets, in place of PyPI.
+    assert_eq!(
+        indexes_for(&settings, "", "six"),
+        [
+            "https://mirror.example/simple",
+            "https://corp.example/simple",
+            "https://project.example/simple",
+            "https://user.example/simple",
+            "https://legacy.example/simple",
+            "https://user-default.example/simple",
+        ]
+    );
+    // The environment's default is the default.
+    let mut defaulted = settings;
+    defaulted.env = vec![(
+        "UV_DEFAULT_INDEX",
+        "https://env-default.example/simple".into(),
+    )];
+    assert_eq!(
+        indexes_for(&defaulted, "", "six")
+            .last()
+            .map(String::as_str),
+        Some("https://env-default.example/simple")
+    );
+    // A pin by name, to an index the settings define.
+    let pinned = "[tool.uv.sources]\nsix = { index = \"corp\" }\n";
+    assert_eq!(
+        indexes_for(&defaulted, pinned, "six"),
+        ["https://corp.example/simple"]
+    );
+    // A default index that is also explicit leaves no default, not even PyPI.
+    let explicit = UvSettings {
+        env: Vec::new(),
+        files: vec![uv_toml(
+            "[[index]]\nname = \"corp\"\nurl = \"https://corp.example/simple\"\ndefault = true\nexplicit = true\n",
+        )],
+    };
+    assert!(indexes_for(&explicit, "", "six").is_empty());
+}
+
+#[test]
+fn the_settings_files_are_found_where_uv_looks() -> Result<(), Box<dyn Error>> {
+    let root = std::env::temp_dir().join(format!("uview-uv-settings-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (workspace, user, system) = (root.join("repo/app"), root.join("home"), root.join("etc"));
+    for dir in [&workspace, &user.join("uv"), &system.join("uv")] {
+        std::fs::create_dir_all(dir)?;
+    }
+    let index = |url: &str| format!("[[index]]\nurl = \"{url}\"\n");
+    // The project's pyproject.toml has no [tool.uv], so the uv.toml above it counts.
+    std::fs::write(
+        workspace.join("pyproject.toml"),
+        "[project]\nname = \"app\"\n",
+    )?;
+    std::fs::write(
+        root.join("repo/uv.toml"),
+        index("https://repo.example/simple"),
+    )?;
+    std::fs::write(
+        user.join("uv/uv.toml"),
+        index("https://user.example/simple"),
+    )?;
+    std::fs::write(
+        system.join("uv/uv.toml"),
+        index("https://system.example/simple"),
+    )?;
+    let system_dirs = system.to_string_lossy().to_string();
+    let read = |pairs: Vec<(&'static str, String)>| {
+        let system_dirs = system_dirs.clone();
+        let env = move |key: &str| {
+            let found = pairs.iter().find(|(k, _)| *k == key);
+            found.map(|(_, v)| v.clone()).or_else(|| {
+                // Where the system's settings are said to be, on each platform.
+                let system = ["XDG_CONFIG_DIRS", "PROGRAMDATA"].contains(&key);
+                system.then(|| system_dirs.clone())
+            })
+        };
+        let settings = UvSettings::read(&workspace, Some(&user), env, cfg!(windows));
+        indexes_for(&settings, "", "six")
+    };
+    assert_eq!(
+        read(Vec::new()),
+        [
+            "https://repo.example/simple",
+            "https://user.example/simple",
+            "https://system.example/simple",
+            PYPI
+        ]
+    );
+    // A [tool.uv] in the project's pyproject.toml is nearer; a uv.toml beside it wins over it.
+    std::fs::write(
+        workspace.join("pyproject.toml"),
+        format!(
+            "[tool.uv]\n{}",
+            index("https://pyproject.example/simple").replace("[[index]]", "[[tool.uv.index]]")
+        ),
+    )?;
+    assert_eq!(read(Vec::new())[0], "https://pyproject.example/simple");
+    std::fs::write(
+        workspace.join("uv.toml"),
+        index("https://beside.example/simple"),
+    )?;
+    assert_eq!(read(Vec::new())[0], "https://beside.example/simple");
+    // UV_CONFIG_FILE stands for every file; UV_NO_CONFIG leaves none.
+    let only = root.join("only.toml");
+    std::fs::write(&only, index("https://only.example/simple"))?;
+    assert_eq!(
+        read(vec![("UV_CONFIG_FILE", only.to_string_lossy().to_string())]),
+        ["https://only.example/simple", PYPI]
+    );
+    assert_eq!(read(vec![("UV_NO_CONFIG", "1".into())]), [PYPI]);
+    std::fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn credentials_in_an_index_url_are_never_drawn() {
+    use uview::domain::redacted;
+    assert_eq!(
+        redacted("https://jane:s3cret@corp.example.com/simple/"),
+        "https://****@corp.example.com/simple/"
+    );
+    assert_eq!(
+        redacted("https://token@corp.example.com"),
+        "https://****@corp.example.com"
+    );
+    // An @ past the host is part of the path.
+    assert_eq!(
+        redacted("https://corp.example.com/simple/@scope"),
+        "https://corp.example.com/simple/@scope"
+    );
+    assert_eq!(redacted(PYPI), PYPI);
 }
 
 /// Serves pages by URL, answers others "no such package", and fails when told to.
@@ -223,14 +403,14 @@ async fn the_first_index_that_has_the_package_answers() -> Result<(), Box<dyn Er
         ],
         fails: false,
     };
-    let six = list_versions(&index, &pyproject, "six").await?;
+    let six = list_versions(&index, &settings_of(PYPROJECT), &pyproject, "six").await?;
     assert_eq!(six.index, PYPI);
     assert_eq!(
         six.info.and_then(|info| info.summary).as_deref(),
         Some("PyPI's six")
     );
     // torch comes from the PyTorch index: what PyPI says of a torch is kept off it.
-    let torch = list_versions(&index, &pyproject, "torch").await?;
+    let torch = list_versions(&index, &settings_of(PYPROJECT), &pyproject, "torch").await?;
     assert_eq!(torch.index, "https://download.pytorch.org/whl/cpu");
     assert_eq!(torch.info, None);
     assert_eq!(
@@ -248,14 +428,14 @@ async fn the_first_index_that_has_the_package_answers() -> Result<(), Box<dyn Er
             },
         ]
     );
-    let missing = list_versions(&index, &pyproject, "nosuch").await;
+    let missing = list_versions(&index, &settings_of(PYPROJECT), &pyproject, "nosuch").await;
     assert!(missing.is_err_and(|e| e.contains("nosuch is not on")));
     // A failure is said, with the index that failed.
     let locked = Pages {
         pages: Vec::new(),
         fails: true,
     };
-    let failed = list_versions(&locked, &pyproject, "six").await;
+    let failed = list_versions(&locked, &settings_of(PYPROJECT), &pyproject, "six").await;
     assert!(failed.is_err_and(|e| e.contains("download.pytorch.org") && e.contains("credentials")));
     std::fs::remove_dir_all(pyproject.parent().ok_or("no parent")?)?;
     Ok(())
@@ -328,17 +508,25 @@ async fn the_real_client_asks_for_json_and_takes_html_or_a_status() -> Result<()
 
 #[test]
 fn uv_goes_past_the_codes_an_index_answers_for_a_missing_package() {
-    use uview::controllers::versions::ignores;
+    use uview::controllers::uv_settings::ignores;
     let pytorch = "https://download.pytorch.org/whl/cpu";
-    assert!(ignores(PYPROJECT, pytorch, 403));
-    assert!(!ignores(PYPROJECT, pytorch, 401));
-    assert!(!ignores(PYPROJECT, "https://corp.example.com/simple", 403));
+    assert!(ignores(&settings_of(PYPROJECT), pytorch, 403));
+    assert!(!ignores(&settings_of(PYPROJECT), pytorch, 401));
+    assert!(!ignores(
+        &settings_of(PYPROJECT),
+        "https://corp.example.com/simple",
+        403
+    ));
     // An index's own list replaces the default.
     let listed = PYPROJECT.replace(
         "url = \"https://corp.example.com/simple\"",
         "url = \"https://corp.example.com/simple\"\nignore-error-codes = [401, 403]",
     );
-    assert!(ignores(&listed, "https://corp.example.com/simple", 401));
+    assert!(ignores(
+        &settings_of(&listed),
+        "https://corp.example.com/simple",
+        401
+    ));
 }
 
 #[test]
@@ -430,5 +618,30 @@ async fn the_real_client_reads_pypi_s_json_api() -> Result<(), Box<dyn Error>> {
         client.pypi_project("nosuch").await,
         Err(IndexError::NotFound)
     ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_index_asked_is_named_without_its_credentials() -> Result<(), Box<dyn Error>> {
+    let pyproject = scratch_pyproject("credentials")?;
+    let corp = "https://jane:s3cret@corp.example/simple";
+    let settings = UvSettings {
+        env: vec![("UV_DEFAULT_INDEX", corp.into())],
+        files: Vec::new(),
+    };
+    let six = r#"{"files": [{"filename": "six-1.17.0-py2.py3-none-any.whl"}]}"#;
+    let index = Pages {
+        pages: vec![(format!("{corp}/six/"), json(six))],
+        fails: false,
+    };
+    // The From row, and what says the package is not there.
+    let listed = list_versions(&index, &settings, &pyproject, "six").await?;
+    assert_eq!(listed.index, "https://****@corp.example/simple");
+    let missing = list_versions(&index, &settings, &pyproject, "nosuch").await;
+    assert_eq!(
+        missing,
+        Err("nosuch is not on https://****@corp.example/simple".into())
+    );
+    std::fs::remove_dir_all(pyproject.parent().ok_or("no parent")?)?;
     Ok(())
 }

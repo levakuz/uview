@@ -1,7 +1,7 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
-use crate::domain::{Artifact, PublishTarget};
+use crate::domain::{Artifact, PublishTarget, redacted};
 use crate::message::{Action, Command, NavAction};
 use crate::state::AppState;
 use crate::ui::components::features::project_tile::human_size;
@@ -125,7 +125,7 @@ fn targets(state: &AppState) -> Step {
         .unwrap_or(0);
     let rows = targets
         .iter()
-        .map(|t| format!("{:<width$}  {}", t.label(), t.upload_url()))
+        .map(|t| format!("{:<width$}  {}", t.label(), redacted(t.upload_url())))
         .collect();
     Step::Targets(ListPopup::new("Publish to", rows), targets)
 }
@@ -139,7 +139,11 @@ fn confirm(state: &AppState, target: PublishTarget) -> Step {
         None => "No credentials found: set UV_PUBLISH_TOKEN".into(),
     });
     rows.extend(["Publish".into(), "Cancel".into()]);
-    let title = format!("Publish to {} · {}", target.label(), target.upload_url());
+    let title = format!(
+        "Publish to {} · {}",
+        target.label(),
+        redacted(target.upload_url())
+    );
     let mut list = ListPopup::new(&title, rows);
     list.select(files.len() + 1);
     Step::Confirm(list, target, files)

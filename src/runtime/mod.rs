@@ -6,7 +6,7 @@ pub mod jobs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{shown, write_new};
+use crate::config::{config_dir, shown, write_new};
 use crate::controllers::build::{build, built_notice, dist_dir};
 use crate::controllers::dependencies::{
     add_dep, add_from, load_env_deps, load_pyproject_deps, move_dep, pin_dep_version,
@@ -21,9 +21,10 @@ use crate::controllers::groups::{
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{
     ProjectPaths, check_lock, load_project_info, load_tree, lock, preview_bumps, set_version,
-    uv_unusable, why_installed,
+    uv_unusable, why_installed, workspace_root,
 };
 use crate::controllers::publish::{publish, published_notice};
+use crate::controllers::uv_settings::UvSettings;
 use crate::controllers::versions::list_versions;
 use crate::domain::Membership;
 use crate::index::IndexClient;
@@ -57,10 +58,11 @@ async fn run<U: UvClient, I: IndexClient>(
         // What the index says is the list's to show, not the status line's. A cancel ends the
         // request; uv is not involved to end it.
         Command::ListVersions { name } => {
+            let settings = uv_settings(paths);
             let listed = tokio::select! {
                 biased;
                 () = clients.cancel.cancelled() => Err("cancelled".to_string()),
-                listed = list_versions(clients.index, &paths.pyproject, &name) => listed,
+                listed = list_versions(clients.index, &settings, &paths.pyproject, &name) => listed,
             };
             let _ = events.send(Event::VersionsListed {
                 name,
@@ -312,6 +314,19 @@ async fn reload(
     });
 }
 
+/// Where uv takes the project's indexes from, as read now: a mirror set since uview started
+/// counts.
+fn uv_settings(paths: &ProjectPaths) -> UvSettings {
+    let env = |key: &str| std::env::var(key).ok();
+    let user = config_dir(&env, cfg!(windows));
+    UvSettings::read(
+        &workspace_root(&paths.root),
+        user.as_deref(),
+        env,
+        cfg!(windows),
+    )
+}
+
 /// Where an add goes, as its notice and label say it: nothing for the main dependencies.
 fn to(membership: &Membership) -> String {
     match membership {
@@ -320,9 +335,10 @@ fn to(membership: &Membership) -> String {
     }
 }
 
-/// An index as notices name it: by its name, or its URL when it has none.
-fn index_label(index: &crate::domain::Index) -> &str {
-    index.name.as_deref().unwrap_or(&index.url)
+/// An index as notices name it: by its name, or its URL, without credentials, when it has none.
+fn index_label(index: &crate::domain::Index) -> String {
+    let url = || crate::domain::redacted(&index.url);
+    index.name.clone().unwrap_or_else(url)
 }
 
 /// Reads the dependency tree and reports it with `generation`. What uv said, when it could not,

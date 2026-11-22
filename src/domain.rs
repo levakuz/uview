@@ -249,6 +249,18 @@ pub fn version_problem(version: &str) -> Option<&'static str> {
     }
 }
 
+/// `url` with the credentials it may carry drawn as `****`: `https://****@corp.example.com/`.
+pub fn redacted(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let host = rest.split('/').next().unwrap_or_default();
+    match host.rsplit_once('@') {
+        Some((_, after)) => format!("{scheme}://****@{after}{}", &rest[host.len()..]),
+        None => url.to_string(),
+    }
+}
+
 /// `name` as PEP 503 normalizes a project name: lower case, each run of `-`, `_` and `.` one
 /// dash. Indexes and uv compare names this way.
 pub fn normalize_name(name: &str) -> String {

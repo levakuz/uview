@@ -24,3 +24,4 @@ one, and `AGENTS.md` says when one is due.
 | [0016](0016-a-settings-file-where-uv-keeps-its-own.md) | Keep the user's settings in a TOML file where uv keeps its own |
 | [0017](0017-ship-binary-wheels-built-by-maturin.md) | Ship uview as binary wheels built by maturin, released from a tag |
 | [0018](0018-rename-a-group-by-editing-pyproject.md) | Rename a dependency group by editing pyproject.toml |
+| [0019](0019-read-uv-s-index-settings-as-uv-does.md) | Read uv's index settings from wherever uv reads them |

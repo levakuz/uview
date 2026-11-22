@@ -1,7 +1,7 @@
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    domain::{Index, index_name_problem, index_url_problem},
+    domain::{Index, index_name_problem, index_url_problem, redacted},
     message::{Action, Command, DepsAction, NavAction},
     ui::{
         components::{features::input_popup::InputPopup, shared::list_popup::ListPopup},
@@ -102,7 +102,7 @@ impl IndexesPopup {
                 NavAction::Select => match list.selected() {
                     Some(i) if i < indexes.len() => {
                         let index = indexes[i].clone();
-                        let label = index.name.clone().unwrap_or_else(|| index.url.clone());
+                        let label = index.name.clone().unwrap_or_else(|| redacted(&index.url));
                         let options = vec![format!("Remove index {label}"), "Keep it".into()];
                         let list = ListPopup::new(&label, options);
                         (Some(Step::Remove { index, list }), None)
@@ -195,7 +195,11 @@ impl IndexesPopup {
 fn row(index: &Index) -> String {
     let name = index.name.as_deref().unwrap_or("(no name)");
     // `explicit`, the longest kind, sets the column.
-    format!("{:<8}  {name}  {}", index.kind.to_string(), index.url)
+    format!(
+        "{:<8}  {name}  {}",
+        index.kind.to_string(),
+        redacted(&index.url)
+    )
 }
 
 /// An open input titled `title`.
