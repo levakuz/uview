@@ -392,8 +392,10 @@ async fn remove_runs_uv_remove_per_membership() -> Result<(), UvError> {
     assert_eq!(
         uv.calls(),
         [
-            vec!["remove", "httpx"],
-            vec!["remove", "httpx", "--group", "dev"],
+            vec!["remove", "httpx", "--no-sync"],
+            vec!["remove", "httpx", "--group", "dev", "--no-sync"],
+            // Once, for everything declared: uv remove\'s own sync would uninstall other groups.
+            vec!["sync", "--all-groups", "--all-extras"],
         ]
     );
     Ok(())
@@ -462,7 +464,8 @@ async fn a_move_adds_to_the_new_group_then_removes_from_the_old() -> Result<(), 
         uv.calls(),
         [
             vec!["add", "six>=1.16", "--group", "dev"],
-            vec!["remove", "six"]
+            vec!["remove", "six", "--no-sync"],
+            vec!["sync", "--all-groups", "--all-extras"],
         ]
     );
     assert!(events.iter().any(notice("Moved six from main to dev")));
@@ -536,7 +539,7 @@ async fn every_mutation_reports_the_project_changed_however_it_ends() -> Result<
     assert_eq!(mutated, 2);
     // The runner reads nothing itself: the app reloads, in answer to ProjectMutated.
     let commands: Vec<String> = uv.calls().iter().map(|call| call[..2].join(" ")).collect();
-    assert_eq!(commands, ["sync --upgrade-package", "add httpx"]);
+    assert_eq!(commands, ["sync --all-groups", "add httpx"]);
     Ok(())
 }
 
@@ -585,7 +588,7 @@ async fn sync_runs_plain_uv_sync() -> Result<(), Box<dyn Error>> {
             .iter()
             .any(|event| matches!(event, Event::ProjectMutated))
     );
-    assert_eq!(uv.calls(), [["sync"]]);
+    assert_eq!(uv.calls(), [["sync", "--all-groups", "--all-extras"]]);
     Ok(())
 }
 
@@ -1296,4 +1299,40 @@ async fn the_tree_and_what_pulls_a_package_in_are_reads() -> Result<(), Box<dyn 
         ["tree", "--frozen", "--invert", "--package", "six"]
     );
     Ok(())
+}
+
+#[test]
+fn a_package_is_moved_as_the_group_it_leaves_declares_it() {
+    use uview::controllers::dependencies::declarations;
+    let text = r#"[project]
+name = "demo"
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+web = ["HTTPX[brotli]"]
+
+[dependency-groups]
+dev = [
+    "httpx[http2]>=0.28; python_version > '3.9'",
+    "six; python_version < '3.11'",
+    "six>=1.17; python_version >= '3.11'",
+]
+"#;
+    let dev = Membership::Group("dev".into());
+    // Not the first declaration of the name, which is the main one.
+    assert_eq!(
+        declarations(text, "httpx", &dev),
+        ["httpx[http2]>=0.28; python_version > '3.9'"]
+    );
+    assert_eq!(
+        declarations(text, "httpx", &Membership::Project),
+        ["httpx>=0.27"]
+    );
+    assert_eq!(
+        declarations(text, "httpx", &Membership::Extra("web".into())),
+        ["HTTPX[brotli]"]
+    );
+    // Listed twice, moved twice.
+    assert_eq!(declarations(text, "six", &dev).len(), 2);
+    assert!(declarations(text, "idna", &dev).is_empty());
 }

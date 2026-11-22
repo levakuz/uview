@@ -9,13 +9,15 @@ use tokio_util::sync::CancellationToken;
 use crate::config::{shown, write_new};
 use crate::controllers::build::{build, built_notice, dist_dir};
 use crate::controllers::dependencies::{
-    add_dep, add_from, load_env_deps, load_pyproject_deps, pin_dep_version,
+    add_dep, add_from, load_env_deps, load_pyproject_deps, move_dep, pin_dep_version,
     remove_dep_from_pyproject, sync_exact, uninstall_from_env, upgrade_env_dep,
 };
 use crate::controllers::environment::{
     delete_env, list_pythons, load_env_info, recreate, relative_to, reset,
 };
-use crate::controllers::groups::{create_group, delete_group, empty_groups, load_groups};
+use crate::controllers::groups::{
+    create_group, delete_group, empty_groups, load_groups, rename_group,
+};
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{
     ProjectPaths, check_lock, load_project_info, load_tree, lock, preview_bumps, set_version,
@@ -202,6 +204,9 @@ async fn run<U: UvClient, I: IndexClient>(
         Command::CreateGroup { name } => create_group(uv, &paths.pyproject, &name)
             .await
             .map(|()| format!("Created group {name}")),
+        Command::RenameGroup { from, to } => rename_group(uv, &paths.pyproject, &from, &to)
+            .await
+            .map(|()| format!("Renamed group {from} to {to}")),
         Command::DeleteGroup { name } => delete_group(uv, &paths.pyproject, &name)
             .await
             .map(|()| format!("Deleted group {name}")),
@@ -210,24 +215,17 @@ async fn run<U: UvClient, I: IndexClient>(
             requirement,
             from,
             to,
-        } => {
-            // Added first: a failed `uv add` changes nothing, while a failed remove after it
-            // leaves the package in both groups, still declared.
-            if let Err(e) = add_dep(uv, &requirement, &to).await {
-                Err(e)
-            } else {
-                match remove_dep_from_pyproject(uv, &name, vec![from.clone()]).await {
-                    Ok(()) => Ok(format!("Moved {name} from {from} to {to}")),
-                    Err(UvError::Cancelled) => Err(UvError::Cancelled),
-                    Err(e) => {
-                        let _ = events.send(Event::Error(format!(
-                            "{name} was added to {to} but is still in {from}: {e}"
-                        )));
-                        return;
-                    }
-                }
+        } => match move_dep(uv, &paths.pyproject, &name, &requirement, &from, &to).await {
+            Err(e) => Err(e),
+            Ok(Ok(())) => Ok(format!("Moved {name} from {from} to {to}")),
+            Ok(Err(UvError::Cancelled)) => Err(UvError::Cancelled),
+            Ok(Err(e)) => {
+                let _ = events.send(Event::Error(format!(
+                    "{name} was added to {to} but is still in {from}: {e}"
+                )));
+                return;
             }
-        }
+        },
         Command::Uninstall { name } => uninstall_from_env(uv, &name, &paths.env)
             .await
             .map(|()| format!("Uninstalled {name} from the environment")),

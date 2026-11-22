@@ -121,10 +121,60 @@ pub async fn remove_dep_from_pyproject(
     memberships: Vec<Membership>,
 ) -> Result<(), UvError> {
     for membership in &memberships {
-        uv.run(&args::membership_args("remove", name, membership))
-            .await?;
+        uv.run(&args::remove_args(name, membership)).await?;
     }
+    uv.run(&args::SYNC).await?;
     Ok(())
+}
+
+/// The requirements declaring `name` in `membership`, as written in the pyproject.toml `text`:
+/// extras, marker and all, and each of them when the package is listed more than once.
+pub fn declarations(text: &str, name: &str, membership: &Membership) -> Vec<String> {
+    let Ok(value) = toml::from_str::<toml::Value>(text) else {
+        return Vec::new();
+    };
+    let section = match membership {
+        Membership::Project => value.get("project").and_then(|p| p.get("dependencies")),
+        Membership::Group(group) => value.get("dependency-groups").and_then(|g| g.get(group)),
+        Membership::Extra(extra) => value
+            .get("project")
+            .and_then(|p| p.get("optional-dependencies"))
+            .and_then(|o| o.get(extra)),
+    };
+    let wanted = normalize(name);
+    section
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .filter(|dep| normalize(&parse_dep_string(dep).0) == wanted)
+        .map(String::from)
+        .collect()
+}
+
+/// Moves `name` from `from` to `to`, as `from` declares it; `requirement`, what its row shows,
+/// stands in if the file cannot say. Added first: a failed `uv add` changes nothing, while a
+/// failed remove after it leaves the package in both, still declared, which the `Err` of the
+/// inner result says.
+pub async fn move_dep(
+    uv: &impl UvClient,
+    pyproject: &Path,
+    name: &str,
+    requirement: &str,
+    from: &Membership,
+    to: &Membership,
+) -> Result<Result<(), UvError>, UvError> {
+    let text = tokio::fs::read_to_string(pyproject)
+        .await
+        .unwrap_or_default();
+    let mut declared = declarations(&text, name, from);
+    if declared.is_empty() {
+        declared.push(requirement.to_string());
+    }
+    for requirement in &declared {
+        add_dep(uv, requirement, to).await?;
+    }
+    Ok(remove_dep_from_pyproject(uv, name, vec![from.clone()]).await)
 }
 
 /// Uninstalls `name` from the project environment only; pyproject.toml and uv.lock are

@@ -26,6 +26,8 @@ fn key(name: &str) -> KeyEvent {
         "enter" => KeyCode::Enter,
         "esc" => KeyCode::Esc,
         "tab" => KeyCode::Tab,
+        "pgup" => KeyCode::PageUp,
+        "pgdn" => KeyCode::PageDown,
         "space" => KeyCode::Char(' '),
         "ctrl+c" => return KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         name => name.chars().next().map_or(KeyCode::Null, KeyCode::Char),

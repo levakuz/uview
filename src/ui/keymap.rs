@@ -65,6 +65,8 @@ impl Key {
             KeyCode::Enter => "enter".to_string(),
             KeyCode::Esc => "esc".to_string(),
             KeyCode::Tab => "tab".to_string(),
+            KeyCode::PageUp => "pgup".to_string(),
+            KeyCode::PageDown => "pgdn".to_string(),
             KeyCode::Char(' ') => "space".to_string(),
             KeyCode::Char(c) => c.to_string(),
             code => code.to_string(),
@@ -363,6 +365,14 @@ const OUTSIDE_INPUTS: &[Binding] = &[
         keys: &[(Key::char('?'), Action::Help)],
         hints: &["help"],
         help: "Show this help",
+    },
+    Binding {
+        keys: &[
+            (Key::new(KeyCode::PageUp), Action::LogBack),
+            (Key::new(KeyCode::PageDown), Action::LogForward),
+        ],
+        hints: &[],
+        help: "Scroll the uv log back, and forward again",
     },
     Binding {
         keys: &[(Key::char('q'), Action::Quit)],

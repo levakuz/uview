@@ -33,7 +33,7 @@ It owns no Python or packaging logic of its own. Every operation is delegated to
 `uv` binary as a subprocess, and `uview` is responsible only for presenting state and
 turning key presses into `uv` invocations. The exceptions are edits of pyproject.toml uv has
 no command for: deleting an emptied dependency group (ADR-0009), managing the project's
-package indexes (ADR-0010) and creating an empty dependency group (ADR-0013), and, outside
+package indexes (ADR-0010), creating an empty dependency group (ADR-0013) and renaming a group (ADR-0018), and, outside
 pyproject.toml, deleting the project's environment (ADR-0015). And uview reads package indexes over HTTP for what uv cannot list,
 a package's versions (ADR-0012); it only reads.
 
@@ -201,7 +201,7 @@ src/
 │   ├── build.rs            # uv build, every member's at a virtual workspace root; the files it wrote to dist/
 │   ├── dependencies.rs     # operations: list, add, pin, update, remove, uninstall, sync; reads pyproject.toml
 │   ├── environment.rs      # the environment's path, Python and size; make it anew, empty it, delete it (ADR-0015)
-│   ├── groups.rs           # the groups pyproject.toml declares; creating an empty one, deleting an emptied one (ADR-0009, ADR-0013)
+│   ├── groups.rs           # the groups pyproject.toml declares; creating an empty one, renaming one, deleting an emptied one (ADR-0009, ADR-0013, ADR-0018)
 │   ├── indexes.rs          # the project's [[tool.uv.index]]: list, add, remove (ADR-0010)
 │   ├── publish.rs          # uv publish of what the last build wrote; where uv will find credentials
 │   ├── pyproject.rs        # edit pyproject.toml, then uv lock, putting it back if the lock fails

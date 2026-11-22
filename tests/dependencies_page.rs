@@ -1480,7 +1480,7 @@ fn keep_and_esc_leave_the_groups_as_they_are() {
 }
 
 #[test]
-fn a_rename_moves_each_package_then_deletes_the_old_group() {
+fn a_rename_is_one_job() {
     let mut screen = groups_screen();
     screen.press(KeyCode::Char('g'));
     screen.press(KeyCode::Down);
@@ -1495,29 +1495,15 @@ fn a_rename_moves_each_package_then_deletes_the_old_group() {
         screen.press(KeyCode::Backspace);
     }
     screen.type_text("tools");
+    // One job, which edits the file in place: nothing can be lost part-way.
     assert_eq!(
         screen.press(KeyCode::Enter),
-        [
-            Command::Add {
-                requirement: "pytest>=8".into(),
-                membership: Membership::Group("tools".into()),
-            },
-            Command::Add {
-                requirement: "ruff==0.6.9".into(),
-                membership: Membership::Group("tools".into()),
-            },
-            Command::RemoveFromProject {
-                name: "pytest".into(),
-                groups: vec![Membership::Group("dev".into())],
-            },
-            Command::RemoveFromProject {
-                name: "ruff".into(),
-                groups: vec![Membership::Group("dev".into())],
-            },
-            Command::DeleteGroup { name: "dev".into() },
-        ]
+        [Command::RenameGroup {
+            from: "dev".into(),
+            to: "tools".into(),
+        }]
     );
-    // An empty group: the new name is made, the old one deleted.
+    // An empty group is renamed the same way.
     screen.press(KeyCode::Char('g'));
     for _ in 0..3 {
         screen.press(KeyCode::Down);
@@ -1527,14 +1513,10 @@ fn a_rename_moves_each_package_then_deletes_the_old_group() {
     screen.type_text("linters");
     assert_eq!(
         screen.press(KeyCode::Enter),
-        [
-            Command::CreateGroup {
-                name: "linters".into()
-            },
-            Command::DeleteGroup {
-                name: "lint".into()
-            },
-        ]
+        [Command::RenameGroup {
+            from: "lint".into(),
+            to: "linters".into(),
+        }]
     );
 }
 
@@ -1589,7 +1571,7 @@ fn n_r_and_d_act_from_the_list_of_groups_and_from_a_group_s_details() {
             name: "site".into()
         }]
     );
-    // r on lint, the third group: empty, so made anew under the new name.
+    // r on lint, the third group.
     screen.press(KeyCode::Char('g'));
     for _ in 0..3 {
         screen.press(KeyCode::Down);
@@ -1598,14 +1580,10 @@ fn n_r_and_d_act_from_the_list_of_groups_and_from_a_group_s_details() {
     screen.type_text("linters");
     assert_eq!(
         screen.press(KeyCode::Enter),
-        [
-            Command::CreateGroup {
-                name: "linters".into()
-            },
-            Command::DeleteGroup {
-                name: "lint".into()
-            },
-        ]
+        [Command::RenameGroup {
+            from: "lint".into(),
+            to: "linters".into(),
+        }]
     );
     // r on docs, named by default-groups, does nothing; nor on "New group…".
     screen.press(KeyCode::Char('g'));

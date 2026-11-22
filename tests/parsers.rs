@@ -118,10 +118,20 @@ fn uv_version_is_read_as_uv_writes_it() -> Result<(), UvError> {
 
 #[test]
 fn the_fixed_argvs_are_as_uv_takes_them() {
-    assert_eq!(SYNC, ["sync"]);
+    // Every group and extra: plain `uv sync` would uninstall those of the others.
+    assert_eq!(SYNC, ["sync", "--all-groups", "--all-extras"]);
     assert_eq!(LOCK, ["lock"]);
     assert_eq!(VERSION, ["version", "--output-format", "json"]);
-    assert_eq!(upgrade_args("six"), ["sync", "--upgrade-package", "six"]);
+    assert_eq!(
+        upgrade_args("six"),
+        [
+            "sync",
+            "--all-groups",
+            "--all-extras",
+            "--upgrade-package",
+            "six"
+        ]
+    );
 }
 
 #[test]

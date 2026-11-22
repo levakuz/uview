@@ -154,6 +154,7 @@ fn label(command: &Command) -> String {
         Command::RemoveFromProject { name, .. } => format!("Removing {name}"),
         Command::Move { name, to, .. } => format!("Moving {name} to {to}"),
         Command::DeleteGroup { name } => format!("Deleting group {name}"),
+        Command::RenameGroup { from, to } => format!("Renaming group {from} to {to}"),
         Command::CreateGroup { name } => format!("Creating group {name}"),
         Command::AddIndex { name, .. } => format!("Adding index {name}"),
         Command::RemoveIndex(index) => format!("Removing index {}", super::index_label(index)),

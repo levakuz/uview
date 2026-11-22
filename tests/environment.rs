@@ -184,10 +184,10 @@ async fn recreating_syncs_with_the_python_and_resetting_clears_first() -> Result
     assert_eq!(
         *uv.calls.lock().map_err(|e| e.to_string())?,
         [
-            "sync --python cpython-3.12.11-macos-aarch64-none",
+            "sync --all-groups --all-extras --python cpython-3.12.11-macos-aarch64-none",
             "venv --clear /home/jane/api/.venv",
-            "sync",
-            "sync --python cpython-3.12.11-macos-aarch64-none",
+            "sync --all-groups --all-extras",
+            "sync --all-groups --all-extras --python cpython-3.12.11-macos-aarch64-none",
             "python pin 3.12.11",
         ]
     );
@@ -331,4 +331,18 @@ fn without_an_environment_e_only_makes_one() {
     screen.press(KeyCode::Down);
     screen.press(KeyCode::Down);
     assert_eq!(screen.press(KeyCode::Enter), [Command::ListPythons]);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_environment_above_the_project_by_dots_is_not_deleted() -> Result<(), Box<dyn Error>> {
+    // The environment holds the project: <env>/src/proj, reached as <proj>/../..
+    let env = scratch("dots")?;
+    std::fs::write(env.join("pyvenv.cfg"), "version_info = 3.11.15\n")?;
+    let root = env.join("src").join("proj");
+    std::fs::create_dir_all(&root)?;
+    let spelled = root.join("..").join("..");
+    assert!(refusal_to_delete(&spelled, &root).is_some());
+    std::fs::remove_dir_all(&env)?;
+    Ok(())
 }

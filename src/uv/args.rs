@@ -4,9 +4,11 @@ use std::path::PathBuf;
 
 use crate::domain::{Membership, PublishTarget, Source, VersionChange, index_name};
 
-/// Brings the environment exactly in line with the lockfile: packages it does not list, such
-/// as `uv pip install`ed ones, are uninstalled.
-pub const SYNC: [&str; 1] = ["sync"];
+/// Brings the environment in line with everything pyproject.toml declares, every group and
+/// extra: what the pyproject table shows. Plain `uv sync` keeps the default groups alone, and
+/// would uninstall a package uview had just added to another. Packages uv.lock does not list,
+/// such as `uv pip install`ed ones, are uninstalled.
+pub const SYNC: [&str; 3] = ["sync", "--all-groups", "--all-extras"];
 pub const LOCK: [&str; 1] = ["lock"];
 /// Asks whether uv.lock is up to date, never waiting on the network: a check on every reload
 /// must not hang on one.
@@ -26,8 +28,8 @@ pub fn why_args(name: &str) -> [&str; 5] {
 pub const PYTHON_LIST: [&str; 4] = ["python", "list", "--output-format", "json"];
 
 /// `uv sync` with the environment made, or made anew, with the Python `python` names.
-pub fn sync_python_args(python: &str) -> [&str; 3] {
-    ["sync", "--python", python]
+pub fn sync_python_args(python: &str) -> [&str; 5] {
+    ["sync", "--all-groups", "--all-extras", "--python", python]
 }
 
 /// `uv build`: the project's sdist and wheel, or every workspace member's when `all_packages`.
@@ -43,12 +45,10 @@ pub fn build_args(all_packages: bool) -> &'static [&'static str] {
 pub fn publish_args(target: &PublishTarget, files: &[PathBuf]) -> Vec<String> {
     let mut args = vec!["publish".to_string()];
     match target {
-        PublishTarget::PyPi => {}
-        PublishTarget::TestPyPi => {
-            args.extend([
-                "--publish-url".into(),
-                PublishTarget::TEST_PYPI_UPLOAD.into(),
-            ]);
+        // Said even for PyPI, uv's default: `UV_PUBLISH_URL` or `tool.uv.publish-url` would
+        // otherwise send the files elsewhere than the confirmation named.
+        PublishTarget::PyPi | PublishTarget::TestPyPi => {
+            args.extend(["--publish-url".into(), target.upload_url().into()]);
         }
         PublishTarget::Index { name, .. } => args.extend(["--index".into(), name.clone()]),
     }
@@ -113,9 +113,23 @@ pub fn membership_args<'a>(
     args
 }
 
-/// Upgrades `name` within its constraints, and syncs exactly.
-pub fn upgrade_args(name: &str) -> [&str; 3] {
-    ["sync", "--upgrade-package", name]
+/// Upgrades `name` within its constraints, and syncs as `SYNC` does.
+pub fn upgrade_args(name: &str) -> [&str; 5] {
+    [
+        "sync",
+        "--all-groups",
+        "--all-extras",
+        "--upgrade-package",
+        name,
+    ]
+}
+
+/// `uv remove` arguments that take `name` out of `membership` and leave the environment alone:
+/// its own sync keeps the default groups only, so `SYNC` follows it instead.
+pub fn remove_args<'a>(name: &'a str, membership: &'a Membership) -> Vec<&'a str> {
+    let mut args = membership_args("remove", name, membership);
+    args.push("--no-sync");
+    args
 }
 
 /// `uv init` arguments that create a project in `dir`, named `name`, or after `dir` as uv names

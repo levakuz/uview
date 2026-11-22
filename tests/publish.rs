@@ -110,7 +110,13 @@ fn each_target_is_told_to_uv_its_own_way() {
     };
     assert_eq!(
         publish_args(&PublishTarget::PyPi, &files),
-        ["publish", "/home/jane/api/dist/demo-0.1.0.tar.gz"]
+        // Said, though it is uv's default: UV_PUBLISH_URL must not send it elsewhere.
+        [
+            "publish",
+            "--publish-url",
+            "https://upload.pypi.org/legacy/",
+            "/home/jane/api/dist/demo-0.1.0.tar.gz"
+        ]
     );
     assert_eq!(
         publish_args(&PublishTarget::TestPyPi, &files),

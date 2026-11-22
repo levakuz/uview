@@ -121,7 +121,10 @@ pub fn refusal_to_delete(env: &Path, root: &Path) -> Option<String> {
             "{env:?} holds no pyvenv.cfg, so it is no environment to delete"
         ));
     }
-    if root.starts_with(env) {
+    // As the filesystem resolves them: `/a/b/c/../..` is above `/a/b/c`, though not by its
+    // spelling.
+    let resolved = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if resolved(root).starts_with(resolved(env)) {
         return Some(format!("{env:?} holds the project itself"));
     }
     None

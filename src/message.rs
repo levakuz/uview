@@ -26,6 +26,9 @@ pub enum Action {
     Help,
     /// Write a settings file to edit, unless there is one.
     WriteConfig,
+    /// Scroll the uv log back, towards what uv wrote earlier, or forward again.
+    LogBack,
+    LogForward,
     Nav(NavAction),
     Deps(DepsAction),
 }
@@ -176,6 +179,11 @@ pub enum Command {
     /// Add the empty dependency group `name` to pyproject.toml, then `uv lock`.
     CreateGroup {
         name: String,
+    },
+    /// Rename the dependency group `from` to `to` in pyproject.toml, then `uv lock`.
+    RenameGroup {
+        from: String,
+        to: String,
     },
     /// Delete the empty dependency group `name` from pyproject.toml, then `uv lock`.
     DeleteGroup {
