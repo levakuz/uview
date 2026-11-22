@@ -164,8 +164,12 @@ async fn exactly_the_built_files_are_published() -> Result<(), Box<dyn Error>> {
     publish(&uv, &PublishTarget::TestPyPi, &files).await?;
     assert_eq!(
         *uv.calls.lock().map_err(|e| e.to_string())?,
-        ["publish --publish-url https://test.pypi.org/legacy/ \
-          /home/jane/api/dist/demo-0.1.0.tar.gz /home/jane/api/dist/demo-0.1.0-py3-none-any.whl"]
+        // The paths as the platform joins them.
+        [format!(
+            "publish --publish-url https://test.pypi.org/legacy/ {} {}",
+            files[0].path.display(),
+            files[1].path.display()
+        )]
     );
     assert_eq!(
         published_notice(&files, &PublishTarget::TestPyPi),

@@ -121,6 +121,7 @@ fn mutates(command: &Command) -> bool {
             | Command::LoadTree { .. }
             | Command::ListPythons
             | Command::WriteConfig { .. }
+            | Command::CheckUv
             | Command::WhyInstalled { .. }
     )
 }
@@ -132,6 +133,7 @@ fn label(command: &Command) -> String {
         Command::PreviewVersions => "Reading the next versions".into(),
         Command::ListPythons => "Listing Pythons".into(),
         Command::Build => "Building the project".into(),
+        Command::CheckUv => "Checking uv's version".into(),
         Command::WriteConfig { .. } => "Writing the settings file".into(),
         Command::Publish { target, .. } => format!("Publishing to {}", target.label()),
         Command::RecreateEnv { python } => {

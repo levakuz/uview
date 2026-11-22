@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
+use crate::cli::VERSION;
 use crate::ui::components::shared::popup::{Popup, PopupSize};
 use crate::ui::keymap::{self, Mode};
 use crate::ui::theme::theme;
@@ -53,9 +54,9 @@ pub fn render_help(frame: &mut Frame, area: Rect, scroll: &mut u16) {
     let hidden = rows.saturating_sub(popup.height.saturating_sub(2));
     *scroll = (*scroll).min(hidden);
     let title = if hidden > 0 {
-        "Keys (↑↓ to scroll)"
+        format!("uview {VERSION} · Keys (↑↓ to scroll)")
     } else {
-        "Keys"
+        format!("uview {VERSION} · Keys")
     };
     frame.render_widget(
         Paragraph::new(lines)

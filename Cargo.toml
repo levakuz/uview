@@ -1,7 +1,14 @@
 [package]
 name = "uview"
-version = "0.1.0"
+# The one version: uview --version, the help and the Python package all take it from here.
+version = "0.0.1"
 edition = "2024"
+description = "A terminal UI for uv, the Python package manager"
+license = "MIT"
+repository = "https://github.com/levakuz/uview"
+readme = "README.md"
+# Out of the sdist: the agents' and CI's tooling, not uview's source.
+exclude = [".claude/", ".github/"]
 
 [dependencies]
 # `Paragraph::line_count`: how tall the project tile must be to show its text, wrapped.

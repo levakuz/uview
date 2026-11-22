@@ -1,0 +1,205 @@
+name: Release
+
+# Builds uview's wheels and sdist (ADR-0017), installs them, and publishes them:
+# - a tag `v*` publishes to PyPI and makes a GitHub Release;
+# - a run started by hand publishes to TestPyPI, the rehearsal;
+# - a pull request that changes the packaging builds and installs, and publishes nothing.
+# docs/releasing.md says how to cut a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - pyproject.toml
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - .github/workflows/release.yml
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: The tag is Cargo.toml's version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME, but Cargo.toml's version is $version"
+            exit 1
+          fi
+
+  wheels:
+    name: Wheel for ${{ matrix.target }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, manylinux: auto }
+          - { runner: ubuntu-latest, target: aarch64-unknown-linux-gnu, manylinux: auto }
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { runner: ubuntu-latest, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { runner: macos-latest, target: x86_64-apple-darwin }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain is rust-toolchain.toml's, which maturin-action installs.
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          args: --release --locked --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/*.whl
+
+  sdist:
+    name: Source distribution
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  install:
+    name: Install on ${{ matrix.runner }}
+    needs: wheels
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # pip 21.2 is the oldest that knows every tag the wheels carry: musllinux came in it.
+          # It runs on Python 3.6 to 3.10; macOS on arm64 has nothing older than 3.10.
+          # Ubuntu 24.04 has no Python 3.8.
+          - { runner: ubuntu-22.04, wheel: wheel-x86_64-unknown-linux-gnu, python: "3.8" }
+          - { runner: macos-latest, wheel: wheel-aarch64-apple-darwin, python: "3.10" }
+          - { runner: windows-latest, wheel: wheel-x86_64-pc-windows-msvc, python: "3.8" }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.wheel }}
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: pip install, with the oldest pip uview supports
+        run: |
+          python -m pip install pip==21.2.4
+          python -m pip install --no-index --find-links dist uview
+          uview --version
+      - uses: astral-sh/setup-uv@v6
+      - name: uv tool install
+        run: |
+          uv tool install --no-index --find-links dist uview
+          "$(uv tool dir --bin)/uview" --version
+      - name: uvx
+        run: uvx --no-index --find-links dist uview --version
+
+  install-musl:
+    name: Install on Alpine
+    needs: wheels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-x86_64-unknown-linux-musl
+          path: dist
+      # In a container of its own: JavaScript actions do not run on musl.
+      - name: pip install, with the oldest pip uview supports
+        run: |
+          docker run --rm -v "$PWD/dist:/dist" python:3.8-alpine sh -ec '
+            python -m pip install pip==21.2.4
+            python -m pip install --no-index --find-links /dist uview
+            uview --version'
+
+  sizes:
+    name: Sizes
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Table of sizes
+        run: |
+          {
+            echo "| File | Size |"
+            echo "|---|---:|"
+            for file in dist/*; do
+              echo "| $(basename "$file") | $(( $(stat -c %s "$file") / 1024 )) KiB |"
+            done
+          } | tee sizes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sizes
+          path: sizes.md
+
+  publish:
+    name: Publish to ${{ github.event_name == 'push' && 'PyPI' || 'TestPyPI' }}
+    needs: [install, install-musl, sizes]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'push' && 'pypi' || 'testpypi' }}
+    # Trusted publishing: PyPI takes this job's identity, so no token is stored anywhere.
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "{wheel-*,sdist}"
+          path: dist
+          merge-multiple: true
+      - uses: astral-sh/setup-uv@v6
+      - name: PyPI
+        if: github.event_name == 'push'
+        run: uv publish --trusted-publishing always dist/*
+      # A rehearsal run again skips what TestPyPI already has.
+      - name: TestPyPI
+        if: github.event_name != 'push'
+        run: >-
+          uv publish --trusted-publishing always
+          --publish-url https://test.pypi.org/legacy/
+          --check-url https://test.pypi.org/simple/
+          dist/*
+
+  release:
+    name: GitHub Release
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release, with the sizes of what it carries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          --title "$GITHUB_REF_NAME" --notes-file dist/sizes.md
+          dist/*.whl dist/*.tar.gz

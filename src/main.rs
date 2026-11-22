@@ -1,4 +1,5 @@
 mod app;
+mod cli;
 mod config;
 mod controllers;
 mod domain;
@@ -21,6 +22,18 @@ use crate::uv::{RealUvClient, UvClient, UvError};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match cli::invocation(&args) {
+        cli::Invocation::Run => {}
+        cli::Invocation::Print(text) => {
+            println!("{text}");
+            return Ok(());
+        }
+        cli::Invocation::Misuse(text) => {
+            eprintln!("{text}");
+            std::process::exit(2);
+        }
+    }
     color_eyre::install()?;
     let root = match project_root().await {
         Ok(Some(root)) => root,
@@ -35,6 +48,11 @@ async fn main() -> Result<()> {
     // as it was started in (ADR-0011).
     let configured = std::env::var("UV_PROJECT_ENVIRONMENT").ok();
     let paths = controllers::project::ProjectPaths::at(root, configured.as_deref());
+    // ratatui would panic without a terminal to draw on.
+    if !std::io::stdout().is_terminal() {
+        eprintln!("uview: it draws on a terminal, and its output is not one");
+        std::process::exit(1);
+    }
     let config = config::config_path(|key| std::env::var(key).ok(), cfg!(windows));
     let (theme, problem) = choose_theme(config.as_deref());
     set_theme(theme);

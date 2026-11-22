@@ -19,7 +19,7 @@ use crate::controllers::groups::{create_group, delete_group, empty_groups, load_
 use crate::controllers::indexes::{add_index, load_indexes, remove_index};
 use crate::controllers::project::{
     ProjectPaths, check_lock, load_project_info, load_tree, lock, preview_bumps, set_version,
-    why_installed,
+    uv_too_old, why_installed,
 };
 use crate::controllers::publish::{publish, published_notice};
 use crate::controllers::versions::list_versions;
@@ -126,6 +126,12 @@ async fn run<U: UvClient, I: IndexClient>(
             }
             Err(e) => Err(e),
         },
+        Command::CheckUv => {
+            if let Some(too_old) = uv_too_old(uv).await {
+                let _ = events.send(Event::Error(too_old));
+            }
+            return;
+        }
         // A file that is there is the user's: it is never written over.
         Command::WriteConfig { path, contents } => {
             let file = shown(&path, std::env::var("HOME").ok().as_deref());

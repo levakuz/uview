@@ -79,9 +79,8 @@ A decision that is hard to reverse, changes the structure, or will make someone 
   tested must be `pub`.
 - `tests/architecture.rs` enforces the layering rules of `docs/ARCHITECTURE.md`. A known
   violation goes on its allowlist only with the issue that removes it.
-- Fixtures go in `tests/fixtures/`. That directory is deliberately exempt from the
-  root-level Python ignores in `.gitignore` — a fixture `pyproject.toml` must be
-  committable.
+- Fixtures go in `tests/fixtures/`. The root `pyproject.toml` is not one: it packages
+  uview as a wheel (ADR-0017). Try uview on a project outside the repository, not on it.
 
 ## Git workflow
 
@@ -130,9 +129,9 @@ Before a PR is merged:
 - `cargo test`, `cargo clippy -- -D warnings` and `cargo fmt --check` all pass.
   `.claude/hooks/quality-gate.sh` runs exactly these as a Claude Code Stop hook, so an
   agent cannot finish a turn with Rust changes that fail them. CI
-  (`.github/workflows/ci.yml`) is disabled for now and runs on Linux, macOS and Windows
-  only when started by hand, so the hook and a local run are the gate. The toolchain is
-  pinned in `rust-toolchain.toml`.
+  (`.github/workflows/ci.yml`) runs the same on Linux, macOS and Windows for every pull
+  request. A change to the packaging also builds and installs the wheels
+  (`.github/workflows/release.yml`). The toolchain is pinned in `rust-toolchain.toml`.
 - A change that alters the layering, the action flow or the module tree updates
   `docs/ARCHITECTURE.md` and the rules in `tests/architecture.rs` in the same PR.
 - A change that moves *away* from the target state in Part II is allowed, but the PR

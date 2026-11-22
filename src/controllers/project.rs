@@ -127,6 +127,22 @@ fn matches_any(globs: &[String], root: &Path, path: &Path) -> bool {
     })
 }
 
+/// The oldest uv uview works with: `uv venv --clear`, which emptying the environment runs, came
+/// in 0.8.0.
+pub const MIN_UV: &str = "0.8.0";
+
+/// What to tell the user when the uv on PATH is older than `MIN_UV`, or `None`: also when uv
+/// cannot be run, which every other call reports.
+pub async fn uv_too_old(uv: &impl UvClient) -> Option<String> {
+    let found = parse::uv_version(&uv.run(&args::UV_VERSION).await.ok()?)?;
+    let least: pep440_rs::Version = std::str::FromStr::from_str(MIN_UV).ok()?;
+    (found < least).then(|| {
+        format!(
+            "uv {found} is older than uview needs, {MIN_UV}: update it, as with `uv self update`"
+        )
+    })
+}
+
 /// The project's name and version, as `uv version` reports them.
 pub async fn load_project_info(uv: &impl UvClient) -> Result<ProjectInfo, UvError> {
     parse::version(&uv.run(&args::VERSION).await?)

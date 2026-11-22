@@ -146,7 +146,9 @@ pub async fn write_new(path: &Path, contents: &str) -> std::io::Result<()> {
         .create_new(true)
         .open(path)
         .await?;
-    file.write_all(contents.as_bytes()).await
+    file.write_all(contents.as_bytes()).await?;
+    // tokio writes in the background: without this, a reader can find the file empty.
+    file.flush().await
 }
 
 /// `base` with each colour `colors` sets in place of its own, and what could not be read: a

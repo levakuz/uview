@@ -14,6 +14,12 @@ pub fn version(stdout: &str) -> Result<ProjectInfo, UvError> {
     serde_json::from_str(stdout).map_err(|e| UvError::Parse(e.to_string()))
 }
 
+/// The version `uv --version` names, as in `uv 0.8.9 (68c0bf8a2 2025-08-11)`.
+pub fn uv_version(stdout: &str) -> Option<pep440_rs::Version> {
+    let version = stdout.split_whitespace().nth(1)?;
+    std::str::FromStr::from_str(version).ok()
+}
+
 /// What `uv lock --check` said of uv.lock. Its exit status tells only fresh from not; why not is
 /// in its words, read here alone so that a change in them breaks one place.
 pub fn lock_state(checked: &Result<String, UvError>) -> LockState {

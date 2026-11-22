@@ -1,11 +1,7 @@
 /target
 
-# The repository root doubles as a Python project used for manual testing.
-# These patterns are anchored to the root on purpose, so that test fixtures
-# under tests/fixtures/ stay committable.
-/.python-version
-/main.py
-/pyproject.toml
+# The root pyproject.toml packages uview (ADR-0017); it has no Python dependencies
+# to lock. Anchored, so that fixtures under tests/fixtures/ stay committable.
 /uv.lock
 
 # MacOS
