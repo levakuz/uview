@@ -1,6 +1,6 @@
 # Performance
 
-Requirement 3.1.2: under 100 MB of memory, startup under 2 seconds, and efficient handling of
+The targets, from the project's requirements (3.1.2): under 100 MB of memory, startup under 2 seconds, and efficient handling of
 100 or more dependencies. Measured for #32 on 2026-10-24: a release build on an arm64
 Mac, against the 212 pinned dependencies of `tests/fixtures/bench/pyproject.toml` (540 MB on disk, 29k
 files in `.venv`), the page drawn at 110×30.

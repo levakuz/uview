@@ -2,8 +2,8 @@
 
 This document has two parts, and the split is the point.
 
-- **Part I — Current state** describes how `uview` is put together *as it exists today*,
-  at commit `f903967`. Nothing in it describes an aspiration as if it were code.
+- **Part I — Current state** describes how `uview` is put together *as it exists today*.
+  Nothing in it describes an aspiration as if it were code.
 - **Part II — Target state** describes the architecture we are building toward, the
   forces that make it the right shape for this kind of application, and which issue moves
   us each step closer.
@@ -53,6 +53,8 @@ There are five layers, plus a thin application shell and the state they share.
 | **Runtime** | `src/runtime/` | Run each command as a job through the controllers, mutations one at a time and reads at once; cancel jobs; report outcomes as events | Render, hold UI state, know about ratatui |
 | **Controllers** | `src/controllers/` | Run `uv` operations through a `UvClient`, read `pyproject.toml`; delete an emptied group from it, create an empty one, and add or remove an index (ADR-0009, ADR-0010, ADR-0013); read the environment's `pyvenv.cfg` and size, and delete it (ADR-0015) | Render, hold UI state, know about ratatui, start a process |
 | **uv client** | `src/uv/` | Start the `uv` binary, build its arguments, parse its output | Know about the runtime, controllers, the UI or ratatui |
+| **Settings and command line** | `src/config.rs`, `src/cli.rs` | Find and read the user's settings file into a `Theme`, and write its template (ADR-0016); answer `--help` and `--version`, and hold the one version (ADR-0017) | Run `uv`, know about the runtime or controllers. `config.rs` names ratatui's `Color` and `ui::theme`, and the runtime calls it to write the template: the one place the runtime reaches a UI type, which `runtime-no-ui` does not see |
+| **Messages and domain** | `src/message.rs`, `src/domain.rs` | The types every layer passes: `Input`, `Action`, `Command`, `Event`, and what they carry | Do anything |
 | **Index client** | `src/index/` | Read a project's page from a package index over HTTP, and parse it (ADR-0012) | Write anything, know about uv, the runtime, controllers, the UI or ratatui |
 
 The rule that matters: **controllers never import ratatui, UI code never invokes `uv` or a
@@ -123,16 +125,20 @@ Messages are split by direction of travel (`src/message.rs`, ADR-0001):
 
 - **`Input`** — what the terminal sends: `Key(KeyEvent)`.
 - **`Action`** — what the user means, nested per domain: `Quit`, `Cancel`, `Help`,
-  `Nav(NavAction)` for moving, choosing and typing, and `Deps(DepsAction)` for the
+  `WriteConfig`, `LogBack` and `LogForward`, which the app handles itself;
+  `Nav(NavAction)` for moving, choosing and typing; and `Deps(DepsAction)` for the
   dependencies page.
-- **`Command`** — an effect a component asks for: `Reload`, `Sync`, `Add`,
-  `RemoveFromProject`, `Uninstall`, `Upgrade`, `Pin`.
-- **`Event`** — what a command produced: the loaded rows and the project's name and
-  version, `Notice(String)` and `Error(String)`, and the course of its job: `JobQueued`,
-  `JobStarted`, `JobOutput` for each line a mutation's `uv` writes, and `JobFinished`.
+- **`Command`** — an effect a component asks for. Reads: `Reload`, and what a popup or tab
+  asks to list (versions, Pythons, the tree, what pulls a package in). Mutations: everything
+  that changes the project, from `Add` and `Pin` to `Lock`, `RenameGroup`, `Build` and
+  `Publish`. `src/message.rs` is the list; `runtime/jobs.rs` says which are reads.
+- **`Event`** — what a command produced: what a reload or a read loaded, each with the
+  generation it started at where a mutation could outdate it; `Notice(String)` and
+  `Error(String)`; and the course of its job: `JobQueued`, `JobStarted`, `JobOutput` for each
+  line a mutation's `uv` writes, and `JobFinished`.
 
 The keymap, `src/ui/keymap.rs`, turns an `Input` into an `Action` by the `Mode`, where the
-focus is: a table, the actions list, an input, or the help. `App` reports `Help` while the help
+focus is: a table, the tree, the actions list, the list of groups, an input, or the help. `App` reports `Help` while the help
 is open, and the page's `mode()` otherwise. Each mode has its bindings: keys, the action each
 key means, the footer's hints (none, one, or one per action) and a line for the help. The key handling, the footer below
 the status line and the help overlay all read that one table, so they cannot disagree.
@@ -146,7 +152,7 @@ the status line and the help overlay all read that one table, so they cannot dis
 - With Alt held, no binding matches: Esc read together with the next key arrives as Alt+key.
   Ctrl must be held exactly when a binding names it, so Ctrl+P is not `p`.
 
-`App::dispatch` handles `Quit`, `Cancel` and `Help` itself and hands every other action to
+`App::dispatch` handles `Quit`, `Cancel`, `Help`, `WriteConfig` and the log's scrolling itself and hands every other action to
 the page's `update`, which returns `Vec<Command>`. Each command goes to `JobRunner::execute`.
 Esc, as `NavAction::Back`, also dismisses the status message. Components return commands,
 never actions, so nothing comes back into `dispatch` and it cannot recurse. ADR-0001 planned
@@ -167,8 +173,8 @@ receiver once per loop iteration, and `App::receive` puts each event into the `A
   shown (§9). A table with no rows shows in their place how its load is going, that it loaded
   nothing, or why it failed.
 - `ProjectLoaded` carries the project's name and version, or what uv said when it could not
-  read them, into `state.project.info`. It has no generation: nothing uview runs changes the
-  version until #24.
+  read them, into `state.project.info`, by generation as the tables are: `v` changes the
+  version.
 - `ProjectMutated` says a mutation has ended, so what the tables show may be stale: `App`
   starts a `Command::Reload`, unless it is quitting.
 - `Notice` and `Error` set `state.message`, the one-line message below the page.
@@ -194,7 +200,7 @@ src/
 ├── app.rs                  # App: event loop, event channel, dispatch, screen layout, the help
 ├── message.rs              # Input / Action / Command / Event
 ├── state.rs                # AppState: project, deps, jobs, message; written by App, read by views
-├── domain.rs               # PyprojectDependency, EnvDependency, Membership, ProjectInfo
+├── domain.rs               # the domain types: dependencies, memberships, indexes, groups, versions, the environment
 ├── runtime/
 │   ├── mod.rs              # what each command does, and the reload
 │   └── jobs.rs             # JobRunner: ids, the mutation queue, cancellation
@@ -250,7 +256,7 @@ src/
             └── dependencies_tables_tabs.rs # tables behind tabs in their border, popups; turns their results into commands
 ```
 
-**Planned, not yet written.** `controllers/python.rs`. An earlier revision of the agent
+An earlier revision of the agent
 instructions also listed `ui/pages/home.rs` and `ui/pages/python.rs`; there will be no such
 pages, since new views are tabs and tiles on the one page (ADR-0014). This document is now the single description
 of the module tree, and `AGENTS.md` points here rather than repeating it.
@@ -423,12 +429,6 @@ There is one tokio runtime, entered via `#[tokio::main]`, and one `mpsc::Unbound
   and the status line says it was cancelled. Quitting cancels the same way and waits for the
   jobs to finish.
 
-**The redraw is unconditional.** Every iteration calls `terminal.draw` whether or not
-anything changed, giving a floor of roughly 20 fps of wasted work when idle. The draw
-also happens *before* input is processed, so a key press is reflected one iteration
-later. Both are acceptable at the current scale and are addressed by issue #32. The job spinner
-turns only because of the redraw; without it, it will need a tick.
-
 **Spawned handles are dropped.** The runner keeps no handle to the tasks it spawns, so a
 job that panics reports nothing, and a panic in the mutation task would stop every later
 mutation. Every outcome a job returns goes through the channel, failures included.
@@ -447,7 +447,7 @@ execution.** Argument construction (`uv::args`) and output parsing (`uv::parse`,
 `JobRunner` an `Arc` of one, so `tests/dependencies.rs` runs them against `FakeUvClient`.
 The fake returns canned stdout and records the argv it receives, and a test asserts on
 exactly what would have run. It lives in `tests/` rather than `src/` because tests are
-integration tests. Three tests still run the real `uv` through `RealUvClient`, as ADR-0002
+integration tests. A few tests still run the real `uv` through `RealUvClient`, as ADR-0002
 asks, because a fake can drift from real behaviour. One of them checks that a hanging
 `uv add` streams its lines while it runs, then cancels it and checks that it put
 `pyproject.toml` back.
@@ -477,27 +477,26 @@ module — `controllers/` becoming `runtime/` in the migration path — fails th
 test until its rules are updated in the same PR. The matching is textual, and its limits
 are noted in the file.
 
-Unit coverage beyond that is still thin: parsing, argument and requirement construction,
-`RealUvClient` in both directions, two operations against the fake, the job runner against
-the fake (mutations in turn, reads beside them, cancellation, `ProjectMutated` after every
-mutation, generations, the project's name and version), the discarding of a stale reload,
-and the dependencies page driven key by key. Those tests build the `AppState` the
-page reads, and its `update` returns commands, so they run no runtime and no subprocess.
-Issue #25 covers expanding it.
+Beyond that, `tests/` has a file per area: parsing and argument construction, `RealUvClient`
+in both directions, the operations and the job runner against the fake (mutations in turn,
+reads beside them, cancellation, `ProjectMutated` after every mutation, generations), and the
+dependencies page driven key by key. Those tests build the `AppState` the page reads, and its
+`update` returns commands, so they run no runtime and no subprocess.
 
 ## 11. Known deviations and open questions
 
 | # | Item | Tracked |
 |---|---|---|
 | 1 | ~~Agent instructions describe a module tree that does not exist~~ Resolved: `AGENTS.md` points here instead of restating | #40 |
-| 2 | `Component` is implemented by pages only; three components have incompatible signatures | §13.2, during #26 |
+| 2 | `Component` is implemented by pages only; the popups and tiles have signatures of their own | §13.2; not scheduled |
 | 3 | ~~Controllers `panic!` instead of returning errors~~ Resolved: `UvError` + clippy lints | #1 |
 | 4 | ~~`Action::Error` is not shown while the app runs~~ Resolved: a status line at the bottom, dismissed with Esc | #2 |
 | 5 | ~~A widget owns controller orchestration and the channel sender~~ Resolved: components return commands, and the runtime spawns | #42 |
-| 6 | Unconditional redraw; input processed one frame behind the draw | #32 |
-| 7 | Spawned task handles are dropped, so failures vanish | #6 |
+| 6 | ~~Unconditional redraw; input processed one frame behind the draw~~ Resolved: drawn on a change only | #32 |
+| 7 | Spawned task handles are dropped, so a job that panicked would report nothing | Accepted: the crate denies `panic!`, `unwrap` and `expect` by lint |
 | 8 | ~~`uv pip show` output is parsed by line prefix~~ Resolved: filtered from `uv pip list --format json` | #1 |
-| 9 | `App` holds a concrete page type, so routing is impossible without a refactor | #26 |
+| 9 | ~~`App` holds a concrete page type, so routing is impossible without a refactor~~ Resolved: there is one page, and new views are tabs and tiles | ADR-0014 |
+| 11 | `config.rs` names ratatui and `ui::theme`, and the runtime calls it | §2; not scheduled |
 | 10 | ~~Filename `add_packaage_popup.rs` is misspelled~~ Resolved: the add and pin inputs are one `InputPopup` | #8 |
 
 **Open design questions — now answered in Part II**
