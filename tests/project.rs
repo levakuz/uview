@@ -140,13 +140,15 @@ fn the_environment_is_taken_from_the_workspace_root() -> std::io::Result<()> {
     let default = project_environment(&member, None);
     let unset = project_environment(&member, Some(""));
     let relative = project_environment(&member, Some("envs/dev"));
-    let absolute = project_environment(&member, Some("/opt/env"));
+    // Absolute on this platform: `/opt/env` is not, on Windows.
+    let elsewhere = std::env::temp_dir().join("uview-env-elsewhere");
+    let absolute = project_environment(&member, elsewhere.to_str());
     fs::remove_dir_all(&base)?;
 
     assert_eq!(default, base.join(".venv"));
     assert_eq!(unset, base.join(".venv"));
     assert_eq!(relative, base.join("envs").join("dev"));
-    assert_eq!(absolute, Path::new("/opt/env"));
+    assert_eq!(absolute, elsewhere);
     Ok(())
 }
 
