@@ -1,5 +1,6 @@
 //! Dependency groups themselves, which uv has no command for: deleting one left empty, as
-//! `uv remove` leaves `dev = []` behind (ADR-0009), and creating an empty one (ADR-0013).
+//! `uv remove` leaves `dev = []` behind (ADR-0009), creating an empty one (ADR-0013), and
+//! renaming one (ADR-0018).
 
 use std::path::Path;
 
@@ -128,6 +129,51 @@ pub async fn empty_groups(pyproject: &Path) -> (Vec<String>, Vec<String>) {
         .cloned()
         .collect();
     (empty, deletable)
+}
+
+/// `pyproject` with the group `from` named `to` instead, in its place and as written: every
+/// requirement keeps its extras, marker and comments. Refused when uv would refuse the name, a
+/// group has it already, or something else names `from`.
+pub fn with_group_renamed(pyproject: &str, from: &str, to: &str) -> Result<String, String> {
+    let mut doc: DocumentMut = pyproject.parse().map_err(|e| format!("{e}"))?;
+    if let Some(problem) = group_name_problem(to, &declared_groups(pyproject)) {
+        return Err(problem.to_string());
+    }
+    if let Some(named) = named_by(&doc, from) {
+        return Err(format!("group `{from}` is {named}"));
+    }
+    let groups = doc
+        .get_mut("dependency-groups")
+        .and_then(Item::as_table_mut)
+        .ok_or("there is no [dependency-groups] table to rename it in")?;
+    if !groups.contains_key(from) {
+        return Err(format!("there is no group `{from}`"));
+    }
+    // A table's keys cannot be renamed in place: every entry is taken out and put back in order.
+    let keys: Vec<String> = groups.iter().map(|(key, _)| key.to_string()).collect();
+    for key in keys {
+        if let Some((old, item)) = groups.remove_entry(&key) {
+            let new = if key == from {
+                toml_edit::Key::new(to).with_leaf_decor(old.leaf_decor().clone())
+            } else {
+                old
+            };
+            groups.insert_formatted(&new, item);
+        }
+    }
+    Ok(doc.to_string())
+}
+
+/// Renames the group `from` to `to` in the `pyproject` file, then relocks. uv has no command
+/// for it, and moving the packages one `uv add` and `uv remove` at a time could lose them
+/// part-way (ADR-0018). If uv cannot lock, the file is put back as it was.
+pub async fn rename_group(
+    uv: &impl UvClient,
+    pyproject: &Path,
+    from: &str,
+    to: &str,
+) -> Result<(), UvError> {
+    edit_then_lock(uv, pyproject, |before| with_group_renamed(before, from, to)).await
 }
 
 /// Deletes the empty group `name` from the `pyproject` file, then relocks, since uv.lock lists

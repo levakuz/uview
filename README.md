@@ -124,20 +124,22 @@ Press `Space` or `Enter` on a package to open its actions:
 |---|---|
 | Pin to version | Lists the versions the package's index has, newest first: pre-releases marked `pre`, a release that needs a newer Python than the project supports marked with what it needs, yanked releases left out. The index is the one uv would use: the package's pinned index, else the project's indexes, then PyPI. Choosing one then asks how to pin it: `==` (highlighted), `>=`, `~=` (compatible: `>=1.17.0, <1.18`), `==1.17.*` (that series), `>`, `<=`, `<` or `!=`, each shown with what it means; only those PEP 440 allows for that version are offered. **Type a constraint…**, first in the list, asks for a constraint instead, then writes it to `pyproject.toml` with `uv add` in every group the package is declared in, and syncs. `1.2.3` becomes `==1.2.3`; `>=2.0` and `<3` are kept as typed. A package that is installed but not declared is added as a main dependency. |
 | Bump | For a package pyproject.toml declares: lists `patch → 0.25.2`, `minor → 0.28.1` and `major → 1.0.0`, the newest release of each above the installed version (or the declared lower bound, if it is not installed), from the package's index. Pre-releases are left out unless the current version is one, as is a release that needs a newer Python than the project supports. Enter writes it keeping the declared operator: `==0.25.0` becomes `==0.28.1`, `>=0.27` becomes `>=0.28.1`. If the new version falls outside a declared range, such as `>=1.15,<1.16`, uview shows the range it would write, `>=1.17.0,<1.18`, and writes it only once you confirm. |
-| Update | Runs `uv sync --upgrade-package`: the newest version the constraints allow. |
+| Update | Runs `uv sync --upgrade-package`, for every group and extra: the newest version the constraints allow. |
 | Remove | **pyproject.toml table:** runs `uv remove` for every group and extra the package is in, which syncs: the package leaves the environment too, with any dependency nothing else needs.<br>**Environment table:** runs `uv pip uninstall` on the environment only. `pyproject.toml` and `uv.lock` are untouched, so a declared package comes back with the next sync, which every other action runs. |
 | Cancel | Closes the list. |
 
 To add a package, press `p`, type a requirement such as `requests` or `httpx>=0.27`, and
 press `Enter`. uview adds it to `[project.dependencies]` with `uv add` and syncs.
 
-To sync the environment, press `s`. uview runs plain `uv sync`.
+To sync the environment, press `s`. uview runs `uv sync --all-groups --all-extras`: the
+environment gets everything the pyproject.toml table shows. Plain `uv sync` installs the
+default groups only, and would uninstall a package you had just added to another group or to
+an extra.
 
-uview runs the `uv` commands you would type yourself, and each action leaves the environment
-as its command would. `uv add`, behind Add and Pin, installs what it needs and leaves other
-packages alone. `uv remove`, behind Remove in the pyproject.toml table, and `uv sync`, behind
-`s` and Update, make the environment match the lockfile exactly: they also uninstall packages
-it does not list, such as ones installed with `uv pip install`.
+`uv add`, behind Add and Pin, installs what it needs and leaves other packages alone. Remove
+in the pyproject.toml table runs `uv remove --no-sync`, then syncs as `s` does. `s`, Update
+and Remove make the environment match the lockfile exactly, for every group and extra: they
+also uninstall packages it does not list, such as ones installed with `uv pip install`.
 
 **Progress.** While an operation runs, the bottom line names it after a spinner, with how
 many wait behind it, and the uv log shows what uv prints as it goes. uv locks the project,
@@ -165,9 +167,10 @@ there. Quitting cancels the same way.
 | `d` | Remove the selected package at once, as **Remove** in its actions does. |
 | `b` | Bump the selected package, as **Bump** in its actions does. |
 | `l` / `L` | Lock the project with `uv lock`, or with `uv lock --upgrade`, which moves every package in `uv.lock` to the newest version the constraints allow. If uv cannot resolve, the uv log says why. |
-| `g` | Manage the dependency groups: **New group…** first, then each group with its package count. Enter on a group shows its packages, with **Rename…** and **Delete group**. In the list, `n` adds a group, and `r` and `d` rename and delete the highlighted one; in a group's details they act on that group. An empty group goes at once; one with packages asks first, then removes them from that group only. Renaming moves each package, with its extras, marker and constraint, to the new name. A group that `tool.uv.default-groups` or another group's `include-group` names is kept. uv has no command for an empty group, so **New group…** writes `name = []` itself, then runs `uv lock`. |
+| `g` | Manage the dependency groups: **New group…** first, then each group with its package count. Enter on a group shows its packages, with **Rename…** and **Delete group**. In the list, `n` adds a group, and `r` and `d` rename and delete the highlighted one; in a group's details they act on that group. An empty group goes at once; one with packages asks first, then removes them from that group only. Renaming changes the group's name in pyproject.toml in place, since uv has no command for it, then runs `uv lock`; if uv cannot lock, the file is put back. A group that `tool.uv.default-groups` or another group's `include-group` names is kept. uv has no command for an empty group, so **New group…** writes `name = []` itself, then runs `uv lock`. |
 | `/` | Look a package up by its exact name: a card with its latest stable version, the index it comes from and, for a package from PyPI, its summary, required Python and home page. **Add …** goes on to add it, as `p` does. PyPI has no search by keyword, so the name must be exact; case and `-`/`_` do not matter. |
-| `s` | Sync the environment with `uv sync`. |
+| `s` | Sync the environment with `uv sync --all-groups --all-extras`: everything `pyproject.toml` declares, and nothing else. |
+| `Shift+↑` / `Shift+↓`, `PgUp` / `PgDn` | Scroll the uv log back, to what uv wrote earlier, and forward again. |
 | `B` | Build the project's sdist and wheel with `uv build`; at a workspace root without a `[project]` of its own, every member's, with `--all-packages`. The uv log shows the build as it runs, and why it failed, if it does. Once it succeeds, a list shows each file it wrote to `dist/` with its size, under **Publish…**; `Esc` closes it. Older files in `dist/` are left as they are. |
 | `U` | Publish the last build with `uv publish`, as **Publish…** does after `B`: choose PyPI, TestPyPI or a project index with a `publish-url`, then confirm. The confirmation names the index, its upload URL, each file and where uv will take credentials from. uview passes no credentials and asks for none: set `UV_PUBLISH_TOKEN` (or `UV_PUBLISH_USERNAME` and `UV_PUBLISH_PASSWORD`, or `UV_KEYRING_PROVIDER=subprocess` for a keyring) before starting it. Their values are kept out of the uv log. Only the files the last build wrote are uploaded, never the rest of `dist/`. To rehearse, publish to TestPyPI. |
 | `C` | Write the settings file, `~/.config/uview/config.toml`, with every line commented out, to change the colours in (see [Colours](#colours)). A file that is there is left alone. |
@@ -176,7 +179,7 @@ there. Quitting cancels the same way.
 | `v` | Change the project's version. The list shows what each bump makes, e.g. `minor → 0.5.0`, as `uv version --bump … --dry-run` says; Enter writes it with `uv version --bump`. **Set version…** takes a version typed in. |
 | `i` | Show the project's package indexes (`[[tool.uv.index]]`). Pick one, or press `d` on it, to remove it, or add one: a name, a URL, and whether it is an extra index searched alongside PyPI or the default that replaces it. uview edits pyproject.toml for this, since uv has no command for it, then runs `uv lock`. |
 | `?` | Show every key, by where it works; `↑` / `↓` scroll it when it does not fit. `Esc`, `?` or `q` closes the list. |
-| `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. |
+| `Ctrl+C` | Cancel the running operation and those waiting behind it, in an input too. It does not quit: with nothing running, it says that `q` does. |
 | `q` | Quit, cancelling whatever is running first. |
 
 While you type into an input, every key except `Enter`, `Esc` and `Ctrl+C` goes into the

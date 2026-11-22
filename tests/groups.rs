@@ -182,3 +182,61 @@ async fn creating_a_group_relocks_and_a_failed_lock_puts_the_file_back()
     std::fs::remove_dir_all(path.parent().ok_or("no parent")?)?;
     Ok(())
 }
+
+const TO_RENAME: &str = r#"[project]
+name = "demo"
+dependencies = ["httpx>=0.27"]
+
+[dependency-groups]
+test = ["pytest>=8"]
+# Everything for the docs.
+docs = [
+    "httpx[http2]>=0.28; python_version > '3.9'",  # with HTTP/2
+    "six; python_version < '3.11'",
+    "six>=1.17; python_version >= '3.11'",
+]
+lint = []
+"#;
+
+#[test]
+fn a_group_is_renamed_in_place_with_everything_it_declares() -> Result<(), String> {
+    use uview::controllers::groups::with_group_renamed;
+    let after = with_group_renamed(TO_RENAME, "docs", "manual")?;
+    // The same file with one word changed: extras, markers, comments, both entries of six, and
+    // the group's place among the others.
+    assert_eq!(after, TO_RENAME.replace("docs = [", "manual = ["));
+    // What uv would refuse, a taken name, a group that is not there, one named elsewhere.
+    assert!(with_group_renamed(TO_RENAME, "docs", "-x").is_err());
+    assert!(with_group_renamed(TO_RENAME, "docs", "Test").is_err());
+    assert!(with_group_renamed(TO_RENAME, "nope", "manual").is_err());
+    assert!(with_group_renamed(WITH_REFERENCES, "test", "checks").is_err());
+    assert!(with_group_renamed(WITH_REFERENCES, "docs", "manual").is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_rename_that_cannot_lock_leaves_the_file_as_it_was() -> Result<(), Box<dyn Error>> {
+    use uview::controllers::groups::rename_group;
+    let path = scratch("rename")?;
+    std::fs::write(&path, TO_RENAME)?;
+    let failing = Lock {
+        fails: true,
+        calls: Mutex::default(),
+    };
+    assert!(
+        rename_group(&failing, &path, "docs", "manual")
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, TO_RENAME);
+    let uv = Lock {
+        fails: false,
+        calls: Mutex::default(),
+    };
+    rename_group(&uv, &path, "docs", "manual").await?;
+    assert!(std::fs::read_to_string(&path)?.contains("manual = ["));
+    // One uv call: nothing is added or removed package by package.
+    assert_eq!(*uv.calls.lock().map_err(|e| e.to_string())?, ["lock"]);
+    std::fs::remove_dir_all(path.parent().ok_or("no parent")?)?;
+    Ok(())
+}

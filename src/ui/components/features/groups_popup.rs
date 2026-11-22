@@ -185,7 +185,7 @@ impl GroupsPopup {
                         input.reopen(problem, name.trim());
                         (Some(Step::Rename { group, input }), Vec::new())
                     }
-                    None => (None, renaming(&group, name.trim(), deps)),
+                    None => (None, renaming(&group, name.trim())),
                 },
                 None => (
                     input.is_editing().then_some(Step::Rename { group, input }),
@@ -289,32 +289,13 @@ fn deletion(group: &str, deps: &DepsState) -> Vec<Command> {
         .collect()
 }
 
-/// Adds every package of `group` to `new`, as declared, then removes it from `group`, then
-/// deletes `group`: a failure part-way leaves a package in both, never in neither. An empty
-/// group has nothing to move, so `new` is made empty.
-fn renaming(group: &str, new: &str, deps: &DepsState) -> Vec<Command> {
-    let members = members(group, deps);
-    let mut commands: Vec<Command> = if members.is_empty() {
-        vec![Command::CreateGroup {
-            name: new.to_string(),
-        }]
-    } else {
-        members
-            .iter()
-            .map(|d| Command::Add {
-                requirement: d.requirement(),
-                membership: Membership::Group(new.to_string()),
-            })
-            .collect()
-    };
-    commands.extend(members.iter().map(|d| Command::RemoveFromProject {
-        name: d.name.clone(),
-        groups: vec![Membership::Group(group.to_string())],
-    }));
-    commands.push(Command::DeleteGroup {
-        name: group.to_string(),
-    });
-    commands
+/// Renames `group` to `new` in one job, which edits pyproject.toml in place: moving the
+/// packages one at a time could fail part-way and lose them.
+fn renaming(group: &str, new: &str) -> Vec<Command> {
+    vec![Command::RenameGroup {
+        from: group.to_string(),
+        to: new.to_string(),
+    }]
 }
 
 /// "New group…", then each group with its package count, and what names it when something does.

@@ -25,6 +25,9 @@ use crate::ui::pages::dependencies::DependenciesPage;
 use crate::ui::theme::theme;
 use crate::uv::RealUvClient;
 
+/// How many rows of the uv log a key scrolls.
+const LOG_STEP: usize = 3;
+
 pub struct App {
     page: DependenciesPage,
     should_quit: bool,
@@ -36,6 +39,8 @@ pub struct App {
     state: AppState,
     /// Where the settings file is, or would be; `None` with nowhere to put one.
     config: Option<PathBuf>,
+    /// How many rows the uv log is scrolled back from its newest.
+    log_back: usize,
     /// Runs the commands the page returns.
     runner: JobRunner<RealUvClient, RealIndexClient>,
     /// Where the runner reports what commands produced.
@@ -60,6 +65,7 @@ impl App {
                 ..AppState::default()
             },
             config,
+            log_back: 0,
             runner: JobRunner::new(
                 Arc::new(RealUvClient::new(&paths.root)),
                 Arc::new(RealIndexClient::new()),
@@ -143,7 +149,7 @@ impl App {
                 _ => None,
             };
             let log = render_project_tile(frame, right, &self.state.project, packages);
-            render_uv_log(frame, log, &self.state.jobs);
+            render_uv_log(frame, log, &self.state.jobs, &mut self.log_back);
             let activity = self
                 .state
                 .jobs
@@ -182,7 +188,14 @@ impl App {
                 self.runner.cancel();
                 self.should_quit = true;
             }
+            // With nothing to cancel, whoever pressed it most likely wants out.
+            Action::Cancel if self.state.jobs.is_idle() => {
+                let hint = "Nothing is running to cancel; q quits".to_string();
+                self.state.message = Some(Message::Info(hint));
+            }
             Action::Cancel => self.runner.cancel(),
+            Action::LogBack => self.log_back += LOG_STEP,
+            Action::LogForward => self.log_back = self.log_back.saturating_sub(LOG_STEP),
             Action::WriteConfig => match &self.config {
                 Some(path) => self.runner.execute(Command::WriteConfig {
                     path: path.clone(),
@@ -251,10 +264,14 @@ impl App {
             }
             Event::Notice(msg) => self.state.message = Some(Message::Info(msg)),
             Event::Error(msg) => self.state.message = Some(Message::Error(msg)),
-            Event::JobQueued { .. }
-            | Event::JobStarted(_)
-            | Event::JobOutput(..)
-            | Event::JobFinished(_) => self.state.jobs.apply(&event),
+            // A new job's output is what to see: back to the newest.
+            Event::JobQueued { .. } => {
+                self.log_back = 0;
+                self.state.jobs.apply(&event);
+            }
+            Event::JobStarted(_) | Event::JobOutput(..) | Event::JobFinished(_) => {
+                self.state.jobs.apply(&event)
+            }
         }
     }
 }

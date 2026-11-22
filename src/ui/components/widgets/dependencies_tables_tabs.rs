@@ -640,7 +640,9 @@ impl DependenciesTablesTabs {
             | Action::Quit
             | Action::Cancel
             | Action::Help
-            | Action::WriteConfig => {}
+            | Action::WriteConfig
+            | Action::LogBack
+            | Action::LogForward => {}
         }
         Vec::new()
     }

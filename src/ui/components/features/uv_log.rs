@@ -11,37 +11,40 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::state::{JobsState, LogLine};
 use crate::ui::theme::theme;
 
-/// The uv log: each job's label, then what its `uv` wrote, the newest line at the bottom. A line
-/// wider than the log wraps. Until `uv` has written anything, a hint says what will appear.
-pub fn render_uv_log(frame: &mut Frame, area: Rect, jobs: &JobsState) {
-    let block = Block::bordered()
-        .title("uv")
-        .border_style(Style::new().fg(theme().muted));
+/// The uv log: each job's label, then what its `uv` wrote, the newest line at the bottom unless
+/// scrolled `back` by that many rows, which is brought within what there is. A line wider than
+/// the log wraps, and the title says when there is more than fits. Until `uv` has written
+/// anything, a hint says what will appear.
+pub fn render_uv_log(frame: &mut Frame, area: Rect, jobs: &JobsState, back: &mut usize) {
+    let block = Block::bordered().border_style(Style::new().fg(theme().muted));
     let inner = block.inner(area);
     let (shown, width) = (usize::from(inner.height), usize::from(inner.width));
     let log = jobs.log();
-    let lines: Vec<Line> = if log.is_empty() {
+    let mut rows: Vec<Line> = Vec::new();
+    for line in log {
+        let (text, style) = match line {
+            LogLine::Job(label) => (label.as_str(), Style::new().fg(theme().accent)),
+            LogLine::Output(text) => (text.as_str(), Style::new()),
+        };
+        rows.extend(
+            wrap(text, width)
+                .into_iter()
+                .map(|row| Line::styled(row, style)),
+        );
+    }
+    let hidden = rows.len().saturating_sub(shown);
+    *back = (*back).min(hidden);
+    let title = if hidden > 0 {
+        "uv (shift+↑↓ to scroll)"
+    } else {
+        "uv"
+    };
+    let lines: Vec<Line> = if rows.is_empty() {
         vec![Line::raw("uv output will appear here").fg(theme().muted)]
     } else {
-        // From the newest line back, until the log is full.
-        let mut rows: Vec<Line> = Vec::new();
-        for line in log.iter().rev() {
-            if rows.len() >= shown {
-                break;
-            }
-            let (text, style) = match line {
-                LogLine::Job(label) => (label.as_str(), Style::new().fg(theme().accent)),
-                LogLine::Output(text) => (text.as_str(), Style::new()),
-            };
-            for row in wrap(text, width).into_iter().rev() {
-                rows.push(Line::styled(row, style));
-            }
-        }
-        rows.truncate(shown);
-        rows.reverse();
-        rows
+        rows.into_iter().skip(hidden - *back).take(shown).collect()
     };
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    frame.render_widget(Paragraph::new(lines).block(block.title(title)), area);
 }
 
 /// `text` in rows at most `width` wide: broken at spaces where it can, inside a word where it

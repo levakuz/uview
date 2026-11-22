@@ -19,7 +19,7 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
-tui-input = "*"
+tui-input = "0.15"
 tokio-util = "0.7.19"
 # Matches workspace `members` and `exclude` as uv does: uv uses this crate, with its defaults.
 glob = "0.3"

@@ -12,7 +12,8 @@ manager, written in Rust (edition 2024) on ratatui. It owns no packaging logic o
 own — every operation is delegated to the `uv` binary as a subprocess. The exceptions,
 changes uv has no command for, are deleting an emptied dependency group (ADR-0009),
 managing the project's package indexes (ADR-0010), creating an empty dependency
-group (ADR-0013) and deleting the project's environment (ADR-0015). What uv cannot list,
+group (ADR-0013), renaming a group (ADR-0018) and deleting the project's environment
+(ADR-0015). What uv cannot list,
 a package's versions, uview reads from the index over HTTP, read only (ADR-0012).
 
 Architecture decisions live in `docs/adr/`. Tasks and their status live in

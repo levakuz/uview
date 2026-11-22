@@ -109,7 +109,7 @@ fn the_project_tile_says_what_uv_said_when_it_could_not_read_the_version()
 #[test]
 fn an_empty_uv_log_says_what_will_appear() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(TestBackend::new(30, 4))?;
-    terminal.draw(|frame| render_uv_log(frame, frame.area(), &JobsState::default()))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &JobsState::default(), &mut 0))?;
     assert_eq!(rows(&terminal)[1], "│uv output will appear here  │");
     assert_eq!(terminal.backend().buffer()[(1, 1)].fg, Color::DarkGray);
     Ok(())
@@ -127,7 +127,7 @@ fn the_uv_log_keeps_its_newest_lines_in_view() -> Result<(), Box<dyn Error>> {
     }
 
     let mut terminal = Terminal::new(TestBackend::new(24, 6))?;
-    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut 0))?;
     assert_eq!(
         rows(&terminal),
         [
@@ -143,7 +143,7 @@ fn the_uv_log_keeps_its_newest_lines_in_view() -> Result<(), Box<dyn Error>> {
 
     // Two rows: the oldest lines go first.
     let mut terminal = Terminal::new(TestBackend::new(24, 4))?;
-    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut 0))?;
     assert_eq!(
         rows(&terminal)[1..3],
         ["│Downloading numpy     │", "│+ numpy==2.5.3        │"]
@@ -167,7 +167,7 @@ fn a_long_uv_line_wraps_under_its_own_indent() -> Result<(), Box<dyn Error>> {
     }
     // The log's width at 80 columns.
     let mut terminal = Terminal::new(TestBackend::new(32, 15))?;
-    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut 0))?;
     assert_eq!(
         rows(&terminal),
         [
@@ -190,7 +190,7 @@ fn a_long_uv_line_wraps_under_its_own_indent() -> Result<(), Box<dyn Error>> {
     );
     // Short of rows, the newest are kept, wrapped as they are.
     let mut terminal = Terminal::new(TestBackend::new(32, 4))?;
-    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs))?;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut 0))?;
     assert_eq!(
         rows(&terminal)[1..3],
         [
@@ -280,5 +280,33 @@ fn the_project_tile_says_where_the_environment_is_and_how_big() -> Result<(), Bo
     );
     assert_eq!(line(Loadable::Loaded(None), None)?, "no environment");
     assert_eq!(line(Loadable::NotLoaded, None)?, "…");
+    Ok(())
+}
+
+#[test]
+fn the_uv_log_scrolls_back_as_far_as_it_goes() -> Result<(), Box<dyn Error>> {
+    let mut jobs = JobsState::default();
+    jobs.apply(&Event::JobQueued {
+        id: JobId(1),
+        label: "Locking".into(),
+    });
+    for n in 1..=6 {
+        jobs.apply(&Event::JobOutput(JobId(1), format!("line {n}")));
+    }
+    // Seven rows of log in a box of three.
+    let mut terminal = Terminal::new(TestBackend::new(30, 5))?;
+    let mut back = 0;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut back))?;
+    let drawn = rows(&terminal);
+    assert!(drawn[0].starts_with("┌uv (shift+↑↓ to scroll)"));
+    assert!(drawn[3].contains("line 6"));
+    back = 2;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut back))?;
+    assert!(rows(&terminal)[3].contains("line 4"));
+    // No further than the first row.
+    back = 99;
+    terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut back))?;
+    assert_eq!(back, 4);
+    assert!(rows(&terminal)[1].contains("Locking"));
     Ok(())
 }
