@@ -35,7 +35,7 @@ pub fn render_uv_log(frame: &mut Frame, area: Rect, jobs: &JobsState, back: &mut
     let hidden = rows.len().saturating_sub(shown);
     *back = (*back).min(hidden);
     let title = if hidden > 0 {
-        "uv (pgup pgdn to scroll)"
+        "uv (shift+↑↓ to scroll)"
     } else {
         "uv"
     };

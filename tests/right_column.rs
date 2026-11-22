@@ -298,7 +298,7 @@ fn the_uv_log_scrolls_back_as_far_as_it_goes() -> Result<(), Box<dyn Error>> {
     let mut back = 0;
     terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut back))?;
     let drawn = rows(&terminal);
-    assert!(drawn[0].starts_with("┌uv (pgup pgdn to scroll)"));
+    assert!(drawn[0].starts_with("┌uv (shift+↑↓ to scroll)"));
     assert!(drawn[3].contains("line 6"));
     back = 2;
     terminal.draw(|frame| render_uv_log(frame, frame.area(), &jobs, &mut back))?;

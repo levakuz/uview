@@ -26,6 +26,8 @@ fn key(name: &str) -> KeyEvent {
         "enter" => KeyCode::Enter,
         "esc" => KeyCode::Esc,
         "tab" => KeyCode::Tab,
+        "shift+↑" => return KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT),
+        "shift+↓" => return KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT),
         "pgup" => KeyCode::PageUp,
         "pgdn" => KeyCode::PageDown,
         "space" => KeyCode::Char(' '),
@@ -124,12 +126,13 @@ fn the_help_lists_every_binding_by_where_it_works() -> Result<(), Box<dyn Error>
     }
     // The keys in a column, then what they do.
     assert!(
-        rows.iter()
-            .any(|row| row.contains("│  enter space  Open the actions for the selected package"))
+        rows.iter().any(
+            |row| row.contains("│  enter space      Open the actions for the selected package")
+        )
     );
     assert!(
         rows.iter()
-            .any(|row| row.contains("│  ctrl+c       Cancel"))
+            .any(|row| row.contains("│  ctrl+c           Cancel"))
     );
     Ok(())
 }
@@ -151,4 +154,14 @@ fn question_mark_opens_the_help_and_esc_question_mark_or_q_close_it() {
     // Over the help, the page's keys do nothing, and Ctrl+C still cancels.
     assert_eq!(press(Mode::Help, key("p")), None);
     assert_eq!(press(Mode::Help, key("ctrl+c")), Some(Action::Cancel));
+}
+
+#[test]
+fn shift_tells_the_logs_arrows_from_the_selections() {
+    let up = |modifiers| press(Mode::Table, KeyEvent::new(KeyCode::Up, modifiers));
+    assert_eq!(up(KeyModifiers::SHIFT), Some(Action::LogBack));
+    assert_eq!(up(KeyModifiers::NONE), Some(Action::Nav(NavAction::Up)));
+    // For a character, Shift is the terminal's business: `?` and `B` come with or without it.
+    let help = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT);
+    assert_eq!(press(Mode::Table, help), Some(Action::Help));
 }

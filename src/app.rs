@@ -26,7 +26,7 @@ use crate::ui::theme::theme;
 use crate::uv::RealUvClient;
 
 /// How many rows of the uv log a key scrolls.
-const LOG_STEP: usize = 5;
+const LOG_STEP: usize = 3;
 
 pub struct App {
     page: DependenciesPage,

@@ -22,16 +22,30 @@ pub enum Mode {
     Help,
 }
 
-/// A key as a binding names it: its code, and whether Ctrl is held. Shift is ignored, so `?`
-/// matches however the terminal reports it.
+/// A key as a binding names it: its code, and whether Ctrl or Shift is held. For a character
+/// Shift is ignored, so `?` matches however the terminal reports it.
 pub struct Key {
     code: KeyCode,
     ctrl: bool,
+    shift: bool,
 }
 
 impl Key {
     const fn new(code: KeyCode) -> Self {
-        Self { code, ctrl: false }
+        Self {
+            code,
+            ctrl: false,
+            shift: false,
+        }
+    }
+
+    /// `code` with Shift held: an arrow, which Shift tells from the arrow alone.
+    const fn shift(code: KeyCode) -> Self {
+        Self {
+            code,
+            ctrl: false,
+            shift: true,
+        }
     }
 
     const fn char(c: char) -> Self {
@@ -42,6 +56,7 @@ impl Key {
         Self {
             code: KeyCode::Char(c),
             ctrl: true,
+            shift: false,
         }
     }
 
@@ -49,7 +64,10 @@ impl Key {
     /// arrive as Alt+key, and would act on whatever the Esc was closing. In an input, Alt+key
     /// is typed, for the input's own editing.
     fn matches(&self, event: &KeyEvent) -> bool {
+        let shift = matches!(self.code, KeyCode::Char(_))
+            || event.modifiers.contains(KeyModifiers::SHIFT) == self.shift;
         event.code == self.code
+            && shift
             && event.modifiers.contains(KeyModifiers::CONTROL) == self.ctrl
             && !event.modifiers.contains(KeyModifiers::ALT)
     }
@@ -71,7 +89,9 @@ impl Key {
             KeyCode::Char(c) => c.to_string(),
             code => code.to_string(),
         };
-        if self.ctrl {
+        if self.shift {
+            format!("shift+{name}")
+        } else if self.ctrl {
             format!("ctrl+{name}")
         } else {
             name
@@ -368,11 +388,19 @@ const OUTSIDE_INPUTS: &[Binding] = &[
     },
     Binding {
         keys: &[
+            (Key::shift(KeyCode::Up), Action::LogBack),
+            (Key::shift(KeyCode::Down), Action::LogForward),
+        ],
+        hints: &[],
+        help: "Scroll the uv log back, and forward again",
+    },
+    Binding {
+        keys: &[
             (Key::new(KeyCode::PageUp), Action::LogBack),
             (Key::new(KeyCode::PageDown), Action::LogForward),
         ],
         hints: &[],
-        help: "Scroll the uv log back, and forward again",
+        help: "The same",
     },
     Binding {
         keys: &[(Key::char('q'), Action::Quit)],
